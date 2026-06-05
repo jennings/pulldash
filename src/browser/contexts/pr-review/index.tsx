@@ -199,6 +199,7 @@ interface PRReviewState {
 
   // Conversations sidebar
   conversationsSidebarOpen: boolean;
+  conversationsFilters: { showResolved: boolean; showOutdated: boolean };
   // First comment database ID (number) of the thread to scroll to in the diff view
   conversationScrollTarget: number | null;
 
@@ -255,6 +256,35 @@ type Selector<T> = (state: PRReviewState) => T;
 
 // Global storage key for diff view mode (user preference, not per-PR)
 const DIFF_VIEW_MODE_KEY = "pulldash_diff_view_mode";
+const CONVERSATIONS_FILTERS_KEY = "pulldash_conversations_filters";
+
+function getStoredConversationsFilters(): {
+  showResolved: boolean;
+  showOutdated: boolean;
+} {
+  try {
+    const stored = localStorage.getItem(CONVERSATIONS_FILTERS_KEY);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (
+        typeof parsed.showResolved === "boolean" &&
+        typeof parsed.showOutdated === "boolean"
+      ) {
+        return parsed;
+      }
+    }
+  } catch {}
+  return { showResolved: false, showOutdated: true };
+}
+
+function setStoredConversationsFilters(filters: {
+  showResolved: boolean;
+  showOutdated: boolean;
+}): void {
+  try {
+    localStorage.setItem(CONVERSATIONS_FILTERS_KEY, JSON.stringify(filters));
+  } catch {}
+}
 
 function getStoredDiffViewMode(): DiffViewMode {
   try {
@@ -299,6 +329,7 @@ export class PRReviewStore {
     let pendingComments: LocalPendingComment[] = [];
     let reviewBody = "";
     const diffViewMode = getStoredDiffViewMode();
+    const conversationsFilters = getStoredConversationsFilters();
 
     try {
       const stored = localStorage.getItem(`${this.storageKey}-viewed`);
@@ -366,6 +397,7 @@ export class PRReviewStore {
       showOverview: true,
       overviewScrollTarget: null,
       conversationsSidebarOpen: false,
+      conversationsFilters,
       conversationScrollTarget: null,
       viewedFiles,
       hideViewed: true,
@@ -466,6 +498,15 @@ export class PRReviewStore {
 
   toggleConversationsSidebar = () => {
     this.set({ conversationsSidebarOpen: !this.state.conversationsSidebarOpen });
+  };
+
+  setConversationsFilter = (
+    key: keyof PRReviewState["conversationsFilters"],
+    value: boolean
+  ) => {
+    const next = { ...this.state.conversationsFilters, [key]: value };
+    setStoredConversationsFilters(next);
+    this.set({ conversationsFilters: next });
   };
 
   setConversationScrollTarget = (firstCommentId: number | null) => {
