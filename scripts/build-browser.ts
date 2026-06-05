@@ -33,6 +33,11 @@ async function build() {
     resolve(process.cwd(), "dist", "browser", "logo.svg")
   );
 
+  await cp(
+    resolve(process.cwd(), "src", "browser", "404.html"),
+    resolve(process.cwd(), "dist", "browser", "404.html")
+  );
+
   // Build worker separately with document shim for Prism/refractor
   const workerResult = await Bun.build({
     entrypoints: ["./src/browser/lib/diff-worker.ts"],
