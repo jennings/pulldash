@@ -235,6 +235,8 @@ interface PRReviewState {
   focusedCommentId: number | null;
   editingCommentId: number | null;
   replyingToCommentId: number | null;
+  // In-progress comment drafts, keyed by "${endLine}:${startLine ?? ""}"
+  commentDrafts: Record<string, string>;
 
   // Pending comment focus/edit (separate from regular comments since IDs are strings)
   focusedPendingCommentId: string | null;
@@ -420,6 +422,7 @@ export class PRReviewStore {
       focusedCommentId: null,
       editingCommentId: null,
       replyingToCommentId: null,
+      commentDrafts: {},
       focusedPendingCommentId: null,
       editingPendingCommentId: null,
       pendingReviewId: null,
@@ -1621,6 +1624,18 @@ export class PRReviewStore {
 
   cancelCommenting = () => {
     this.set({ commentingOnLine: null });
+  };
+
+  setCommentDraft = (key: string, text: string) => {
+    this.set({
+      commentDrafts: { ...this.state.commentDrafts, [key]: text },
+    });
+  };
+
+  clearCommentDraft = (key: string) => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { [key]: _removed, ...rest } = this.state.commentDrafts;
+    this.set({ commentDrafts: rest });
   };
 
   enterGotoMode = () => {

@@ -1871,6 +1871,15 @@ const DiffLineRow = memo(function DiffLineRow({
 
   // Selection highlighting is handled via CSS data attributes (no per-row subscription needed)
 
+  // Check if this line has an in-progress comment draft
+  const hasDraft = usePRReviewSelector((s) => {
+    if (lineNum === undefined) return false;
+    const key = `${lineNum}:`;
+    return Object.keys(s.commentDrafts).some(
+      (k) => (k === key || k.startsWith(key)) && s.commentDrafts[k].trim()
+    );
+  });
+
   // Compute commenting range state from lifted parent state (Fix 1)
   const isInCommentingRange = useMemo(() => {
     if (lineNum === undefined || !commentingRange) return false;
@@ -2015,7 +2024,7 @@ const DiffLineRow = memo(function DiffLineRow({
       <div
         data-line-gutter
         className={cn(
-          "w-10 shrink-0 tabular-nums text-right opacity-50 pr-2 text-xs select-none pt-0.5 border-r border-border/30",
+          "relative w-10 shrink-0 tabular-nums text-right opacity-50 pr-2 text-xs select-none pt-0.5 border-r border-border/30",
           line.type !== "delete" && "cursor-pointer hover:bg-blue-500/20"
         )}
         onMouseDown={line.type !== "delete" ? handleMouseDown : undefined}
@@ -2024,6 +2033,12 @@ const DiffLineRow = memo(function DiffLineRow({
         onClick={line.type !== "delete" ? handleClick : undefined}
       >
         {line.type !== "delete" ? line.newLineNumber : ""}
+        {hasDraft && (
+          <span
+            className="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-amber-400"
+            title="Draft comment"
+          />
+        )}
       </div>
       {/* Code content - click to focus line (unless selecting text) */}
       <div
@@ -2368,20 +2383,48 @@ const InlineCommentForm = memo(function InlineCommentForm({
   const currentUser = useCurrentUser();
   const { startDeviceAuth } = useAuth();
   const { addPendingComment } = useCommentActions();
-  const [text, setText] = useState("");
+
+  const draftKey = `${line}:${startLine ?? ""}`;
+  const [text, setText] = useState(
+    () => store.getSnapshot().commentDrafts[draftKey] ?? ""
+  );
+  const textRef = useRef(text);
+  textRef.current = text;
+
   const [submitting, setSubmitting] = useState(false);
+
+  // Persist draft text when the form unmounts without submitting
+  useEffect(() => {
+    return () => {
+      if (textRef.current.trim()) {
+        store.setCommentDraft(draftKey, textRef.current);
+      } else {
+        store.clearCommentDraft(draftKey);
+      }
+    };
+    // intentionally only runs on unmount — draftKey and store are stable
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleSubmit = useCallback(async () => {
     if (!text.trim()) return;
 
     setSubmitting(true);
+    store.clearCommentDraft(draftKey);
+    textRef.current = "";
     try {
       await addPendingComment(line, text.trim(), startLine);
       setText("");
     } finally {
       setSubmitting(false);
     }
-  }, [text, line, startLine, addPendingComment]);
+  }, [text, line, startLine, addPendingComment, store, draftKey]);
+
+  const handleCancel = useCallback(() => {
+    store.clearCommentDraft(draftKey);
+    textRef.current = "";
+    store.cancelCommenting();
+  }, [store, draftKey]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -2391,10 +2434,10 @@ const InlineCommentForm = memo(function InlineCommentForm({
       }
       if (e.key === "Escape") {
         e.preventDefault();
-        store.cancelCommenting();
+        handleCancel();
       }
     },
-    [handleSubmit, store]
+    [handleSubmit, handleCancel]
   );
 
   const lineLabel = startLine ? `lines ${startLine}-${line}` : `line ${line}`;
@@ -2455,7 +2498,7 @@ const InlineCommentForm = memo(function InlineCommentForm({
           </span>
         </div>
         <button
-          onClick={store.cancelCommenting}
+          onClick={handleCancel}
           className="text-muted-foreground hover:text-foreground transition-colors p-1 rounded hover:bg-muted/50"
         >
           <X className="w-4 h-4" />
@@ -2480,7 +2523,7 @@ const InlineCommentForm = memo(function InlineCommentForm({
         style={{ fontFamily: "var(--font-sans)" }}
       >
         <button
-          onClick={store.cancelCommenting}
+          onClick={handleCancel}
           className="px-4 py-2 text-sm font-medium rounded-md border border-border bg-background hover:bg-muted transition-colors"
           style={{ fontFamily: "var(--font-sans)" }}
         >
