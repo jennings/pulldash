@@ -358,6 +358,7 @@ function PRReviewLayout() {
       // Check if click is inside interactive elements that should NOT clear focus
       const isInteractive =
         target.closest("[data-comment-thread]") ||
+        target.closest("[data-inline-comment-form]") ||
         target.closest("[data-line-gutter]") ||
         target.closest("[data-line-num]") || // Any click on a diff line (content or gutter)
         target.closest("button") ||
@@ -2431,6 +2432,7 @@ const InlineCommentForm = memo(function InlineCommentForm({
 
   return (
     <div
+      data-inline-comment-form
       className="mx-4 my-3 rounded-lg border border-border bg-card overflow-hidden shadow-sm"
       style={{ fontFamily: "var(--font-sans)" }}
     >
