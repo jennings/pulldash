@@ -8,14 +8,7 @@ export function useThreadActions() {
   const resolveThread = async (threadId: string) => {
     try {
       await github.resolveThread(threadId);
-      // Update local state - mark all comments in this thread as resolved
-      const state = store.getSnapshot();
-      const updatedComments = state.comments.map((c) =>
-        c.pull_request_review_thread_id === threadId
-          ? { ...c, is_resolved: true }
-          : c
-      );
-      store.setComments(updatedComments);
+      store.updateReviewThread(threadId, (t) => ({ ...t, isResolved: true }));
     } catch (error) {
       console.error("Failed to resolve thread:", error);
     }
@@ -24,14 +17,7 @@ export function useThreadActions() {
   const unresolveThread = async (threadId: string) => {
     try {
       await github.unresolveThread(threadId);
-      // Update local state - mark all comments in this thread as unresolved
-      const state = store.getSnapshot();
-      const updatedComments = state.comments.map((c) =>
-        c.pull_request_review_thread_id === threadId
-          ? { ...c, is_resolved: false }
-          : c
-      );
-      store.setComments(updatedComments);
+      store.updateReviewThread(threadId, (t) => ({ ...t, isResolved: false }));
     } catch (error) {
       console.error("Failed to unresolve thread:", error);
     }

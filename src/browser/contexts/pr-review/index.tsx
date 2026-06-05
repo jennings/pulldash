@@ -1810,19 +1810,34 @@ export class PRReviewStore {
   ): ReviewComment[] {
     if (threads.length === 0) return comments;
     const outdatedById = new Map<number, boolean>();
+    const resolvedById = new Map<number, boolean>();
+    const threadIdById = new Map<number, string>();
     for (const thread of threads) {
       for (const node of thread.comments.nodes) {
         outdatedById.set(node.databaseId, thread.isOutdated);
+        resolvedById.set(node.databaseId, thread.isResolved);
+        threadIdById.set(node.databaseId, thread.id);
       }
     }
     let changed = false;
     const enriched = comments.map((c) => {
       const outdated = outdatedById.get(c.id);
+      const isResolved = resolvedById.get(c.id);
+      const threadId = threadIdById.get(c.id);
+      let updated: ReviewComment = c;
       if (outdated !== undefined && c.outdated !== outdated) {
         changed = true;
-        return { ...c, outdated };
+        updated = { ...updated, outdated };
       }
-      return c;
+      if (isResolved !== undefined && c.is_resolved !== isResolved) {
+        changed = true;
+        updated = { ...updated, is_resolved: isResolved };
+      }
+      if (threadId !== undefined && c.pull_request_review_thread_id !== threadId) {
+        changed = true;
+        updated = { ...updated, pull_request_review_thread_id: threadId };
+      }
+      return updated;
     });
     return changed ? enriched : comments;
   }
@@ -2674,11 +2689,14 @@ export class PRReviewStore {
     threadId: string,
     updater: (thread: ReviewThread) => ReviewThread
   ) => {
-    this.set({
-      reviewThreads: this.state.reviewThreads.map((t) =>
-        t.id === threadId ? updater(t) : t
-      ),
-    });
+    const updatedThreads = this.state.reviewThreads.map((t) =>
+      t.id === threadId ? updater(t) : t
+    );
+    const enrichedComments = this.enrichCommentsFromThreads(
+      this.state.comments,
+      updatedThreads
+    );
+    this.set({ reviewThreads: updatedThreads, comments: enrichedComments });
   };
 }
 

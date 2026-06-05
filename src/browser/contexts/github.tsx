@@ -21,6 +21,9 @@ export type PullRequestFile = components["schemas"]["diff-entry"];
 export type ReviewComment =
   components["schemas"]["pull-request-review-comment"] & {
     body_html?: string;
+    outdated?: boolean;
+    is_resolved?: boolean;
+    pull_request_review_thread_id?: string;
   };
 // Extended Review with body_html from GitHub's HTML media type
 export type Review = components["schemas"]["pull-request-review"] & {
