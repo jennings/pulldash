@@ -19,8 +19,7 @@ import {
 // ============================================================================
 
 function isOutdated(thread: ReviewThread): boolean {
-  const first = thread.comments.nodes[0];
-  return first ? first.line === null && first.originalLine === null : false;
+  return thread.isOutdated;
 }
 
 function applyFilters(
@@ -115,6 +114,8 @@ export const ConversationsSidebar = memo(function ConversationsSidebar() {
                   : firstComment.body;
               const createdAt = new Date(firstComment.createdAt);
 
+              const threadIsOutdated = isOutdated(thread);
+
               return (
                 <li
                   key={thread.id}
@@ -134,9 +135,21 @@ export const ConversationsSidebar = memo(function ConversationsSidebar() {
                     <span className="text-xs font-medium truncate">
                       {author?.login ?? "Unknown"}
                     </span>
-                    <span className="text-xs text-muted-foreground ml-auto shrink-0">
-                      {getTimeAgo(createdAt)}
-                    </span>
+                    <div className="ml-auto flex items-center gap-1 shrink-0">
+                      {thread.isResolved && (
+                        <span className="px-1.5 py-0.5 text-[10px] rounded-full font-medium bg-green-500/20 text-green-400">
+                          Resolved
+                        </span>
+                      )}
+                      {threadIsOutdated && (
+                        <span className="px-1.5 py-0.5 text-[10px] rounded-full font-medium bg-amber-500/20 text-amber-400">
+                          Outdated
+                        </span>
+                      )}
+                      <span className="text-xs text-muted-foreground">
+                        {getTimeAgo(createdAt)}
+                      </span>
+                    </div>
                   </div>
 
                   {/* File path */}

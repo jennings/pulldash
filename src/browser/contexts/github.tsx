@@ -133,6 +133,7 @@ export interface PREnrichment {
 export interface ReviewThread {
   id: string;
   isResolved: boolean;
+  isOutdated: boolean;
   resolvedBy: { login: string; avatarUrl: string } | null;
   // The review this thread belongs to (from first comment)
   pullRequestReview: {
@@ -2444,6 +2445,7 @@ function createGitHubStore() {
     interface RawReviewThread {
       id: string;
       isResolved: boolean;
+      isOutdated: boolean;
       resolvedBy: { login: string; avatarUrl: string } | null;
       comments: {
         nodes: Array<{
@@ -2487,6 +2489,7 @@ function createGitHubStore() {
               nodes {
                 id
                 isResolved
+                isOutdated
                 resolvedBy { login avatarUrl }
                 comments(first: 100) {
                   nodes {
