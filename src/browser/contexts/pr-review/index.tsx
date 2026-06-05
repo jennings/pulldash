@@ -197,6 +197,11 @@ interface PRReviewState {
   // Overview scroll target (GitHub-style hash: pullrequestreview-{id}, issuecomment-{id}, etc.)
   overviewScrollTarget: string | null;
 
+  // Conversations sidebar
+  conversationsSidebarOpen: boolean;
+  // First comment database ID (number) of the thread to scroll to in the diff view
+  conversationScrollTarget: number | null;
+
   // Viewed files
   viewedFiles: Set<string>;
   hideViewed: boolean;
@@ -360,6 +365,8 @@ export class PRReviewStore {
       selectedFiles: new Set(),
       showOverview: true,
       overviewScrollTarget: null,
+      conversationsSidebarOpen: false,
+      conversationScrollTarget: null,
       viewedFiles,
       hideViewed: true,
       diffViewMode,
@@ -454,6 +461,20 @@ export class PRReviewStore {
   clearOverviewScrollTarget = () => {
     if (this.state.overviewScrollTarget) {
       this.set({ overviewScrollTarget: null });
+    }
+  };
+
+  toggleConversationsSidebar = () => {
+    this.set({ conversationsSidebarOpen: !this.state.conversationsSidebarOpen });
+  };
+
+  setConversationScrollTarget = (firstCommentId: number | null) => {
+    this.set({ conversationScrollTarget: firstCommentId });
+  };
+
+  clearConversationScrollTarget = () => {
+    if (this.state.conversationScrollTarget) {
+      this.set({ conversationScrollTarget: null });
     }
   };
 

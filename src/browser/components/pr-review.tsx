@@ -100,6 +100,10 @@ import { RadioGroup, RadioGroupItem } from "../ui/radio-group";
 import { Keycap, KeycapGroup } from "../ui/keycap";
 import { Markdown, MarkdownEditor } from "../ui/markdown";
 import { CommandPalette, useCommandPalette } from "./command-palette";
+import {
+  ConversationsSidebar,
+  useConversationsSidebarCount,
+} from "./conversations-sidebar";
 import { useTabContext, type TabStatus } from "../contexts/tabs";
 
 // ============================================================================
@@ -604,10 +608,14 @@ const DiffPanel = memo(function DiffPanel() {
   const selectedFiles = usePRReviewSelector((s) => s.selectedFiles);
   const showOverview = usePRReviewSelector((s) => s.showOverview);
   const diffViewMode = usePRReviewSelector((s) => s.diffViewMode);
+  const conversationsSidebarOpen = usePRReviewSelector(
+    (s) => s.conversationsSidebarOpen
+  );
 
   const currentFile = useCurrentFile();
   const parsedDiff = useCurrentDiff();
   const isLoading = useIsCurrentFileLoading();
+  const conversationsCount = useConversationsSidebarCount();
 
   const currentIndex = selectedFile
     ? files.findIndex((f) => f.filename === selectedFile)
@@ -642,24 +650,34 @@ const DiffPanel = memo(function DiffPanel() {
                 onNextFile={() => store.navigateToNextUnviewedFile()}
                 diffViewMode={diffViewMode}
                 onToggleDiffViewMode={() => store.toggleDiffViewMode()}
+                conversationsSidebarOpen={conversationsSidebarOpen}
+                onToggleConversationsSidebar={() =>
+                  store.toggleConversationsSidebar()
+                }
+                conversationsCount={conversationsCount}
               />
             </div>
           </div>
 
-          {/* Scrollable diff content - DiffViewer handles its own virtualized scroll */}
-          <div className="flex-1 min-h-0 flex flex-col">
-            {parsedDiff && parsedDiff.hunks.length > 0 ? (
-              <DiffViewer diff={parsedDiff} viewMode={diffViewMode} />
-            ) : isLoading || (currentFile.patch && !parsedDiff) ? (
-              // Show skeleton if loading OR if file has patch but diff isn't ready yet
-              <DiffSkeleton />
-            ) : (
-              <div className="p-4 text-sm text-muted-foreground text-center flex-1 flex items-center justify-center">
-                {!currentFile.patch
-                  ? "Binary file or file too large to display"
-                  : "No changes to display"}
-              </div>
-            )}
+          {/* Diff content + optional conversations sidebar */}
+          <div className="flex-1 min-h-0 flex flex-row">
+            {/* Scrollable diff content - DiffViewer handles its own virtualized scroll */}
+            <div className="flex-1 min-h-0 flex flex-col">
+              {parsedDiff && parsedDiff.hunks.length > 0 ? (
+                <DiffViewer diff={parsedDiff} viewMode={diffViewMode} />
+              ) : isLoading || (currentFile.patch && !parsedDiff) ? (
+                // Show skeleton if loading OR if file has patch but diff isn't ready yet
+                <DiffSkeleton />
+              ) : (
+                <div className="p-4 text-sm text-muted-foreground text-center flex-1 flex items-center justify-center">
+                  {!currentFile.patch
+                    ? "Binary file or file too large to display"
+                    : "No changes to display"}
+                </div>
+              )}
+            </div>
+
+            {conversationsSidebarOpen && <ConversationsSidebar />}
           </div>
 
           <KeybindsBar />
@@ -980,6 +998,9 @@ const DiffViewer = memo(function DiffViewer({
     (s) => s.editingPendingCommentId
   );
   const replyingToCommentId = usePRReviewSelector((s) => s.replyingToCommentId);
+  const conversationScrollTarget = usePRReviewSelector(
+    (s) => s.conversationScrollTarget
+  );
 
   // Helper to get expanded lines for a skip block
   const getExpandedLines = useCallback(
@@ -1667,6 +1688,39 @@ const DiffViewer = memo(function DiffViewer({
     getRowIndexForLine,
     virtualizer,
   ]);
+
+  // Scroll to a conversation thread when conversationScrollTarget changes
+  useEffect(() => {
+    if (!conversationScrollTarget) return;
+
+    // Find the comment-thread row whose first comment database ID matches
+    const rowIndex = virtualRows.findIndex(
+      (row) =>
+        row.type === "comment-thread" &&
+        row.comments[0]?.id === conversationScrollTarget
+    );
+
+    // If not found yet (diff may not be loaded), wait — effect re-runs when virtualRows updates
+    if (rowIndex === -1) return;
+
+    virtualizer.scrollToIndex(rowIndex, { align: "start" });
+
+    // After scroll, apply highlight ring to the now-mounted DOM element
+    const timer = setTimeout(() => {
+      const element = document.getElementById(
+        `reviewthread-comment-${conversationScrollTarget}`
+      );
+      if (element) {
+        element.classList.add("ring-2", "ring-blue-500/50");
+        setTimeout(() => {
+          element.classList.remove("ring-2", "ring-blue-500/50");
+        }, 2000);
+      }
+      store.clearConversationScrollTarget();
+    }, 150);
+
+    return () => clearTimeout(timer);
+  }, [conversationScrollTarget, virtualRows, virtualizer, store]);
 
   return (
     <LineDragContext.Provider value={dragValue}>
@@ -2549,6 +2603,7 @@ const CommentThread = memo(function CommentThread({
   return (
     <div
       data-comment-thread
+      id={firstComment ? `reviewthread-comment-${firstComment.id}` : undefined}
       className={cn(
         "mx-4 my-2 rounded-r-lg border-l-2",
         isResolved

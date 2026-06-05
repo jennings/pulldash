@@ -5,6 +5,7 @@ import {
   ChevronRight,
   Columns2,
   AlignJustify,
+  MessageSquare,
 } from "lucide-react";
 import { cn } from "../cn";
 import { Keycap } from "../ui/keycap";
@@ -22,6 +23,9 @@ interface FileHeaderProps {
   onNextFile?: () => void;
   diffViewMode?: DiffViewMode;
   onToggleDiffViewMode?: () => void;
+  conversationsSidebarOpen?: boolean;
+  onToggleConversationsSidebar?: () => void;
+  conversationsCount?: number;
 }
 
 export const FileHeader = memo(function FileHeader({
@@ -34,6 +38,9 @@ export const FileHeader = memo(function FileHeader({
   onNextFile,
   diffViewMode,
   onToggleDiffViewMode,
+  conversationsSidebarOpen,
+  onToggleConversationsSidebar,
+  conversationsCount,
 }: FileHeaderProps) {
   const fileStatusBadge = (() => {
     switch (file.status) {
@@ -105,6 +112,25 @@ export const FileHeader = memo(function FileHeader({
       </div>
 
       <div className="flex items-center gap-2">
+        {/* Conversations sidebar toggle */}
+        {onToggleConversationsSidebar && (
+          <button
+            onClick={onToggleConversationsSidebar}
+            className={cn(
+              "flex items-center gap-1.5 px-2 py-1 text-xs rounded transition-colors",
+              conversationsSidebarOpen
+                ? "bg-blue-500/20 text-blue-400"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted"
+            )}
+            title="Toggle conversations sidebar"
+          >
+            <MessageSquare className="w-3.5 h-3.5" />
+            {conversationsCount !== undefined && conversationsCount > 0 && (
+              <span className="tabular-nums">{conversationsCount}</span>
+            )}
+          </button>
+        )}
+
         {/* Split/Unified toggle */}
         {onToggleDiffViewMode && (
           <div className="flex items-center rounded-md border border-border bg-muted/30 p-0.5">
