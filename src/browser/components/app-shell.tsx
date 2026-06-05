@@ -122,9 +122,9 @@ export function AppShell() {
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-background">
       {/* Native-style Tab Bar */}
-      <div className="h-9 bg-[#1a1a1a] flex items-center shrink-0 border-b border-border/50 app-drag-region">
+      <div className="h-9 bg-[#1a1a1a] flex items-center shrink-0 border-b border-border/50">
         {/* Logo with tooltip */}
-        <div className="h-full flex items-center gap-1.5 px-3 shrink-0 app-no-drag">
+        <div className="h-full flex items-center gap-1.5 px-3 shrink-0">
           <HoverCard openDelay={200} closeDelay={100}>
             <HoverCardTrigger asChild>
               <button className="flex items-center focus:outline-none">
@@ -165,7 +165,7 @@ export function AppShell() {
         </div>
 
         {/* Tabs */}
-        <div className="h-full flex-1 flex items-center gap-0.5 overflow-x-auto hide-scrollbar app-no-drag">
+        <div className="h-full flex-1 flex items-center gap-0.5 overflow-x-auto hide-scrollbar">
           {tabs.map((tab) => (
             <TabItem
               key={tab.id}
@@ -178,7 +178,7 @@ export function AppShell() {
         </div>
 
         {/* PR URL input & User menu */}
-        <div className="h-full flex items-center gap-2 pr-2 sm:pr-3 app-no-drag">
+        <div className="h-full flex items-center gap-2 pr-2 sm:pr-3">
           <div className="hidden sm:block">
             <PRUrlInput />
           </div>

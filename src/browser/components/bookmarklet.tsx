@@ -1,5 +1,4 @@
 import { useState, useEffect, useMemo } from "react";
-import { isElectron } from "../contexts/telemetry";
 import {
   Dialog,
   DialogContent,
@@ -209,14 +208,13 @@ export function BookmarkletDialog({
   );
 }
 
-// Hook to check if bookmarklet should be shown (not in Electron, not dismissed)
 export function useShowBookmarklet() {
   const [show, setShow] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     const dismissed = localStorage.getItem(DISMISSED_KEY) === "true";
-    setShow(!isElectron() && !dismissed);
+    setShow(!dismissed);
   }, []);
 
   return show;

@@ -20,41 +20,6 @@ const POSTHOG_HOST = "https://us.i.posthog.com";
 const APP_VERSION = version;
 
 // ============================================================================
-// Platform Detection
-// ============================================================================
-
-export function isElectron(): boolean {
-  // Check for Electron-specific globals
-  if (typeof window !== "undefined") {
-    // Check userAgent for Electron
-    if (navigator.userAgent.toLowerCase().includes("electron")) {
-      return true;
-    }
-    // Check for Electron's process object
-    if (
-      typeof (
-        window as unknown as { process?: { versions?: { electron?: string } } }
-      ).process?.versions?.electron === "string"
-    ) {
-      return true;
-    }
-  }
-  return false;
-}
-
-function getPlatform(): string {
-  if (isElectron()) {
-    // Try to get more specific platform info
-    const userAgent = navigator.userAgent.toLowerCase();
-    if (userAgent.includes("mac")) return "electron-mac";
-    if (userAgent.includes("win")) return "electron-windows";
-    if (userAgent.includes("linux")) return "electron-linux";
-    return "electron";
-  }
-  return "web";
-}
-
-// ============================================================================
 // Event Types
 // ============================================================================
 
@@ -142,8 +107,7 @@ export function TelemetryProvider({ children }: { children: ReactNode }) {
       loaded: (ph) => {
         ph.register({
           app_version: APP_VERSION,
-          platform: getPlatform(),
-          is_electron: isElectron(),
+          platform: "web",
         });
       },
     });

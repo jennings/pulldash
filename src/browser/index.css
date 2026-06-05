@@ -229,14 +229,6 @@
   display: none;
 }
 
-/* Electron window drag regions */
-.app-drag-region {
-  -webkit-app-region: drag;
-}
-.app-no-drag {
-  -webkit-app-region: no-drag;
-}
-
 /* CSS-based diff line selection - avoids per-row React re-renders */
 /* Unified view selection */
 .diff-line-row[data-selected="true"] {
