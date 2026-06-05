@@ -12,6 +12,8 @@ export type ReviewComment =
     pull_request_review_thread_id?: string;
     is_resolved?: boolean;
     resolved_by?: { login: string; avatar_url: string } | null;
+    /** Whether the thread is outdated (enriched from GraphQL ReviewThread.isOutdated) */
+    outdated?: boolean;
     /** Pre-rendered HTML with signed attachment URLs from GitHub's API */
     body_html?: string;
   };

@@ -1789,8 +1789,35 @@ export class PRReviewStore {
     this.set({ commentRangeLookup: lookup });
   };
 
+  private enrichCommentsFromThreads(
+    comments: ReviewComment[],
+    threads: ReviewThread[]
+  ): ReviewComment[] {
+    if (threads.length === 0) return comments;
+    const outdatedById = new Map<number, boolean>();
+    for (const thread of threads) {
+      for (const node of thread.comments.nodes) {
+        outdatedById.set(node.databaseId, thread.isOutdated);
+      }
+    }
+    let changed = false;
+    const enriched = comments.map((c) => {
+      const outdated = outdatedById.get(c.id);
+      if (outdated !== undefined && c.outdated !== outdated) {
+        changed = true;
+        return { ...c, outdated };
+      }
+      return c;
+    });
+    return changed ? enriched : comments;
+  }
+
   setComments = (comments: ReviewComment[]) => {
-    this.set({ comments });
+    const enriched = this.enrichCommentsFromThreads(
+      comments,
+      this.state.reviewThreads
+    );
+    this.set({ comments: enriched });
     this.recomputeCommentRangeLookup();
   };
 
@@ -2224,6 +2251,10 @@ export class PRReviewStore {
         commits: commitsData,
         timeline: timelineData,
         reviewThreads: reviewThreadsResult.threads,
+        comments: this.enrichCommentsFromThreads(
+          this.state.comments,
+          reviewThreadsResult.threads
+        ),
         viewerPermission:
           reviewThreadsResult.viewerPermission ?? this.state.viewerPermission,
         viewerCanMergeAsAdmin: reviewThreadsResult.viewerCanMergeAsAdmin,
@@ -2617,7 +2648,11 @@ export class PRReviewStore {
   };
 
   setReviewThreads = (threads: ReviewThread[]) => {
-    this.set({ reviewThreads: threads });
+    const enrichedComments = this.enrichCommentsFromThreads(
+      this.state.comments,
+      threads
+    );
+    this.set({ reviewThreads: threads, comments: enrichedComments });
   };
 
   updateReviewThread = (

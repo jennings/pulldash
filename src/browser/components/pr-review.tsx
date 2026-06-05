@@ -2536,7 +2536,7 @@ const CommentThread = memo(function CommentThread({
   // Get resolution info from first comment (all comments in thread share same resolution status)
   const firstComment = comments[0];
   const isResolved = firstComment?.is_resolved ?? false;
-  const isOutdated = firstComment != null && firstComment.line == null;
+  const isOutdated = firstComment?.outdated ?? false;
   const threadId = firstComment?.pull_request_review_thread_id;
 
   const handleSubmitReply = useCallback(async () => {
