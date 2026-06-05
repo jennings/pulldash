@@ -2955,7 +2955,14 @@ const CommentItem = memo(function CommentItem({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 text-sm">
             <span className="font-medium">{comment.user.login}</span>
-            <span className="text-muted-foreground text-xs">{timeAgo}</span>
+            <a
+              href={comment.html_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-muted-foreground text-xs hover:text-foreground hover:underline"
+            >
+              {timeAgo}
+            </a>
           </div>
 
           {isEditing ? (
