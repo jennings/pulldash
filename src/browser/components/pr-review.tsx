@@ -57,7 +57,6 @@ import {
   useCurrentUser,
 } from "../contexts/github";
 import { useCanWrite, useAuth } from "../contexts/auth";
-import { useTelemetry } from "../contexts/telemetry";
 import {
   PRReviewProvider,
   usePRReviewSelector,
@@ -193,7 +192,6 @@ export function PRReviewContent({
 }: PRReviewContentProps) {
   const { ready: githubReady, error: githubError } = useGitHubReady();
   const github = useGitHubStore();
-  const { track } = useTelemetry();
   const [pr, setPr] = useState<PullRequest | null>(null);
   const [files, setFiles] = useState<PullRequestFile[]>([]);
   const [comments, setComments] = useState<ReviewComment[]>([]);
@@ -230,16 +228,6 @@ export function PRReviewContent({
         setComments(commentsData as ReviewComment[]);
         setViewerPermission(reviewThreadsResult.viewerPermission);
         setViewerCanMergeAsAdmin(reviewThreadsResult.viewerCanMergeAsAdmin);
-
-        // Track PR viewed
-        track("pr_viewed", {
-          pr_number: number,
-          owner,
-          repo,
-          file_count: filesData.length,
-          additions: prData.additions,
-          deletions: prData.deletions,
-        });
       } catch (e) {
         setError(e instanceof Error ? e.message : "Unknown error");
       } finally {
@@ -248,7 +236,7 @@ export function PRReviewContent({
     };
 
     fetchData();
-  }, [github, owner, repo, number, track, githubReady]);
+  }, [github, owner, repo, number, githubReady]);
 
   // Show loading while GitHub client initializes
   if (!githubReady) {
@@ -303,7 +291,6 @@ export function PRReviewContent({
 
 function PRReviewLayout() {
   const store = usePRReviewStore();
-  const { track } = useTelemetry();
   const { open: commandPaletteOpen, setOpen: setCommandPaletteOpen } =
     useCommandPalette();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -395,21 +382,6 @@ function PRReviewLayout() {
   const pr = usePRReviewSelector((s) => s.pr);
   const owner = usePRReviewSelector((s) => s.owner);
   const repo = usePRReviewSelector((s) => s.repo);
-  const selectedFile = usePRReviewSelector((s) => s.selectedFile);
-
-  // Track file views (only once per file per session)
-  const trackedFilesRef = useRef<Set<string>>(new Set());
-  useEffect(() => {
-    if (selectedFile && !trackedFilesRef.current.has(selectedFile)) {
-      trackedFilesRef.current.add(selectedFile);
-      track("file_viewed", {
-        pr_number: pr.number,
-        owner,
-        repo,
-        file_path: selectedFile,
-      });
-    }
-  }, [selectedFile, pr.number, owner, repo, track]);
 
   const canWrite = useCanWrite();
 

@@ -1,6 +1,5 @@
 import type { ReviewComment } from "@/api/types";
 import { useGitHub, type Review } from "@/browser/contexts/github";
-import { useTelemetry } from "@/browser/contexts/telemetry";
 import { usePRReviewStore, usePRReviewSelector } from ".";
 
 export function useReviewActions() {
@@ -9,7 +8,6 @@ export function useReviewActions() {
   const owner = usePRReviewSelector((s) => s.owner);
   const repo = usePRReviewSelector((s) => s.repo);
   const pr = usePRReviewSelector((s) => s.pr);
-  const { track } = useTelemetry();
 
   const submitReview = async (
     event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT"
@@ -51,16 +49,6 @@ export function useReviewActions() {
           comments: [],
         });
       }
-
-      // Track review submission
-      track("review_submitted", {
-        pr_number: pr.number,
-        owner,
-        repo,
-        review_type: event,
-        comment_count: state.pendingComments.length,
-        files_reviewed: state.viewedFiles.size,
-      });
 
       // Invalidate timeline cache so we get fresh data
       github.invalidateCache(`pr:${owner}/${repo}/${pr.number}:timeline`);

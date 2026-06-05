@@ -1,6 +1,5 @@
 import type { ReviewComment } from "@/api/types";
 import { useGitHub } from "@/browser/contexts/github";
-import { useTelemetry } from "@/browser/contexts/telemetry";
 import {
   usePRReviewStore,
   usePRReviewSelector,
@@ -13,7 +12,6 @@ export function useCommentActions() {
   const owner = usePRReviewSelector((s) => s.owner);
   const repo = usePRReviewSelector((s) => s.repo);
   const pr = usePRReviewSelector((s) => s.pr);
-  const { track } = useTelemetry();
 
   const addPendingComment = async (
     line: number,
@@ -35,15 +33,6 @@ export function useCommentActions() {
     };
 
     store.addPendingComment(newComment);
-
-    // Track comment added
-    track("comment_added", {
-      pr_number: pr.number,
-      owner,
-      repo,
-      is_pending: true,
-      has_range: !!startLine && startLine !== line,
-    });
 
     // Sync to GitHub via GraphQL - this creates/adds to the pending review
     try {

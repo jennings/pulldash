@@ -7,7 +7,7 @@ import { Hono } from "hono";
 // OAuth App (not GitHub App) - enables simple user authentication
 // like the GitHub CLI, without requiring app installation on repos.
 // Users just authorize and get access to their repos based on scopes.
-const GITHUB_CLIENT_ID = "Ov23ct2e5eDCkITh5xlh";
+const GITHUB_CLIENT_ID = "FIXME";
 // Note: Client secret would be added here for OAuth web flow in the future
 // const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET;
 
