@@ -12,11 +12,11 @@ Fast, filterable PR review. Entirely client-side.
 
 ## Try It
 
-**Browser**: [pulldash.com](https://pulldash.com). Replace `github.com` with `pulldash.com` in any PR URL.
+**Browser**: [jennings.github.io](https://jennings.github.io). Replace `github.com` with `jennings.github.io` in any PR URL.
 
 **Desktop**: [Latest release](https://github.com/coder/pulldash/releases) for Linux, macOS, Windows.
 
-[![Example](./docs/screenshots/overview.png)](https://pulldash.com)
+[![Example](./docs/screenshots/overview.png)](https://jennings.github.io)
 
 ## Features
 
