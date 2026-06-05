@@ -12,9 +12,9 @@ Fast, filterable PR review. Entirely client-side.
 
 ## Try It
 
-**Browser**: [jennings.github.io](https://jennings.github.io). Open pull requests at `https://jennings.github.io/<owner>/<repo>/pull/<number>`.
+**Browser**: [pr.jennings.io](https://pr.jennings.io). Open pull requests at `https://pr.jennings.io/<owner>/<repo>/pull/<number>`.
 
-[![Example](./docs/screenshots/overview.png)](https://jennings.github.io)
+[![Example](./docs/screenshots/overview.png)](https://pr.jennings.io)
 
 ## Features
 
