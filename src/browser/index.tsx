@@ -18,10 +18,7 @@ createRoot(document.getElementById("app")!).render(
               {/* Home */}
               <Route path="/" element={<AppShell />} />
               {/* PR review - URL like /:owner/:repo/pull/:number */}
-              <Route
-                path="/:owner/:repo/pull/:number"
-                element={<AppShell />}
-              />
+              <Route path="/:owner/:repo/pull/:number" element={<AppShell />} />
             </Routes>
             {/* Auth dialog - shown when not authenticated */}
             <WelcomeDialog />

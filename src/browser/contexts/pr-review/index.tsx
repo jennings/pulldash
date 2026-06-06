@@ -500,7 +500,9 @@ export class PRReviewStore {
   };
 
   toggleConversationsSidebar = () => {
-    this.set({ conversationsSidebarOpen: !this.state.conversationsSidebarOpen });
+    this.set({
+      conversationsSidebarOpen: !this.state.conversationsSidebarOpen,
+    });
   };
 
   setConversationsFilter = (
@@ -1833,7 +1835,10 @@ export class PRReviewStore {
         changed = true;
         updated = { ...updated, is_resolved: isResolved };
       }
-      if (threadId !== undefined && c.pull_request_review_thread_id !== threadId) {
+      if (
+        threadId !== undefined &&
+        c.pull_request_review_thread_id !== threadId
+      ) {
         changed = true;
         updated = { ...updated, pull_request_review_thread_id: threadId };
       }

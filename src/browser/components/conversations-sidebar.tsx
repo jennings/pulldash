@@ -198,7 +198,7 @@ export const ConversationsSidebar = memo(function ConversationsSidebar() {
 // ============================================================================
 
 export function useConversationsSidebarCount(): number {
-  return usePRReviewSelector((s) =>
-    applyFilters(s.reviewThreads, s.conversationsFilters).length
+  return usePRReviewSelector(
+    (s) => applyFilters(s.reviewThreads, s.conversationsFilters).length
   );
 }

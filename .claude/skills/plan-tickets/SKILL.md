@@ -17,7 +17,7 @@ separate ticket-driven loop (see the `work-on-ticket` skill).
 Every planned feature lands as a single **top-level issue**. How that
 issue is structured depends on size:
 
-- **Single-ticket feature** — the top-level issue *is* the
+- **Single-ticket feature** — the top-level issue _is_ the
   implementation ticket. Its body carries the implementation plan and
   `work-on-ticket` picks it up directly.
 - **Multi-ticket feature** — the top-level issue is a **tracking
@@ -60,13 +60,12 @@ Title in imperative voice ("Add X", "Refactor Y", "Fix Z").
 
 - **Single-ticket feature**: the body also contains the
   implementation plan — the detail that would have gone in a normal
-  ticket. This issue *is* the work item. Skip to step 7 for the
+  ticket. This issue _is_ the work item. Skip to step 7 for the
   priority label, then stop.
 - **Multi-ticket feature**: the body describes the feature and lists
   the planned sub-tasks as human-readable bullets (sub-issues will
   also render natively on the issue page). This issue is the
-  tracking parent; it is not implemented directly. Continue to step
-  4.
+  tracking parent; it is not implemented directly. Continue to step 4.
 
 ## 4. Create sub-task issues (multi-ticket only)
 
@@ -93,7 +92,7 @@ Docs: <https://docs.github.com/en/rest/issues/sub-issues>
 
 ## 6. Set ordering dependencies (multi-ticket only)
 
-Sub-issues express *hierarchy*, not *order*. If sub-task B can't
+Sub-issues express _hierarchy_, not _order_. If sub-task B can't
 start until sub-task A is done, also record that with the issue
 dependencies API so `work-on-ticket`'s `-is:blocked` filter sees it.
 
@@ -122,7 +121,7 @@ work back to the user; they (or a future session via
 
 - Title in imperative voice ("Add X", "Refactor Y", "Fix Z").
 - One sub-task per commit-sized unit of work.
-- For single-ticket features, the top-level issue *is* the
+- For single-ticket features, the top-level issue _is_ the
   implementation issue — no separate sub-tasks.
 - Tracking issues are **not** closed manually. The final sub-task's
   commit message resolves both the sub-task and the tracking issue

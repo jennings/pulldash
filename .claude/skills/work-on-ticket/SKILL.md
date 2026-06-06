@@ -38,7 +38,7 @@ create one first — do not start without a ticket.
 If the chosen issue is a **tracking issue** (has sub-issues attached
 via GitHub's native sub-issues feature), don't work it directly.
 Read the sub-issues, pick an unblocked one using the same
-priority/clarity criteria, and treat *that* as the unit of work for
+priority/clarity criteria, and treat _that_ as the unit of work for
 the rest of the loop.
 
 ```bash
