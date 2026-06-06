@@ -1389,13 +1389,19 @@ const DiffViewer = memo(function DiffViewer({
         state.focusedLine !== null &&
         state.focusedLineSide === side
       ) {
-        // Keep the anchor at the original focused line, move focus to clicked line
+        const anchor = state.selectionAnchor ?? state.focusedLine;
         if (state.selectionAnchor === null) {
-          // No existing anchor - use current focused line as anchor
           store.setSelectionAnchor(state.focusedLine, side);
         }
         store.setFocusedLine(lineNum, side);
-        // Don't start drag mode for shift+click
+        const startLine = Math.min(anchor, lineNum);
+        const endLine = Math.max(anchor, lineNum);
+        if (startLine !== endLine) {
+          store.startCommenting(endLine, startLine);
+        } else {
+          store.startCommenting(lineNum);
+        }
+        handledByMouseEventsRef.current = true;
         return;
       }
 
@@ -1899,7 +1905,7 @@ const DiffLineRow = memo(function DiffLineRow({
     (e: React.MouseEvent) => {
       if (lineNum) {
         e.preventDefault();
-        onDragStart(lineNum, lineSide, e.shiftKey);
+        onDragStart(lineNum, lineSide, e.shiftKey || e.metaKey);
       }
     },
     [lineNum, lineSide, onDragStart]
@@ -1928,9 +1934,10 @@ const DiffLineRow = memo(function DiffLineRow({
 
       const state = store.getSnapshot();
 
-      // Shift+click: extend selection from current focus to clicked line
-      if (e.shiftKey && state.focusedLine !== null) {
+      // Shift+click or cmd+click: extend selection from current focus to clicked line
+      if ((e.shiftKey || e.metaKey) && state.focusedLine !== null) {
         e.preventDefault(); // Prevent browser text selection
+        const anchor = state.selectionAnchor ?? state.focusedLine;
         if (state.selectionAnchor === null) {
           store.setSelectionAnchor(
             state.focusedLine,
@@ -1938,6 +1945,13 @@ const DiffLineRow = memo(function DiffLineRow({
           );
         }
         store.setFocusedLine(lineNum, lineSide);
+        const startLine = Math.min(anchor, lineNum);
+        const endLine = Math.max(anchor, lineNum);
+        if (startLine !== endLine) {
+          store.startCommenting(endLine, startLine);
+        } else {
+          store.startCommenting(lineNum);
+        }
         return;
       }
     },
@@ -1949,8 +1963,8 @@ const DiffLineRow = memo(function DiffLineRow({
     (e: React.MouseEvent) => {
       if (!lineNum) return;
 
-      // Shift+click is handled in mousedown
-      if (e.shiftKey) return;
+      // Shift+click and cmd+click are handled in mousedown
+      if (e.shiftKey || e.metaKey) return;
 
       // Check if user has made a text selection
       const selection = window.getSelection();
