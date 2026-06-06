@@ -5,6 +5,9 @@ import { resolve } from "path";
 
 const isWatch = process.argv.includes("--watch");
 
+const REPO_URL = process.env.REPO_URL ?? "https://github.com/jennings/pulldash";
+const define = { __REPO_URL__: JSON.stringify(REPO_URL) };
+
 async function build() {
   // Build main app
   const mainResult = await Bun.build({
@@ -13,6 +16,7 @@ async function build() {
     plugins: [tailwind],
     target: "browser",
     format: "esm",
+    define,
   });
 
   if (!mainResult.success) {
@@ -44,6 +48,7 @@ async function build() {
     outdir: "./dist/browser/lib",
     target: "browser",
     format: "esm",
+    define,
     banner: `// Worker shim for libraries that check for document (Prism/refractor)
 if (typeof document === 'undefined') {
   globalThis.document = {

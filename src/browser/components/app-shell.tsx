@@ -151,7 +151,7 @@ export function AppShell() {
                   requests with a native-like experience.
                 </p>
                 <a
-                  href="https://github.com/coder/pulldash"
+                  href={__REPO_URL__}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center gap-1.5 text-xs text-primary hover:underline"
@@ -184,7 +184,7 @@ export function AppShell() {
           </div>
           {!isAuthenticated && (
             <a
-              href="https://github.com/coder/pulldash"
+              href={__REPO_URL__}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center justify-center w-7 h-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors"

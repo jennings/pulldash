@@ -1,5 +1,7 @@
 // Type declarations for asset imports
 
+declare const __REPO_URL__: string;
+
 declare module "*.svg" {
   const content: string;
   export default content;

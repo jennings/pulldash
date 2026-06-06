@@ -1236,7 +1236,7 @@ export function WelcomeDialog() {
 
                 {/* GitHub repo link */}
                 <a
-                  href="https://github.com/coder/pulldash"
+                  href={__REPO_URL__}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors pt-2"
