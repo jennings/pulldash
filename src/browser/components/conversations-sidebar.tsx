@@ -41,6 +41,7 @@ export const ConversationsSidebar = memo(function ConversationsSidebar() {
   const store = usePRReviewStore();
   const reviewThreads = usePRReviewSelector((s) => s.reviewThreads);
   const filters = usePRReviewSelector((s) => s.conversationsFilters);
+  const prUrl = usePRReviewSelector((s) => s.pr.html_url);
 
   const visibleThreads = applyFilters(reviewThreads, filters);
 
@@ -113,13 +114,31 @@ export const ConversationsSidebar = memo(function ConversationsSidebar() {
                   ? firstComment.body.slice(0, 200) + "…"
                   : firstComment.body;
               const createdAt = new Date(firstComment.createdAt);
+              const commentUrl = `${prUrl}#discussion_r${firstComment.databaseId}`;
 
               const threadIsOutdated = isOutdated(thread);
+
+              const seenLogins = new Set<string>();
+              const replyAvatars: Array<{ login: string; avatarUrl: string }> =
+                [];
+              for (const c of thread.comments.nodes.slice(1)) {
+                if (c.author && !seenLogins.has(c.author.login)) {
+                  seenLogins.add(c.author.login);
+                  replyAvatars.push(c.author);
+                  if (replyAvatars.length >= 3) break;
+                }
+              }
 
               return (
                 <li
                   key={thread.id}
-                  className="p-3 hover:bg-muted/30 transition-colors"
+                  className="p-3 hover:bg-muted/30 transition-colors cursor-pointer"
+                  onClick={() =>
+                    handleClickThread(
+                      firstComment.databaseId,
+                      firstComment.path
+                    )
+                  }
                 >
                   {/* Author row */}
                   <div className="flex items-center gap-2 mb-1.5">
@@ -146,9 +165,15 @@ export const ConversationsSidebar = memo(function ConversationsSidebar() {
                           Outdated
                         </span>
                       )}
-                      <span className="text-xs text-muted-foreground">
+                      <a
+                        href={commentUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="text-xs text-muted-foreground hover:text-foreground hover:underline"
+                      >
                         {getTimeAgo(createdAt)}
-                      </span>
+                      </a>
                     </div>
                   </div>
 
@@ -167,22 +192,29 @@ export const ConversationsSidebar = memo(function ConversationsSidebar() {
                     {truncatedBody}
                   </p>
 
-                  {/* Footer link */}
-                  <button
-                    onClick={() =>
-                      handleClickThread(
-                        firstComment.databaseId,
-                        firstComment.path
-                      )
-                    }
-                    className="text-xs text-blue-400 hover:text-blue-300 hover:underline transition-colors"
-                  >
-                    {replyCount === 0
-                      ? "No replies"
-                      : replyCount === 1
-                        ? "1 reply"
-                        : `${replyCount} replies`}
-                  </button>
+                  {/* Footer: reply avatars + reply count */}
+                  <div className="flex items-center gap-1.5">
+                    {replyCount > 0 && (
+                      <div className="flex items-center">
+                        {replyAvatars.map((user, i) => (
+                          <img
+                            key={user.login}
+                            src={user.avatarUrl}
+                            alt={user.login}
+                            className="w-4 h-4 rounded-full ring-1 ring-background"
+                            style={{ marginLeft: i > 0 ? "-4px" : "0" }}
+                          />
+                        ))}
+                      </div>
+                    )}
+                    <span className="text-xs text-blue-400">
+                      {replyCount === 0
+                        ? "No replies"
+                        : replyCount === 1
+                          ? "1 reply"
+                          : `${replyCount} replies`}
+                    </span>
+                  </div>
                 </li>
               );
             })}
