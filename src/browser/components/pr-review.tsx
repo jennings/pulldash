@@ -2685,7 +2685,13 @@ const CommentThread = memo(function CommentThread({
       )}
     >
       {/* Thread header with resolve/unresolve */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-border/30">
+      <div
+        className={cn(
+          "flex items-center justify-between px-4 py-2 border-b border-border/30",
+          isResolved && "cursor-pointer select-none"
+        )}
+        onClick={isResolved ? () => setIsCollapsed(!isCollapsed) : undefined}
+      >
         <div className="flex items-center gap-2">
           {isResolved ? (
             <CheckCircle2 className="w-4 h-4 text-green-500" />
@@ -2725,7 +2731,11 @@ const CommentThread = memo(function CommentThread({
         <div className="flex items-center gap-2">
           {canWrite && threadId && (
             <button
-              onClick={isResolved ? handleUnresolve : handleResolve}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (isResolved) handleUnresolve();
+                else handleResolve();
+              }}
               disabled={resolving}
               className={cn(
                 "flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors",
@@ -2750,16 +2760,13 @@ const CommentThread = memo(function CommentThread({
             </button>
           )}
           {isResolved && (
-            <button
-              onClick={() => setIsCollapsed(!isCollapsed)}
-              className="p-1 text-muted-foreground hover:text-foreground rounded transition-colors"
-            >
+            <span className="p-1 text-muted-foreground">
               {isCollapsed ? (
                 <ChevronDown className="w-4 h-4" />
               ) : (
                 <ChevronUp className="w-4 h-4" />
               )}
-            </button>
+            </span>
           )}
         </div>
       </div>
