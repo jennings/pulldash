@@ -2660,6 +2660,19 @@ const CommentThread = memo(function CommentThread({
     }
   }, [isResolved]);
 
+  const threadAvatars = (() => {
+    const seenLogins = new Set<string>();
+    const avatars: Array<{ login: string; avatar_url: string }> = [];
+    for (const c of comments) {
+      if (c.user && !seenLogins.has(c.user.login)) {
+        seenLogins.add(c.user.login);
+        avatars.push(c.user);
+        if (avatars.length >= 3) break;
+      }
+    }
+    return avatars;
+  })();
+
   return (
     <div
       data-comment-thread
@@ -2679,19 +2692,28 @@ const CommentThread = memo(function CommentThread({
           ) : (
             <Circle className="w-4 h-4 text-muted-foreground" />
           )}
-          <span
-            className={cn(
-              "text-xs font-medium",
-              isResolved ? "text-green-500" : "text-muted-foreground"
-            )}
-          >
-            {isResolved
-              ? "Resolved"
-              : `${comments.length} comment${comments.length !== 1 ? "s" : ""}`}
+          <div className="flex items-center">
+            {threadAvatars.map((user, i) => (
+              <img
+                key={user.login}
+                src={user.avatar_url}
+                alt={user.login}
+                className="w-4 h-4 rounded-full ring-1 ring-background relative"
+                style={{
+                  marginLeft: i > 0 ? "-4px" : "0",
+                  zIndex: threadAvatars.length - i,
+                }}
+              />
+            ))}
+          </div>
+          <span className="text-xs text-muted-foreground">
+            {comments.length === 1
+              ? "1 comment"
+              : `${comments.length} comments`}
           </span>
-          {isResolved && isCollapsed && (
-            <span className="text-xs text-muted-foreground">
-              by {firstComment.user.login}
+          {isResolved && (
+            <span className="px-1.5 py-0.5 text-[10px] rounded-full font-medium bg-green-500/20 text-green-400">
+              Resolved
             </span>
           )}
           {isOutdated && (
