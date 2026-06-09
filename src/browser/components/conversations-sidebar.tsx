@@ -11,6 +11,10 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuCheckboxItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 
@@ -92,6 +96,26 @@ export const ConversationsSidebar = memo(function ConversationsSidebar() {
             >
               Show outdated conversations
             </DropdownMenuCheckboxItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+              Date shown
+            </DropdownMenuLabel>
+            <DropdownMenuRadioGroup
+              value={filters.threadDateMode}
+              onValueChange={(v) =>
+                store.setConversationsFilter(
+                  "threadDateMode",
+                  v as "created" | "activity"
+                )
+              }
+            >
+              <DropdownMenuRadioItem value="activity">
+                Last activity
+              </DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="created">
+                Created date
+              </DropdownMenuRadioItem>
+            </DropdownMenuRadioGroup>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -114,6 +138,17 @@ export const ConversationsSidebar = memo(function ConversationsSidebar() {
                   ? firstComment.body.slice(0, 200) + "…"
                   : firstComment.body;
               const createdAt = new Date(firstComment.createdAt);
+              const latestUpdatedAt = thread.comments.nodes.reduce(
+                (latest, c) => {
+                  const d = new Date(c.updatedAt ?? c.createdAt);
+                  return d > latest ? d : latest;
+                },
+                new Date(0)
+              );
+              const displayDate =
+                filters.threadDateMode === "created"
+                  ? createdAt
+                  : latestUpdatedAt;
               const commentUrl = `${prUrl}#discussion_r${firstComment.databaseId}`;
 
               const threadIsOutdated = isOutdated(thread);
@@ -172,7 +207,7 @@ export const ConversationsSidebar = memo(function ConversationsSidebar() {
                         onClick={(e) => e.stopPropagation()}
                         className="text-xs text-muted-foreground hover:text-foreground hover:underline"
                       >
-                        {getTimeAgo(createdAt)}
+                        {getTimeAgo(displayDate)}
                       </a>
                     </div>
                   </div>

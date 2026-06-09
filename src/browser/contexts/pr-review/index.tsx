@@ -199,7 +199,11 @@ interface PRReviewState {
 
   // Conversations sidebar
   conversationsSidebarOpen: boolean;
-  conversationsFilters: { showResolved: boolean; showOutdated: boolean };
+  conversationsFilters: {
+    showResolved: boolean;
+    showOutdated: boolean;
+    threadDateMode: "created" | "activity";
+  };
   // First comment database ID (number) of the thread to scroll to in the diff view
   conversationScrollTarget: number | null;
 
@@ -263,6 +267,7 @@ const CONVERSATIONS_FILTERS_KEY = "pulldash_conversations_filters";
 function getStoredConversationsFilters(): {
   showResolved: boolean;
   showOutdated: boolean;
+  threadDateMode: "created" | "activity";
 } {
   try {
     const stored = localStorage.getItem(CONVERSATIONS_FILTERS_KEY);
@@ -272,16 +277,22 @@ function getStoredConversationsFilters(): {
         typeof parsed.showResolved === "boolean" &&
         typeof parsed.showOutdated === "boolean"
       ) {
-        return parsed;
+        return {
+          showResolved: parsed.showResolved,
+          showOutdated: parsed.showOutdated,
+          threadDateMode:
+            parsed.threadDateMode === "created" ? "created" : "activity",
+        };
       }
     }
   } catch {}
-  return { showResolved: false, showOutdated: true };
+  return { showResolved: false, showOutdated: true, threadDateMode: "activity" };
 }
 
 function setStoredConversationsFilters(filters: {
   showResolved: boolean;
   showOutdated: boolean;
+  threadDateMode: "created" | "activity";
 }): void {
   try {
     localStorage.setItem(CONVERSATIONS_FILTERS_KEY, JSON.stringify(filters));
@@ -505,9 +516,9 @@ export class PRReviewStore {
     });
   };
 
-  setConversationsFilter = (
-    key: keyof PRReviewState["conversationsFilters"],
-    value: boolean
+  setConversationsFilter = <K extends keyof PRReviewState["conversationsFilters"]>(
+    key: K,
+    value: PRReviewState["conversationsFilters"][K]
   ) => {
     const next = { ...this.state.conversationsFilters, [key]: value };
     setStoredConversationsFilters(next);
