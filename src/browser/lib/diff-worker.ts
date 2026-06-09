@@ -12,6 +12,7 @@ import gitDiffParser, {
 } from "gitdiff-parser";
 import { diffChars, diffWords } from "diff";
 import { refractor } from "refractor/all";
+import { computeInterdiff } from "./interdiff";
 
 // ============================================================================
 // Types
@@ -41,6 +42,8 @@ export interface DiffHunk {
   oldStart: number;
   newStart: number;
   lines: DiffLine[];
+  /** True when this hunk is a rebase artifact (identical in both patch versions) */
+  isRebaseArtifact?: boolean;
 }
 
 export interface DiffSkipBlock {
@@ -100,6 +103,12 @@ export type WorkerRequest =
       filename: string;
       startLine: number;
       count: number;
+    }
+  | {
+      type: "interdiff";
+      id: string;
+      patch1: string;
+      patch2: string;
     };
 
 export type WorkerResponse =
@@ -112,6 +121,11 @@ export type WorkerResponse =
       type: "highlight-lines-result";
       id: string;
       result: DiffLine[];
+    }
+  | {
+      type: "interdiff-result";
+      id: string;
+      result: ParsedDiff;
     }
   | {
       type: "error";
@@ -829,6 +843,16 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         );
         self.postMessage({
           type: "highlight-lines-result",
+          id: request.id,
+          result,
+        } as WorkerResponse);
+        break;
+      }
+
+      case "interdiff": {
+        const result = computeInterdiff(request.patch1, request.patch2);
+        self.postMessage({
+          type: "interdiff-result",
           id: request.id,
           result,
         } as WorkerResponse);

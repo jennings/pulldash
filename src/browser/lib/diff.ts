@@ -129,6 +129,22 @@ class DiffWorkerPool {
     });
   }
 
+  async interdiff(patch1: string, patch2: string): Promise<ParsedDiff> {
+    const id = this.generateId();
+    const worker = this.getNextWorker();
+
+    return new Promise((resolve, reject) => {
+      this.pendingRequests.set(id, { resolve, reject });
+
+      worker.postMessage({
+        type: "interdiff",
+        id,
+        patch1,
+        patch2,
+      } as WorkerRequest);
+    });
+  }
+
   /**
    * Parse multiple diffs in parallel across the worker pool.
    */
