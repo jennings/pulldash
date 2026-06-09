@@ -173,6 +173,10 @@ interface PRReviewState {
   workflowRunsAwaitingApproval: WorkflowRunAwaitingApproval[];
   branchDeleted: boolean;
 
+  // Push version selector
+  /** The HEAD SHA of the currently selected push version (null = latest) */
+  selectedHeadSha: string | null;
+
   // Loading states
   loading: boolean;
   loadingChecks: boolean;
@@ -362,6 +366,8 @@ export class PRReviewStore {
   private github: GitHubStore;
   // Track recently approved workflow IDs to filter out stale API responses
   private recentlyApprovedWorkflowIds = new Set<number>();
+  // Original files from the latest PR version (restored when deselecting a push version)
+  private baseFiles: PullRequestFile[] = [];
 
   constructor(
     github: GitHubStore,
@@ -409,6 +415,7 @@ export class PRReviewStore {
 
     // Sort files to match file tree order (folders first, then alphabetically)
     const sortedFiles = sortFilesLikeTree(initialState.files);
+    this.baseFiles = sortedFiles;
 
     this.state = {
       ...initialState,
@@ -423,6 +430,7 @@ export class PRReviewStore {
       commits: [],
       pushVersions: [],
       commitVersionHistory: {},
+      selectedHeadSha: null,
       checks: null,
       checksLastUpdated: null,
       workflowRunsAwaitingApproval: [],
@@ -846,6 +854,40 @@ export class PRReviewStore {
         [filename]: navigableItems,
       },
     });
+  };
+
+  // ---------------------------------------------------------------------------
+  // Push Version Selection
+  // ---------------------------------------------------------------------------
+
+  setSelectedHeadSha = async (sha: string | null): Promise<void> => {
+    const { owner, repo, pr } = this.state;
+
+    if (sha === null) {
+      this.set({
+        selectedHeadSha: null,
+        files: this.baseFiles,
+        loadedDiffs: {},
+        loadingFiles: new Set(),
+        expandedSkipBlocks: {},
+        expandingSkipBlocks: new Set(),
+      });
+      return;
+    }
+
+    this.set({
+      selectedHeadSha: sha,
+      loadedDiffs: {},
+      loadingFiles: new Set(),
+      expandedSkipBlocks: {},
+      expandingSkipBlocks: new Set(),
+    });
+
+    const versionFiles = await this.github
+      .getPRFilesForRange(owner, repo, pr.base.sha, sha)
+      .catch(() => [] as PullRequestFile[]);
+
+    this.set({ files: sortFilesLikeTree(versionFiles) });
   };
 
   // ---------------------------------------------------------------------------

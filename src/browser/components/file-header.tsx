@@ -26,6 +26,8 @@ interface FileHeaderProps {
   conversationsSidebarOpen?: boolean;
   onToggleConversationsSidebar?: () => void;
   conversationsCount?: number;
+  /** When viewing a historical push version, the version number for display */
+  selectedVersion?: number;
 }
 
 export const FileHeader = memo(function FileHeader({
@@ -41,6 +43,7 @@ export const FileHeader = memo(function FileHeader({
   conversationsSidebarOpen,
   onToggleConversationsSidebar,
   conversationsCount,
+  selectedVersion,
 }: FileHeaderProps) {
   const fileStatusBadge = (() => {
     switch (file.status) {
@@ -81,6 +84,11 @@ export const FileHeader = memo(function FileHeader({
           <span className="text-green-500">+{file.additions}</span>{" "}
           <span className="text-red-500">−{file.deletions}</span>
         </span>
+        {selectedVersion !== undefined && (
+          <span className="px-1.5 py-0.5 text-xs rounded bg-amber-500/20 text-amber-400 font-medium shrink-0">
+            v{selectedVersion}
+          </span>
+        )}
         {/* Navigation buttons */}
         {showNavigation && (
           <div className="flex items-center gap-1 shrink-0 ml-2">

@@ -1146,6 +1146,39 @@ function createGitHubStore() {
     return promise;
   }
 
+  async function getPRFilesForRange(
+    owner: string,
+    repo: string,
+    baseSha: string,
+    headSha: string
+  ): Promise<PullRequestFile[]> {
+    if (!octokit) throw new Error("Not initialized");
+
+    const cacheKey = `compare:${owner}/${repo}/${baseSha}...${headSha}:files`;
+
+    const cached = cache.get<PullRequestFile[]>(cacheKey);
+    if (cached) return cached;
+
+    const pending = cache.getPending<PullRequestFile[]>(cacheKey);
+    if (pending) return pending;
+
+    const promise = octokit
+      .request("GET /repos/{owner}/{repo}/compare/{basehead}", {
+        owner,
+        repo,
+        basehead: `${baseSha}...${headSha}`,
+        per_page: 100,
+      })
+      .then((res) => {
+        const files = (res.data.files ?? []) as PullRequestFile[];
+        cache.set(cacheKey, files);
+        return files;
+      });
+
+    cache.setPending(cacheKey, promise);
+    return promise;
+  }
+
   async function getPRComments(
     owner: string,
     repo: string,
@@ -2892,6 +2925,7 @@ function createGitHubStore() {
     searchUsers,
     getPR,
     getPRFiles,
+    getPRFilesForRange,
     getPRComments,
     createPRComment,
     getPRReviews,

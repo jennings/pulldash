@@ -34,7 +34,7 @@ import {
   BookOpen,
   Smile,
 } from "lucide-react";
-import type { Reaction, ReactionContent } from "../contexts/github";
+import type { Reaction, ReactionContent, PushVersion } from "../contexts/github";
 import { Skeleton } from "../ui/skeleton";
 import { PROverview } from "./pr-overview";
 import {
@@ -596,6 +596,68 @@ const ReadOnlyBanner = memo(function ReadOnlyBanner() {
 });
 
 // ============================================================================
+// Push Version Selector Bar
+// ============================================================================
+
+function PushVersionBar({
+  pushVersions,
+  selectedHeadSha,
+  latestSha,
+  onSelect,
+}: {
+  pushVersions: PushVersion[];
+  selectedHeadSha: string | null;
+  latestSha: string;
+  onSelect: (sha: string | null) => void;
+}) {
+  const currentVersion = selectedHeadSha
+    ? pushVersions.find((v) => v.sha === selectedHeadSha)
+    : null;
+  const latestVersion = pushVersions[pushVersions.length - 1];
+  const isLatest = selectedHeadSha === null || selectedHeadSha === latestSha;
+  const label = isLatest
+    ? `Latest (v${(latestVersion?.version ?? 0) + 1})`
+    : `v${currentVersion?.version ?? "?"}`;
+
+  return (
+    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+      <span className="shrink-0">Viewing:</span>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button className="flex items-center gap-1 px-2 py-0.5 rounded border border-border hover:bg-muted transition-colors text-xs font-medium">
+            {label}
+            <ChevronDown className="w-3 h-3" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-48">
+          <DropdownMenuLabel className="text-xs">Push version</DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            onClick={() => onSelect(null)}
+            className="text-xs flex items-center justify-between"
+          >
+            <span>Latest (v{(latestVersion?.version ?? 0) + 1})</span>
+            {isLatest && <Check className="w-3 h-3 ml-2 shrink-0" />}
+          </DropdownMenuItem>
+          {[...pushVersions].reverse().map((pv) => (
+            <DropdownMenuItem
+              key={pv.sha}
+              onClick={() => onSelect(pv.sha)}
+              className="text-xs flex items-center justify-between"
+            >
+              <span>v{pv.version}</span>
+              {selectedHeadSha === pv.sha && (
+                <Check className="w-3 h-3 ml-2 shrink-0" />
+              )}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
+}
+
+// ============================================================================
 // Diff Panel (Main Content)
 // ============================================================================
 
@@ -612,6 +674,8 @@ const DiffPanel = memo(function DiffPanel() {
   const conversationsSidebarOpen = usePRReviewSelector(
     (s) => s.conversationsSidebarOpen
   );
+  const pushVersions = usePRReviewSelector((s) => s.pushVersions);
+  const selectedHeadSha = usePRReviewSelector((s) => s.selectedHeadSha);
 
   const currentFile = useCurrentFile();
   const parsedDiff = useCurrentDiff();
@@ -640,6 +704,16 @@ const DiffPanel = memo(function DiffPanel() {
         <div className="flex flex-col flex-1 min-h-0">
           {/* Sticky file header with navigation */}
           <div className="shrink-0 border-b border-border bg-muted/50 backdrop-blur-sm z-20">
+            {pushVersions.length > 0 && (
+              <div className="px-3 pt-1.5 pb-0">
+                <PushVersionBar
+                  pushVersions={pushVersions}
+                  selectedHeadSha={selectedHeadSha}
+                  latestSha={pr.head.sha}
+                  onSelect={(sha) => store.setSelectedHeadSha(sha)}
+                />
+              </div>
+            )}
             <div className="px-3 py-1.5">
               <FileHeader
                 file={currentFile}
@@ -656,6 +730,12 @@ const DiffPanel = memo(function DiffPanel() {
                   store.toggleConversationsSidebar()
                 }
                 conversationsCount={conversationsCount}
+                selectedVersion={
+                  selectedHeadSha
+                    ? pushVersions.find((v) => v.sha === selectedHeadSha)
+                        ?.version
+                    : undefined
+                }
               />
             </div>
           </div>
