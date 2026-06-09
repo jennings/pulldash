@@ -26,6 +26,7 @@ import {
   type PRCommit,
   type TimelineEvent,
   type ReviewThread,
+  type PushVersion,
 } from "@/browser/contexts/github";
 
 // ============================================================================
@@ -164,6 +165,7 @@ interface PRReviewState {
   timeline: TimelineEvent[];
   conversation: IssueComment[];
   commits: PRCommit[];
+  pushVersions: PushVersion[];
   checks: ChecksData | null;
   checksLastUpdated: Date | null;
   workflowRunsAwaitingApproval: WorkflowRunAwaitingApproval[];
@@ -385,6 +387,7 @@ export class PRReviewStore {
       timeline: [],
       conversation: [],
       commits: [],
+      pushVersions: [],
       checks: null,
       checksLastUpdated: null,
       workflowRunsAwaitingApproval: [],
@@ -2242,6 +2245,7 @@ export class PRReviewStore {
         commitsData,
         timelineData,
         reviewThreadsResult,
+        pushVersionsData,
       ] = await Promise.all([
         this.github
           .getPRReviews(owner, repo, pr.number)
@@ -2269,6 +2273,9 @@ export class PRReviewStore {
           viewerPermission: null,
           viewerCanMergeAsAdmin: false,
         })),
+        this.github
+          .getPushVersions(owner, repo, pr.number)
+          .catch(() => [] as PushVersion[]),
       ]);
 
       // Find workflow runs awaiting approval (fork PRs)
@@ -2299,6 +2306,7 @@ export class PRReviewStore {
         workflowRunsAwaitingApproval: awaitingApproval,
         conversation: conversationData,
         commits: commitsData,
+        pushVersions: pushVersionsData,
         timeline: timelineData,
         reviewThreads: reviewThreadsResult.threads,
         comments: this.enrichCommentsFromThreads(

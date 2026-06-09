@@ -71,6 +71,7 @@ import {
   type TimelineEvent,
   type ReviewThread,
   type PullRequest,
+  type PushVersion,
 } from "../contexts/github";
 import { useCanWrite } from "../contexts/auth";
 
@@ -111,6 +112,7 @@ export const PROverview = memo(function PROverview() {
   const approvingWorkflows = usePRReviewSelector((s) => s.approvingWorkflows);
   const timeline = usePRReviewSelector((s) => s.timeline);
   const commits = usePRReviewSelector((s) => s.commits);
+  const pushVersions = usePRReviewSelector((s) => s.pushVersions);
   const conversation = usePRReviewSelector((s) => s.conversation);
   const loading = usePRReviewSelector((s) => s.loading);
   const branchDeleted = usePRReviewSelector((s) => s.branchDeleted);
@@ -1286,6 +1288,7 @@ export const PROverview = memo(function PROverview() {
                             key={`event-${index}`}
                             event={entry.data}
                             pr={pr}
+                            pushVersions={pushVersions}
                           />
                         );
                       }
@@ -4292,9 +4295,10 @@ function CommitGroup({ commits, prCommits, owner, repo }: CommitGroupProps) {
 interface TimelineItemProps {
   event: TimelineEvent;
   pr?: PullRequest;
+  pushVersions?: PushVersion[];
 }
 
-function TimelineItem({ event, pr }: TimelineItemProps) {
+function TimelineItem({ event, pr, pushVersions }: TimelineItemProps) {
   // Commits are handled by CommitGroup
   if ("sha" in event && "author" in event) return null;
 
@@ -4655,6 +4659,13 @@ function TimelineItem({ event, pr }: TimelineItemProps) {
           forcePush.commit_id && pr
             ? `https://github.com/${pr.base?.repo?.owner?.login || pr.user?.login}/${pr.base?.repo?.name || pr.head?.repo?.name}/commit/${forcePush.commit_id}`
             : undefined;
+        const toVersion = pushVersions?.find(
+          (v) => v.sha === forcePush.commit_id
+        );
+        const fromVersion =
+          toVersion && pushVersions
+            ? pushVersions.find((v) => v.version === toVersion.version - 1)
+            : undefined;
         return {
           icon: <GitBranch className="w-4 h-4" />,
           text: (
@@ -4671,6 +4682,12 @@ function TimelineItem({ event, pr }: TimelineItemProps) {
                 {pr?.head?.ref || "branch"}
               </code>{" "}
               branch
+              {toVersion && fromVersion && (
+                <span className="text-muted-foreground">
+                  {" "}
+                  (v{fromVersion.version} → v{toVersion.version})
+                </span>
+              )}
               {forcePush.commit_id && (
                 <>
                   {" "}

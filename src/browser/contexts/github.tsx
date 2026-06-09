@@ -104,6 +104,12 @@ export interface WorkflowRunAwaitingApproval {
   html_url: string;
 }
 
+export interface PushVersion {
+  version: number;
+  sha: string;
+  pushedAt: string;
+}
+
 export interface CheckStatus {
   checks: "pending" | "success" | "failure" | "none" | "action_required";
   state: "open" | "closed" | "merged" | "draft";
@@ -2202,6 +2208,96 @@ function createGitHubStore() {
     return promise;
   }
 
+  async function getPushVersions(
+    owner: string,
+    repo: string,
+    number: number
+  ): Promise<PushVersion[]> {
+    if (!batcher) throw new Error("Not initialized");
+
+    const cacheKey = `pr:${owner}/${repo}/${number}:push-versions`;
+
+    const cached = cache.get<PushVersion[]>(cacheKey);
+    if (cached) return cached;
+
+    const pending = cache.getPending<PushVersion[]>(cacheKey);
+    if (pending) return pending;
+
+    interface ForcePushNode {
+      createdAt: string;
+      beforeCommit: { oid: string } | null;
+      afterCommit: { oid: string } | null;
+    }
+
+    const promise = batcher
+      .query<{
+        repository: {
+          pullRequest: {
+            createdAt: string;
+            timelineItems: { nodes: ForcePushNode[] };
+          };
+        };
+      }>(
+        `query GetPushVersions($owner: String!, $repo: String!, $number: Int!) {
+          repository(owner: $owner, name: $repo) {
+            pullRequest(number: $number) {
+              createdAt
+              timelineItems(itemTypes: [HEAD_REF_FORCE_PUSHED_EVENT], first: 100) {
+                nodes {
+                  ... on HeadRefForcePushedEvent {
+                    createdAt
+                    beforeCommit { oid }
+                    afterCommit { oid }
+                  }
+                }
+              }
+            }
+          }
+        }`,
+        { owner, repo, number }
+      )
+      .then((data) => {
+        const prData = data.repository.pullRequest;
+        const events = (prData.timelineItems.nodes || [])
+          .filter((e) => e.createdAt)
+          .sort(
+            (a, b) =>
+              new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+          );
+
+        if (events.length === 0) {
+          cache.set(cacheKey, []);
+          return [];
+        }
+
+        const versions: PushVersion[] = [];
+
+        if (events[0].beforeCommit) {
+          versions.push({
+            version: 1,
+            sha: events[0].beforeCommit.oid,
+            pushedAt: prData.createdAt,
+          });
+        }
+
+        for (const event of events) {
+          if (event.afterCommit) {
+            versions.push({
+              version: versions.length + 1,
+              sha: event.afterCommit.oid,
+              pushedAt: event.createdAt,
+            });
+          }
+        }
+
+        cache.set(cacheKey, versions);
+        return versions;
+      });
+
+    cache.setPending(cacheKey, promise);
+    return promise;
+  }
+
   // ---------------------------------------------------------------------------
   // GraphQL Methods
   // ---------------------------------------------------------------------------
@@ -2776,6 +2872,7 @@ function createGitHubStore() {
     getPRConversation,
     createPRConversationComment,
     getPRTimeline,
+    getPushVersions,
     getFileContent,
     requestReviewers,
     removeReviewers,
