@@ -202,6 +202,7 @@ interface PRReviewState {
   conversationsFilters: {
     showResolved: boolean;
     showOutdated: boolean;
+    showPending: boolean;
     threadDateMode: "created" | "activity";
   };
   // First comment database ID (number) of the thread to scroll to in the diff view
@@ -267,6 +268,7 @@ const CONVERSATIONS_FILTERS_KEY = "pulldash_conversations_filters";
 function getStoredConversationsFilters(): {
   showResolved: boolean;
   showOutdated: boolean;
+  showPending: boolean;
   threadDateMode: "created" | "activity";
 } {
   try {
@@ -280,18 +282,20 @@ function getStoredConversationsFilters(): {
         return {
           showResolved: parsed.showResolved,
           showOutdated: parsed.showOutdated,
+          showPending: parsed.showPending !== false,
           threadDateMode:
             parsed.threadDateMode === "created" ? "created" : "activity",
         };
       }
     }
   } catch {}
-  return { showResolved: false, showOutdated: true, threadDateMode: "activity" };
+  return { showResolved: false, showOutdated: true, showPending: true, threadDateMode: "activity" };
 }
 
 function setStoredConversationsFilters(filters: {
   showResolved: boolean;
   showOutdated: boolean;
+  showPending: boolean;
   threadDateMode: "created" | "activity";
 }): void {
   try {
