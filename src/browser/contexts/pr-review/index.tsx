@@ -170,6 +170,8 @@ interface PRReviewState {
   pushVersions: PushVersion[];
   /** Map from Gerrit Change-Id to commits ordered oldest → newest push version */
   commitVersionHistory: Record<string, PRCommit[]>;
+  /** All commits for each historical push version (used for interdiff selectors) */
+  commitsByVersion: Array<{ version: number; commits: PRCommit[] }>;
   checks: ChecksData | null;
   checksLastUpdated: Date | null;
   workflowRunsAwaitingApproval: WorkflowRunAwaitingApproval[];
@@ -182,7 +184,14 @@ interface PRReviewState {
   // Per-commit selector
   /** The commit SHA currently being reviewed (null = full branch) */
   selectedCommitSha: string | null;
-  /** Whether interdiff mode is active (show changes vs previous commit version) */
+  /**
+   * Push version SHA to compare against (null = "Target", i.e. PR base branch).
+   * When non-null and a commit is selected, interdiff mode is active.
+   */
+  compareToSha: string | null;
+  /** Commit SHA in the compare-to version, auto-matched by heuristics */
+  compareToCommitSha: string | null;
+  /** Whether interdiff mode is active (compareToSha set + both commits resolved) */
   interdiffEnabled: boolean;
   /** Interdiff ParsedDiff results per file (populated when interdiffEnabled) */
   interdiffLoadedDiffs: Record<string, ParsedDiff>;
@@ -343,6 +352,35 @@ function parseChangeId(message: string): string | null {
   return CHANGE_ID_RE.exec(message)?.[1] ?? null;
 }
 
+function firstLine(message: string): string {
+  return message.split("\n")[0].trim();
+}
+
+/**
+ * Find the best matching commit in `candidates` for the given `commit`.
+ * Tries Change-Id exact match first, then subject-line exact match.
+ */
+function findMatchingCommit(
+  commit: PRCommit,
+  candidates: PRCommit[]
+): PRCommit | null {
+  const changeId = parseChangeId(commit.commit.message);
+  if (changeId) {
+    const match = candidates.find(
+      (c) => parseChangeId(c.commit.message) === changeId
+    );
+    if (match) return match;
+  }
+  const subject = firstLine(commit.commit.message);
+  if (subject) {
+    const match = candidates.find(
+      (c) => firstLine(c.commit.message) === subject
+    );
+    if (match) return match;
+  }
+  return null;
+}
+
 /**
  * Build a map from Gerrit Change-Id to the list of commits with that id,
  * ordered oldest → newest by push version.
@@ -440,8 +478,11 @@ export class PRReviewStore {
       commits: [],
       pushVersions: [],
       commitVersionHistory: {},
+      commitsByVersion: [],
       selectedHeadSha: null,
       selectedCommitSha: null,
+      compareToSha: null,
+      compareToCommitSha: null,
       interdiffEnabled: false,
       interdiffLoadedDiffs: {},
       checks: null,
@@ -910,9 +951,9 @@ export class PRReviewStore {
   setSelectedCommitSha = async (sha: string | null): Promise<void> => {
     const { owner, repo } = this.state;
 
-    // Reset interdiff when changing commit
     const resetBase = {
       selectedCommitSha: sha,
+      compareToCommitSha: null,
       interdiffEnabled: false,
       interdiffLoadedDiffs: {},
       loadedDiffs: {},
@@ -922,7 +963,6 @@ export class PRReviewStore {
     };
 
     if (sha === null) {
-      // Restore files to version-appropriate or base
       const { selectedHeadSha } = this.state;
       if (selectedHeadSha) {
         this.set(resetBase);
@@ -943,46 +983,32 @@ export class PRReviewStore {
       .catch(() => [] as PullRequestFile[]);
 
     this.set({ files: sortFilesLikeTree(commitFiles) });
+
+    // If comparing to a specific version, auto-match the commit in that version
+    if (this.state.compareToSha) {
+      await this.autoMatchAndComputeInterdiff(sha);
+    }
   };
 
-  setInterdiffEnabled = async (enabled: boolean): Promise<void> => {
-    if (!enabled) {
-      this.set({ interdiffEnabled: false, interdiffLoadedDiffs: {} });
-      return;
-    }
+  private computeInterdiff = async (
+    baseCommitSha: string,
+    headCommitSha: string
+  ): Promise<void> => {
+    const { owner, repo } = this.state;
 
-    const { selectedCommitSha, commitVersionHistory, owner, repo } = this.state;
-    if (!selectedCommitSha) return;
-
-    // Find the commit in the version history by Change-Id
-    const commit = this.state.commits.find((c) => c.sha === selectedCommitSha)
-      ?? Object.values(commitVersionHistory).flat().find((c) => c.sha === selectedCommitSha);
-    if (!commit) return;
-
-    const changeId = parseChangeId(commit.commit.message);
-    if (!changeId) return;
-
-    const history = commitVersionHistory[changeId];
-    if (!history || history.length < 2) return;
-
-    // Find the previous version (the one before the currently selected commit)
-    const currentIdx = history.findIndex((c) => c.sha === selectedCommitSha);
-    if (currentIdx <= 0) return;
-    const prevCommit = history[currentIdx - 1];
-
-    this.set({ interdiffEnabled: true });
-
-    // Fetch files for the previous version of this commit
-    const prevFiles = await this.github
-      .getCommitFiles(owner, repo, prevCommit.sha)
-      .catch(() => [] as PullRequestFile[]);
+    const [prevFiles, headFiles] = await Promise.all([
+      this.github
+        .getCommitFiles(owner, repo, baseCommitSha)
+        .catch(() => [] as PullRequestFile[]),
+      this.github
+        .getCommitFiles(owner, repo, headCommitSha)
+        .catch(() => [] as PullRequestFile[]),
+    ]);
 
     const prevByFilename = new Map(prevFiles.map((f) => [f.filename, f]));
 
-    // Compute interdiff for each current file
-    const currentFiles = this.state.files;
     const interdiffEntries = await Promise.all(
-      currentFiles.map(async (currFile) => {
+      headFiles.map(async (currFile) => {
         const prevFile = prevByFilename.get(currFile.filename);
         const diff = await diffService
           .interdiff(prevFile?.patch ?? "", currFile.patch ?? "")
@@ -991,9 +1017,59 @@ export class PRReviewStore {
       })
     );
 
+    this.set({ interdiffLoadedDiffs: Object.fromEntries(interdiffEntries) });
+  };
+
+  /**
+   * Auto-match the given head commit to a commit in the compare-to version
+   * using heuristics, then compute the interdiff.
+   */
+  private autoMatchAndComputeInterdiff = async (
+    headCommitSha: string
+  ): Promise<void> => {
+    const { compareToSha, commits, commitsByVersion, pushVersions } = this.state;
+    if (!compareToSha) return;
+
+    const compareToVersion = pushVersions.find((v) => v.sha === compareToSha);
+    const compareToVersionCommits = compareToVersion
+      ? (commitsByVersion.find((v) => v.version === compareToVersion.version)?.commits ?? [])
+      : [];
+
+    const headCommit = commits.find((c) => c.sha === headCommitSha);
+    let compareToCommitSha: string | null = null;
+    if (headCommit && compareToVersionCommits.length > 0) {
+      compareToCommitSha =
+        findMatchingCommit(headCommit, compareToVersionCommits)?.sha ?? null;
+    }
+
+    const interdiffEnabled = compareToCommitSha !== null;
+    this.set({ compareToCommitSha, interdiffEnabled, interdiffLoadedDiffs: {} });
+
+    if (compareToCommitSha) {
+      await this.computeInterdiff(compareToCommitSha, headCommitSha);
+    }
+  };
+
+  setCompareToSha = async (sha: string | null): Promise<void> => {
     this.set({
-      interdiffLoadedDiffs: Object.fromEntries(interdiffEntries),
+      compareToSha: sha,
+      compareToCommitSha: null,
+      interdiffEnabled: false,
+      interdiffLoadedDiffs: {},
     });
+    const { selectedCommitSha } = this.state;
+    if (sha && selectedCommitSha) {
+      await this.autoMatchAndComputeInterdiff(selectedCommitSha);
+    }
+  };
+
+  setCompareToCommitSha = async (sha: string | null): Promise<void> => {
+    const { selectedCommitSha } = this.state;
+    const interdiffEnabled = sha !== null && selectedCommitSha !== null;
+    this.set({ compareToCommitSha: sha, interdiffEnabled, interdiffLoadedDiffs: {} });
+    if (sha && selectedCommitSha) {
+      await this.computeInterdiff(sha, selectedCommitSha);
+    }
   };
 
   // ---------------------------------------------------------------------------
@@ -2485,8 +2561,9 @@ export class PRReviewStore {
       // Build commit version history: fetch commits for each push version
       // so we can map Change-Id footers across amended commits.
       let commitVersionHistory: Record<string, PRCommit[]> = {};
+      let commitsByVersion: Array<{ version: number; commits: PRCommit[] }> = [];
       if (pushVersionsData.length > 0) {
-        const versionedLists = await Promise.all(
+        commitsByVersion = await Promise.all(
           pushVersionsData.map(async (pv) => {
             const commits = await this.github
               .getCommitsForHeadSha(owner, repo, pr.base.sha, pv.sha)
@@ -2494,7 +2571,7 @@ export class PRReviewStore {
             return { version: pv.version, commits };
           })
         );
-        commitVersionHistory = buildCommitVersionHistory(versionedLists);
+        commitVersionHistory = buildCommitVersionHistory(commitsByVersion);
       }
 
       this.set({
@@ -2506,6 +2583,7 @@ export class PRReviewStore {
         commits: commitsData,
         pushVersions: pushVersionsData,
         commitVersionHistory,
+        commitsByVersion,
         timeline: timelineData,
         reviewThreads: reviewThreadsResult.threads,
         comments: this.enrichCommentsFromThreads(

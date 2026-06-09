@@ -34,7 +34,7 @@ import {
   BookOpen,
   Smile,
 } from "lucide-react";
-import type { Reaction, ReactionContent, PushVersion } from "../contexts/github";
+import type { Reaction, ReactionContent } from "../contexts/github";
 import { Skeleton } from "../ui/skeleton";
 import { PROverview } from "./pr-overview";
 import {
@@ -505,6 +505,9 @@ const FilePanel = memo(function FilePanel({
         </kbd>
       </button>
 
+      {/* Version / commit selectors (hidden when no push versions) */}
+      <VersionBar />
+
       {/* Search button with hide-viewed toggle */}
       <div className="mx-2 my-2 flex items-center gap-1.5">
         <button
@@ -596,185 +599,218 @@ const ReadOnlyBanner = memo(function ReadOnlyBanner() {
 });
 
 // ============================================================================
-// Per-Commit Selector Bar
+// Version / Commit Selector (sidebar)
 // ============================================================================
 
-const CHANGE_ID_RE = /^Change-Id:\s*(I[0-9a-f]{40})\s*$/m;
+/**
+ * Stacked version/commit selectors for the file-list sidebar.
+ * Self-contained: reads state and dispatches actions directly.
+ * Returns null when there are no push versions (no interdiff context available).
+ */
+function VersionBar() {
+  const store = usePRReviewStore();
+  const pr = usePRReviewSelector((s) => s.pr);
+  const pushVersions = usePRReviewSelector((s) => s.pushVersions);
+  const commits = usePRReviewSelector((s) => s.commits);
+  const commitsByVersion = usePRReviewSelector((s) => s.commitsByVersion);
+  const compareToSha = usePRReviewSelector((s) => s.compareToSha);
+  const compareToCommitSha = usePRReviewSelector((s) => s.compareToCommitSha);
+  const selectedHeadSha = usePRReviewSelector((s) => s.selectedHeadSha);
+  const selectedCommitSha = usePRReviewSelector((s) => s.selectedCommitSha);
 
-function CommitSelectorBar({
-  commits,
-  selectedCommitSha,
-  commitVersionHistory,
-  interdiffEnabled,
-  onSelectCommit,
-  onToggleInterdiff,
-}: {
-  commits: import("../contexts/github").PRCommit[];
-  selectedCommitSha: string | null;
-  commitVersionHistory: Record<string, import("../contexts/github").PRCommit[]>;
-  interdiffEnabled: boolean;
-  onSelectCommit: (sha: string | null) => void;
-  onToggleInterdiff: (enabled: boolean) => void;
-}) {
+  if (pushVersions.length === 0 || commits.length === 0) return null;
+
+  const latestSha = pr.head.sha;
+  const latestVersion = pushVersions[pushVersions.length - 1];
+
+  const isViewingLatest = selectedHeadSha === null || selectedHeadSha === latestSha;
+  const viewingLabel = isViewingLatest
+    ? `Latest (v${(latestVersion?.version ?? 0) + 1})`
+    : `v${pushVersions.find((v) => v.sha === selectedHeadSha)?.version ?? "?"}`;
+
+  const compareToVersion = compareToSha
+    ? pushVersions.find((v) => v.sha === compareToSha)
+    : null;
+  const compareToLabel = compareToSha
+    ? `v${compareToVersion?.version ?? "?"}`
+    : "Target";
+
+  const compareToVersionCommits = compareToVersion
+    ? (commitsByVersion.find((v) => v.version === compareToVersion.version)?.commits ?? [])
+    : [];
+
   const selectedCommit = selectedCommitSha
     ? commits.find((c) => c.sha === selectedCommitSha)
     : null;
-
-  const changeId = selectedCommit
-    ? CHANGE_ID_RE.exec(selectedCommit.commit.message)?.[1] ?? null
+  const compareToCommit = compareToCommitSha
+    ? compareToVersionCommits.find((c) => c.sha === compareToCommitSha)
     : null;
 
-  const hasHistory = changeId
-    ? (commitVersionHistory[changeId]?.length ?? 0) > 1
-    : false;
-
-  const prevVersion = changeId && hasHistory
-    ? commitVersionHistory[changeId]
-    : null;
-
-  const hasPrevVersion = prevVersion ? prevVersion.length >= 2 : false;
-  const prevVersionNumber = hasPrevVersion && prevVersion
-    ? prevVersion.length - 1
-    : null;
+  const sectionLabel = "text-[10px] uppercase tracking-wide text-muted-foreground/60 mb-0.5";
+  const triggerBtn = "w-full flex items-center justify-between gap-1 px-2 py-1 rounded border border-border hover:bg-muted text-xs transition-colors truncate";
 
   return (
-    <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
-      <span className="shrink-0">Commit:</span>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button className="flex items-center gap-1 px-2 py-0.5 rounded border border-border hover:bg-muted transition-colors text-xs font-medium max-w-[200px]">
-            <span className="truncate">
-              {selectedCommit
-                ? selectedCommit.commit.message.split("\n")[0].slice(0, 40)
-                : "Full branch"}
-            </span>
-            <ChevronDown className="w-3 h-3 shrink-0" />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-72">
-          <DropdownMenuLabel className="text-xs">Commit</DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            onClick={() => onSelectCommit(null)}
-            className="text-xs flex items-center justify-between"
-          >
-            <span>Full branch</span>
-            {!selectedCommitSha && <Check className="w-3 h-3 ml-2 shrink-0" />}
-          </DropdownMenuItem>
-          {commits.map((c) => (
+    <div className="mx-2 mt-2 space-y-2 pb-1">
+      {/* ── Viewing ── */}
+      <div>
+        <div className={sectionLabel}>Viewing</div>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className={triggerBtn}>
+              <span className="truncate">{viewingLabel}</span>
+              <ChevronDown className="w-3 h-3 shrink-0" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-48">
+            <DropdownMenuLabel className="text-xs">Viewing version</DropdownMenuLabel>
+            <DropdownMenuSeparator />
             <DropdownMenuItem
-              key={c.sha}
-              onClick={() => onSelectCommit(c.sha)}
-              className="text-xs flex items-center justify-between gap-2"
-            >
-              <span className="flex-1 truncate">
-                {c.commit.message.split("\n")[0]}
-              </span>
-              <span className="font-mono text-muted-foreground shrink-0">
-                {c.sha.slice(0, 7)}
-              </span>
-              {selectedCommitSha === c.sha && (
-                <Check className="w-3 h-3 shrink-0" />
-              )}
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
-
-      {selectedCommitSha && (
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={() =>
-                  hasPrevVersion && onToggleInterdiff(!interdiffEnabled)
-                }
-                className={cn(
-                  "flex items-center gap-1 px-2 py-0.5 rounded border text-xs font-medium transition-colors",
-                  interdiffEnabled
-                    ? "border-amber-500/50 bg-amber-500/10 text-amber-400"
-                    : hasPrevVersion
-                      ? "border-border hover:bg-muted text-muted-foreground hover:text-foreground"
-                      : "border-border text-muted-foreground/50 cursor-default"
-                )}
-              >
-                {interdiffEnabled && prevVersionNumber
-                  ? `Changes since v${prevVersionNumber}`
-                  : "Interdiff"}
-              </button>
-            </TooltipTrigger>
-            {!hasPrevVersion && (
-              <TooltipContent side="bottom" className="text-xs max-w-[200px]">
-                {changeId
-                  ? "No prior version found for this commit"
-                  : "Rebase comparison requires Change-Id footers (jj gerrit upload)"}
-              </TooltipContent>
-            )}
-          </Tooltip>
-        </TooltipProvider>
-      )}
-    </div>
-  );
-}
-
-// ============================================================================
-// Push Version Selector Bar
-// ============================================================================
-
-function PushVersionBar({
-  pushVersions,
-  selectedHeadSha,
-  latestSha,
-  onSelect,
-}: {
-  pushVersions: PushVersion[];
-  selectedHeadSha: string | null;
-  latestSha: string;
-  onSelect: (sha: string | null) => void;
-}) {
-  const currentVersion = selectedHeadSha
-    ? pushVersions.find((v) => v.sha === selectedHeadSha)
-    : null;
-  const latestVersion = pushVersions[pushVersions.length - 1];
-  const isLatest = selectedHeadSha === null || selectedHeadSha === latestSha;
-  const label = isLatest
-    ? `Latest (v${(latestVersion?.version ?? 0) + 1})`
-    : `v${currentVersion?.version ?? "?"}`;
-
-  return (
-    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-      <span className="shrink-0">Viewing:</span>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button className="flex items-center gap-1 px-2 py-0.5 rounded border border-border hover:bg-muted transition-colors text-xs font-medium">
-            {label}
-            <ChevronDown className="w-3 h-3" />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-48">
-          <DropdownMenuLabel className="text-xs">Push version</DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            onClick={() => onSelect(null)}
-            className="text-xs flex items-center justify-between"
-          >
-            <span>Latest (v{(latestVersion?.version ?? 0) + 1})</span>
-            {isLatest && <Check className="w-3 h-3 ml-2 shrink-0" />}
-          </DropdownMenuItem>
-          {[...pushVersions].reverse().map((pv) => (
-            <DropdownMenuItem
-              key={pv.sha}
-              onClick={() => onSelect(pv.sha)}
+              onClick={() => store.setSelectedHeadSha(null)}
               className="text-xs flex items-center justify-between"
             >
-              <span>v{pv.version}</span>
-              {selectedHeadSha === pv.sha && (
-                <Check className="w-3 h-3 ml-2 shrink-0" />
-              )}
+              <span>Latest (v{(latestVersion?.version ?? 0) + 1})</span>
+              {isViewingLatest && <Check className="w-3 h-3 ml-2 shrink-0" />}
             </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
+            {[...pushVersions].reverse().map((pv) => (
+              <DropdownMenuItem
+                key={pv.sha}
+                onClick={() => store.setSelectedHeadSha(pv.sha)}
+                className="text-xs flex items-center justify-between"
+              >
+                <span>v{pv.version}</span>
+                {selectedHeadSha === pv.sha && (
+                  <Check className="w-3 h-3 ml-2 shrink-0" />
+                )}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+
+      {/* ── Commit ── */}
+      <div>
+        <div className={sectionLabel}>Commit</div>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className={triggerBtn}>
+              <span className="truncate">
+                {selectedCommit
+                  ? selectedCommit.commit.message.split("\n")[0]
+                  : "Full branch"}
+              </span>
+              <ChevronDown className="w-3 h-3 shrink-0" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-72">
+            <DropdownMenuLabel className="text-xs">Commit</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={() => store.setSelectedCommitSha(null)}
+              className="text-xs flex items-center justify-between"
+            >
+              <span>Full branch</span>
+              {!selectedCommitSha && <Check className="w-3 h-3 ml-2 shrink-0" />}
+            </DropdownMenuItem>
+            {commits.map((c) => (
+              <DropdownMenuItem
+                key={c.sha}
+                onClick={() => store.setSelectedCommitSha(c.sha)}
+                className="text-xs flex items-center justify-between gap-2"
+              >
+                <span className="flex-1 truncate">
+                  {c.commit.message.split("\n")[0]}
+                </span>
+                <span className="font-mono text-muted-foreground shrink-0">
+                  {c.sha.slice(0, 7)}
+                </span>
+                {selectedCommitSha === c.sha && (
+                  <Check className="w-3 h-3 shrink-0" />
+                )}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+
+      {/* ── Compare to ── */}
+      <div>
+        <div className={sectionLabel}>Compare to</div>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className={triggerBtn}>
+              <span className="truncate">{compareToLabel}</span>
+              <ChevronDown className="w-3 h-3 shrink-0" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-48">
+            <DropdownMenuLabel className="text-xs">Compare to</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={() => store.setCompareToSha(null)}
+              className="text-xs flex items-center justify-between"
+            >
+              <span>Target</span>
+              {!compareToSha && <Check className="w-3 h-3 ml-2 shrink-0" />}
+            </DropdownMenuItem>
+            {[...pushVersions].reverse().map((pv) => (
+              <DropdownMenuItem
+                key={pv.sha}
+                onClick={() => store.setCompareToSha(pv.sha)}
+                className="text-xs flex items-center justify-between"
+              >
+                <span>v{pv.version}</span>
+                {compareToSha === pv.sha && (
+                  <Check className="w-3 h-3 ml-2 shrink-0" />
+                )}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        {/* Compare-to commit — nested below when a version is selected */}
+        {compareToSha && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button className="mt-1 ml-3 w-[calc(100%-0.75rem)] flex items-center justify-between gap-1 px-2 py-1 rounded border border-border hover:bg-muted text-xs transition-colors text-muted-foreground">
+                <span className="truncate">
+                  {compareToCommit
+                    ? compareToCommit.commit.message.split("\n")[0]
+                    : "— none —"}
+                </span>
+                <ChevronDown className="w-3 h-3 shrink-0" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-72">
+              <DropdownMenuLabel className="text-xs">
+                Commit in {compareToLabel}
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {compareToVersionCommits.map((c) => (
+                <DropdownMenuItem
+                  key={c.sha}
+                  onClick={() => store.setCompareToCommitSha(c.sha)}
+                  className="text-xs flex items-center justify-between gap-2"
+                >
+                  <span className="flex-1 truncate">
+                    {c.commit.message.split("\n")[0]}
+                  </span>
+                  <span className="font-mono text-muted-foreground shrink-0">
+                    {c.sha.slice(0, 7)}
+                  </span>
+                  {compareToCommitSha === c.sha && (
+                    <Check className="w-3 h-3 shrink-0" />
+                  )}
+                </DropdownMenuItem>
+              ))}
+              {compareToVersionCommits.length === 0 && (
+                <DropdownMenuItem disabled className="text-xs text-muted-foreground">
+                  No commits available
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+      </div>
     </div>
   );
 }
@@ -798,12 +834,6 @@ const DiffPanel = memo(function DiffPanel() {
   );
   const pushVersions = usePRReviewSelector((s) => s.pushVersions);
   const selectedHeadSha = usePRReviewSelector((s) => s.selectedHeadSha);
-  const commits = usePRReviewSelector((s) => s.commits);
-  const selectedCommitSha = usePRReviewSelector((s) => s.selectedCommitSha);
-  const interdiffEnabled = usePRReviewSelector((s) => s.interdiffEnabled);
-  const commitVersionHistory = usePRReviewSelector(
-    (s) => s.commitVersionHistory
-  );
 
   const currentFile = useCurrentFile();
   const parsedDiff = useCurrentDiff();
@@ -832,30 +862,6 @@ const DiffPanel = memo(function DiffPanel() {
         <div className="flex flex-col flex-1 min-h-0">
           {/* Sticky file header with navigation */}
           <div className="shrink-0 border-b border-border bg-muted/50 backdrop-blur-sm z-20">
-            {(pushVersions.length > 0 || commits.length > 0) && (
-              <div className="px-3 pt-1.5 pb-0 flex flex-wrap items-center gap-x-4 gap-y-1">
-                {commits.length > 0 && (
-                  <CommitSelectorBar
-                    commits={commits}
-                    selectedCommitSha={selectedCommitSha}
-                    commitVersionHistory={commitVersionHistory}
-                    interdiffEnabled={interdiffEnabled}
-                    onSelectCommit={(sha) => store.setSelectedCommitSha(sha)}
-                    onToggleInterdiff={(enabled) =>
-                      store.setInterdiffEnabled(enabled)
-                    }
-                  />
-                )}
-                {pushVersions.length > 0 && (
-                  <PushVersionBar
-                    pushVersions={pushVersions}
-                    selectedHeadSha={selectedHeadSha}
-                    latestSha={pr.head.sha}
-                    onSelect={(sha) => store.setSelectedHeadSha(sha)}
-                  />
-                )}
-              </div>
-            )}
             <div className="px-3 py-1.5">
               <FileHeader
                 file={currentFile}
