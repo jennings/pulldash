@@ -44,12 +44,21 @@ function applyThreadFilters(
 
 type SidebarItem =
   | { kind: "thread"; thread: ReviewThread; sortPath: string; sortLine: number }
-  | { kind: "pending"; pending: LocalPendingComment; sortPath: string; sortLine: number };
+  | {
+      kind: "pending";
+      pending: LocalPendingComment;
+      sortPath: string;
+      sortLine: number;
+    };
 
 function buildSidebarItems(
   threads: ReviewThread[],
   pendingComments: LocalPendingComment[],
-  filters: { showResolved: boolean; showOutdated: boolean; showPending: boolean }
+  filters: {
+    showResolved: boolean;
+    showOutdated: boolean;
+    showPending: boolean;
+  }
 ): SidebarItem[] {
   const visibleThreads = applyThreadFilters(threads, filters);
   const items: SidebarItem[] = [];
@@ -97,7 +106,11 @@ export const ConversationsSidebar = memo(function ConversationsSidebar() {
   const filters = usePRReviewSelector((s) => s.conversationsFilters);
   const prUrl = usePRReviewSelector((s) => s.pr.html_url);
 
-  const sidebarItems = buildSidebarItems(reviewThreads, pendingComments, filters);
+  const sidebarItems = buildSidebarItems(
+    reviewThreads,
+    pendingComments,
+    filters
+  );
 
   const filtersActive =
     filters.showResolved || !filters.showOutdated || !filters.showPending;
@@ -221,8 +234,10 @@ export const ConversationsSidebar = memo(function ConversationsSidebar() {
                 const threadIsOutdated = isOutdated(thread);
 
                 const seenLogins = new Set<string>();
-                const replyAvatars: Array<{ login: string; avatarUrl: string }> =
-                  [];
+                const replyAvatars: Array<{
+                  login: string;
+                  avatarUrl: string;
+                }> = [];
                 for (const c of thread.comments.nodes.slice(1)) {
                   if (c.author && !seenLogins.has(c.author.login)) {
                     seenLogins.add(c.author.login);
@@ -369,7 +384,8 @@ export const ConversationsSidebar = memo(function ConversationsSidebar() {
                   {/* Footer: line number */}
                   <div className="flex items-center gap-1.5">
                     <span className="text-xs text-muted-foreground">
-                      {pending.start_line != null && pending.start_line !== pending.line
+                      {pending.start_line != null &&
+                      pending.start_line !== pending.line
                         ? `Lines ${pending.start_line}–${pending.line}`
                         : `Line ${pending.line}`}
                     </span>

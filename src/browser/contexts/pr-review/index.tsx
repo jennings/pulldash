@@ -316,7 +316,12 @@ function getStoredConversationsFilters(): {
       }
     }
   } catch {}
-  return { showResolved: false, showOutdated: true, showPending: true, threadDateMode: "activity" };
+  return {
+    showResolved: false,
+    showOutdated: true,
+    showPending: true,
+    threadDateMode: "activity",
+  };
 }
 
 function setStoredConversationsFilters(filters: {
@@ -620,7 +625,9 @@ export class PRReviewStore {
     });
   };
 
-  setConversationsFilter = <K extends keyof PRReviewState["conversationsFilters"]>(
+  setConversationsFilter = <
+    K extends keyof PRReviewState["conversationsFilters"],
+  >(
     key: K,
     value: PRReviewState["conversationsFilters"][K]
   ) => {
@@ -967,7 +974,12 @@ export class PRReviewStore {
       if (selectedHeadSha) {
         this.set(resetBase);
         const versionFiles = await this.github
-          .getPRFilesForRange(owner, repo, this.state.pr.base.sha, selectedHeadSha)
+          .getPRFilesForRange(
+            owner,
+            repo,
+            this.state.pr.base.sha,
+            selectedHeadSha
+          )
           .catch(() => [] as PullRequestFile[]);
         this.set({ files: sortFilesLikeTree(versionFiles) });
       } else {
@@ -1027,12 +1039,14 @@ export class PRReviewStore {
   private autoMatchAndComputeInterdiff = async (
     headCommitSha: string
   ): Promise<void> => {
-    const { compareToSha, commits, commitsByVersion, pushVersions } = this.state;
+    const { compareToSha, commits, commitsByVersion, pushVersions } =
+      this.state;
     if (!compareToSha) return;
 
     const compareToVersion = pushVersions.find((v) => v.sha === compareToSha);
     const compareToVersionCommits = compareToVersion
-      ? (commitsByVersion.find((v) => v.version === compareToVersion.version)?.commits ?? [])
+      ? (commitsByVersion.find((v) => v.version === compareToVersion.version)
+          ?.commits ?? [])
       : [];
 
     const headCommit = commits.find((c) => c.sha === headCommitSha);
@@ -1043,7 +1057,11 @@ export class PRReviewStore {
     }
 
     const interdiffEnabled = compareToCommitSha !== null;
-    this.set({ compareToCommitSha, interdiffEnabled, interdiffLoadedDiffs: {} });
+    this.set({
+      compareToCommitSha,
+      interdiffEnabled,
+      interdiffLoadedDiffs: {},
+    });
 
     if (compareToCommitSha) {
       await this.computeInterdiff(compareToCommitSha, headCommitSha);
@@ -1066,7 +1084,11 @@ export class PRReviewStore {
   setCompareToCommitSha = async (sha: string | null): Promise<void> => {
     const { selectedCommitSha } = this.state;
     const interdiffEnabled = sha !== null && selectedCommitSha !== null;
-    this.set({ compareToCommitSha: sha, interdiffEnabled, interdiffLoadedDiffs: {} });
+    this.set({
+      compareToCommitSha: sha,
+      interdiffEnabled,
+      interdiffLoadedDiffs: {},
+    });
     if (sha && selectedCommitSha) {
       await this.computeInterdiff(sha, selectedCommitSha);
     }
@@ -2561,7 +2583,8 @@ export class PRReviewStore {
       // Build commit version history: fetch commits for each push version
       // so we can map Change-Id footers across amended commits.
       let commitVersionHistory: Record<string, PRCommit[]> = {};
-      let commitsByVersion: Array<{ version: number; commits: PRCommit[] }> = [];
+      let commitsByVersion: Array<{ version: number; commits: PRCommit[] }> =
+        [];
       if (pushVersionsData.length > 0) {
         commitsByVersion = await Promise.all(
           pushVersionsData.map(async (pv) => {

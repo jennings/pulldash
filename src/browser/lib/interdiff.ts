@@ -16,7 +16,13 @@
 
 import gitDiffParser from "gitdiff-parser";
 import { diffLines } from "diff";
-import type { ParsedDiff, DiffHunk, DiffSkipBlock, DiffLine, LineSegment } from "./diff-worker";
+import type {
+  ParsedDiff,
+  DiffHunk,
+  DiffSkipBlock,
+  DiffLine,
+  LineSegment,
+} from "./diff-worker";
 
 const CONTEXT_LINES = 3;
 
@@ -84,8 +90,9 @@ export function computeInterdiff(patch1: string, patch2: string): ParsedDiff {
   let newLine = 1;
 
   for (const diff of diffs) {
-    const raw =
-      diff.value.endsWith("\n") ? diff.value.slice(0, -1) : diff.value;
+    const raw = diff.value.endsWith("\n")
+      ? diff.value.slice(0, -1)
+      : diff.value;
     const parts = raw.split("\n");
     for (const content of parts) {
       if (!diff.added && !diff.removed) {
@@ -103,9 +110,7 @@ export function computeInterdiff(patch1: string, patch2: string): ParsedDiff {
   }
 
   const isChanged = flat.map((l) => l.type !== "equal");
-  const changedIdxs = flat
-    .map((_, i) => i)
-    .filter((i) => isChanged[i]);
+  const changedIdxs = flat.map((_, i) => i).filter((i) => isChanged[i]);
 
   if (changedIdxs.length === 0) return { hunks: [] };
 

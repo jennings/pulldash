@@ -623,7 +623,8 @@ function VersionBar() {
   const latestSha = pr.head.sha;
   const latestVersion = pushVersions[pushVersions.length - 1];
 
-  const isViewingLatest = selectedHeadSha === null || selectedHeadSha === latestSha;
+  const isViewingLatest =
+    selectedHeadSha === null || selectedHeadSha === latestSha;
   const viewingLabel = isViewingLatest
     ? `Latest (v${(latestVersion?.version ?? 0) + 1})`
     : `v${pushVersions.find((v) => v.sha === selectedHeadSha)?.version ?? "?"}`;
@@ -636,7 +637,8 @@ function VersionBar() {
     : "Target";
 
   const compareToVersionCommits = compareToVersion
-    ? (commitsByVersion.find((v) => v.version === compareToVersion.version)?.commits ?? [])
+    ? (commitsByVersion.find((v) => v.version === compareToVersion.version)
+        ?.commits ?? [])
     : [];
 
   const selectedCommit = selectedCommitSha
@@ -646,8 +648,10 @@ function VersionBar() {
     ? compareToVersionCommits.find((c) => c.sha === compareToCommitSha)
     : null;
 
-  const sectionLabel = "text-[10px] uppercase tracking-wide text-muted-foreground/60 mb-0.5";
-  const triggerBtn = "w-full flex items-center justify-between gap-1 px-2 py-1 rounded border border-border hover:bg-muted text-xs transition-colors truncate";
+  const sectionLabel =
+    "text-[10px] uppercase tracking-wide text-muted-foreground/60 mb-0.5";
+  const triggerBtn =
+    "w-full flex items-center justify-between gap-1 px-2 py-1 rounded border border-border hover:bg-muted text-xs transition-colors truncate";
 
   return (
     <div className="mx-2 mt-2 space-y-2 pb-1">
@@ -662,7 +666,9 @@ function VersionBar() {
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-48">
-            <DropdownMenuLabel className="text-xs">Viewing version</DropdownMenuLabel>
+            <DropdownMenuLabel className="text-xs">
+              Viewing version
+            </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuItem
               onClick={() => store.setSelectedHeadSha(null)}
@@ -709,7 +715,9 @@ function VersionBar() {
               className="text-xs flex items-center justify-between"
             >
               <span>Full branch</span>
-              {!selectedCommitSha && <Check className="w-3 h-3 ml-2 shrink-0" />}
+              {!selectedCommitSha && (
+                <Check className="w-3 h-3 ml-2 shrink-0" />
+              )}
             </DropdownMenuItem>
             {commits.map((c) => (
               <DropdownMenuItem
@@ -743,7 +751,9 @@ function VersionBar() {
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-48">
-            <DropdownMenuLabel className="text-xs">Compare to</DropdownMenuLabel>
+            <DropdownMenuLabel className="text-xs">
+              Compare to
+            </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuItem
               onClick={() => store.setCompareToSha(null)}
@@ -803,7 +813,10 @@ function VersionBar() {
                 </DropdownMenuItem>
               ))}
               {compareToVersionCommits.length === 0 && (
-                <DropdownMenuItem disabled className="text-xs text-muted-foreground">
+                <DropdownMenuItem
+                  disabled
+                  className="text-xs text-muted-foreground"
+                >
                   No commits available
                 </DropdownMenuItem>
               )}
@@ -1176,7 +1189,12 @@ type VirtualRowType =
       index: number;
       isRebaseArtifact?: boolean;
     }
-  | { type: "split-line"; pair: SplitLinePair; index: number; isRebaseArtifact?: boolean }
+  | {
+      type: "split-line";
+      pair: SplitLinePair;
+      index: number;
+      isRebaseArtifact?: boolean;
+    }
   | { type: "comment-form"; lineNum: number; startLine?: number; index: number }
   | { type: "pending-comment"; comment: LocalPendingComment; index: number }
   | {
