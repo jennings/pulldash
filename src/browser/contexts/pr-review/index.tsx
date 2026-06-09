@@ -166,6 +166,8 @@ interface PRReviewState {
   conversation: IssueComment[];
   commits: PRCommit[];
   pushVersions: PushVersion[];
+  /** Map from Gerrit Change-Id to commits ordered oldest → newest push version */
+  commitVersionHistory: Record<string, PRCommit[]>;
   checks: ChecksData | null;
   checksLastUpdated: Date | null;
   workflowRunsAwaitingApproval: WorkflowRunAwaitingApproval[];
@@ -321,6 +323,38 @@ function setStoredDiffViewMode(mode: DiffViewMode): void {
   } catch {}
 }
 
+const CHANGE_ID_RE = /^Change-Id:\s*(I[0-9a-f]{40})\s*$/m;
+
+function parseChangeId(message: string): string | null {
+  return CHANGE_ID_RE.exec(message)?.[1] ?? null;
+}
+
+/**
+ * Build a map from Gerrit Change-Id to the list of commits with that id,
+ * ordered oldest → newest by push version.
+ */
+function buildCommitVersionHistory(
+  versionedCommitLists: Array<{ version: number; commits: PRCommit[] }>
+): Record<string, PRCommit[]> {
+  const sorted = [...versionedCommitLists].sort(
+    (a, b) => a.version - b.version
+  );
+
+  const map: Record<string, PRCommit[]> = {};
+  for (const { commits } of sorted) {
+    for (const commit of commits) {
+      const changeId = parseChangeId(commit.commit.message);
+      if (!changeId) continue;
+      if (!map[changeId]) map[changeId] = [];
+      // Avoid duplicates (same SHA in multiple fetches)
+      if (!map[changeId].some((c) => c.sha === commit.sha)) {
+        map[changeId].push(commit);
+      }
+    }
+  }
+  return map;
+}
+
 export class PRReviewStore {
   private state: PRReviewState;
   private listeners = new Set<Listener>();
@@ -388,6 +422,7 @@ export class PRReviewStore {
       conversation: [],
       commits: [],
       pushVersions: [],
+      commitVersionHistory: {},
       checks: null,
       checksLastUpdated: null,
       workflowRunsAwaitingApproval: [],
@@ -2299,6 +2334,21 @@ export class PRReviewStore {
         (event) => (event as { event?: string }).event === "head_ref_restored"
       ).length;
 
+      // Build commit version history: fetch commits for each push version
+      // so we can map Change-Id footers across amended commits.
+      let commitVersionHistory: Record<string, PRCommit[]> = {};
+      if (pushVersionsData.length > 0) {
+        const versionedLists = await Promise.all(
+          pushVersionsData.map(async (pv) => {
+            const commits = await this.github
+              .getCommitsForHeadSha(owner, repo, pr.base.sha, pv.sha)
+              .catch(() => [] as PRCommit[]);
+            return { version: pv.version, commits };
+          })
+        );
+        commitVersionHistory = buildCommitVersionHistory(versionedLists);
+      }
+
       this.set({
         reviews: reviewsData,
         checks: checksData,
@@ -2307,6 +2357,7 @@ export class PRReviewStore {
         conversation: conversationData,
         commits: commitsData,
         pushVersions: pushVersionsData,
+        commitVersionHistory,
         timeline: timelineData,
         reviewThreads: reviewThreadsResult.threads,
         comments: this.enrichCommentsFromThreads(

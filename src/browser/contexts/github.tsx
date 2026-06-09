@@ -1517,6 +1517,40 @@ function createGitHubStore() {
     return promise;
   }
 
+  async function getCommitsForHeadSha(
+    owner: string,
+    repo: string,
+    baseSha: string,
+    headSha: string
+  ): Promise<components["schemas"]["commit"][]> {
+    if (!octokit) throw new Error("Not initialized");
+
+    const cacheKey = `compare:${owner}/${repo}/${baseSha}...${headSha}:commits`;
+
+    const cached = cache.get<components["schemas"]["commit"][]>(cacheKey);
+    if (cached) return cached;
+
+    const pending =
+      cache.getPending<components["schemas"]["commit"][]>(cacheKey);
+    if (pending) return pending;
+
+    const promise = octokit
+      .request("GET /repos/{owner}/{repo}/compare/{basehead}", {
+        owner,
+        repo,
+        basehead: `${baseSha}...${headSha}`,
+        per_page: 100,
+      })
+      .then((res) => {
+        const commits = res.data.commits as components["schemas"]["commit"][];
+        cache.set(cacheKey, commits);
+        return commits;
+      });
+
+    cache.setPending(cacheKey, promise);
+    return promise;
+  }
+
   async function requestReviewers(
     owner: string,
     repo: string,
@@ -2869,6 +2903,7 @@ function createGitHubStore() {
     approveWorkflowRun,
     mergePR,
     getPRCommits,
+    getCommitsForHeadSha,
     getPRConversation,
     createPRConversationComment,
     getPRTimeline,
