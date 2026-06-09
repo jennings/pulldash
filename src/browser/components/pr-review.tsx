@@ -596,6 +596,128 @@ const ReadOnlyBanner = memo(function ReadOnlyBanner() {
 });
 
 // ============================================================================
+// Per-Commit Selector Bar
+// ============================================================================
+
+const CHANGE_ID_RE = /^Change-Id:\s*(I[0-9a-f]{40})\s*$/m;
+
+function CommitSelectorBar({
+  commits,
+  selectedCommitSha,
+  commitVersionHistory,
+  interdiffEnabled,
+  onSelectCommit,
+  onToggleInterdiff,
+}: {
+  commits: import("../contexts/github").PRCommit[];
+  selectedCommitSha: string | null;
+  commitVersionHistory: Record<string, import("../contexts/github").PRCommit[]>;
+  interdiffEnabled: boolean;
+  onSelectCommit: (sha: string | null) => void;
+  onToggleInterdiff: (enabled: boolean) => void;
+}) {
+  const selectedCommit = selectedCommitSha
+    ? commits.find((c) => c.sha === selectedCommitSha)
+    : null;
+
+  const changeId = selectedCommit
+    ? CHANGE_ID_RE.exec(selectedCommit.commit.message)?.[1] ?? null
+    : null;
+
+  const hasHistory = changeId
+    ? (commitVersionHistory[changeId]?.length ?? 0) > 1
+    : false;
+
+  const prevVersion = changeId && hasHistory
+    ? commitVersionHistory[changeId]
+    : null;
+
+  const hasPrevVersion = prevVersion ? prevVersion.length >= 2 : false;
+  const prevVersionNumber = hasPrevVersion && prevVersion
+    ? prevVersion.length - 1
+    : null;
+
+  return (
+    <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
+      <span className="shrink-0">Commit:</span>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button className="flex items-center gap-1 px-2 py-0.5 rounded border border-border hover:bg-muted transition-colors text-xs font-medium max-w-[200px]">
+            <span className="truncate">
+              {selectedCommit
+                ? selectedCommit.commit.message.split("\n")[0].slice(0, 40)
+                : "Full branch"}
+            </span>
+            <ChevronDown className="w-3 h-3 shrink-0" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-72">
+          <DropdownMenuLabel className="text-xs">Commit</DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            onClick={() => onSelectCommit(null)}
+            className="text-xs flex items-center justify-between"
+          >
+            <span>Full branch</span>
+            {!selectedCommitSha && <Check className="w-3 h-3 ml-2 shrink-0" />}
+          </DropdownMenuItem>
+          {commits.map((c) => (
+            <DropdownMenuItem
+              key={c.sha}
+              onClick={() => onSelectCommit(c.sha)}
+              className="text-xs flex items-center justify-between gap-2"
+            >
+              <span className="flex-1 truncate">
+                {c.commit.message.split("\n")[0]}
+              </span>
+              <span className="font-mono text-muted-foreground shrink-0">
+                {c.sha.slice(0, 7)}
+              </span>
+              {selectedCommitSha === c.sha && (
+                <Check className="w-3 h-3 shrink-0" />
+              )}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      {selectedCommitSha && (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() =>
+                  hasPrevVersion && onToggleInterdiff(!interdiffEnabled)
+                }
+                className={cn(
+                  "flex items-center gap-1 px-2 py-0.5 rounded border text-xs font-medium transition-colors",
+                  interdiffEnabled
+                    ? "border-amber-500/50 bg-amber-500/10 text-amber-400"
+                    : hasPrevVersion
+                      ? "border-border hover:bg-muted text-muted-foreground hover:text-foreground"
+                      : "border-border text-muted-foreground/50 cursor-default"
+                )}
+              >
+                {interdiffEnabled && prevVersionNumber
+                  ? `Changes since v${prevVersionNumber}`
+                  : "Interdiff"}
+              </button>
+            </TooltipTrigger>
+            {!hasPrevVersion && (
+              <TooltipContent side="bottom" className="text-xs max-w-[200px]">
+                {changeId
+                  ? "No prior version found for this commit"
+                  : "Rebase comparison requires Change-Id footers (jj gerrit upload)"}
+              </TooltipContent>
+            )}
+          </Tooltip>
+        </TooltipProvider>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
 // Push Version Selector Bar
 // ============================================================================
 
@@ -676,6 +798,12 @@ const DiffPanel = memo(function DiffPanel() {
   );
   const pushVersions = usePRReviewSelector((s) => s.pushVersions);
   const selectedHeadSha = usePRReviewSelector((s) => s.selectedHeadSha);
+  const commits = usePRReviewSelector((s) => s.commits);
+  const selectedCommitSha = usePRReviewSelector((s) => s.selectedCommitSha);
+  const interdiffEnabled = usePRReviewSelector((s) => s.interdiffEnabled);
+  const commitVersionHistory = usePRReviewSelector(
+    (s) => s.commitVersionHistory
+  );
 
   const currentFile = useCurrentFile();
   const parsedDiff = useCurrentDiff();
@@ -704,14 +832,28 @@ const DiffPanel = memo(function DiffPanel() {
         <div className="flex flex-col flex-1 min-h-0">
           {/* Sticky file header with navigation */}
           <div className="shrink-0 border-b border-border bg-muted/50 backdrop-blur-sm z-20">
-            {pushVersions.length > 0 && (
-              <div className="px-3 pt-1.5 pb-0">
-                <PushVersionBar
-                  pushVersions={pushVersions}
-                  selectedHeadSha={selectedHeadSha}
-                  latestSha={pr.head.sha}
-                  onSelect={(sha) => store.setSelectedHeadSha(sha)}
-                />
+            {(pushVersions.length > 0 || commits.length > 0) && (
+              <div className="px-3 pt-1.5 pb-0 flex flex-wrap items-center gap-x-4 gap-y-1">
+                {commits.length > 0 && (
+                  <CommitSelectorBar
+                    commits={commits}
+                    selectedCommitSha={selectedCommitSha}
+                    commitVersionHistory={commitVersionHistory}
+                    interdiffEnabled={interdiffEnabled}
+                    onSelectCommit={(sha) => store.setSelectedCommitSha(sha)}
+                    onToggleInterdiff={(enabled) =>
+                      store.setInterdiffEnabled(enabled)
+                    }
+                  />
+                )}
+                {pushVersions.length > 0 && (
+                  <PushVersionBar
+                    pushVersions={pushVersions}
+                    selectedHeadSha={selectedHeadSha}
+                    latestSha={pr.head.sha}
+                    onSelect={(sha) => store.setSelectedHeadSha(sha)}
+                  />
+                )}
               </div>
             )}
             <div className="px-3 py-1.5">
@@ -1021,8 +1163,14 @@ type VirtualRowType =
       startLine: number;
       index: number;
     }
-  | { type: "line"; line: DiffLine; lineNum: number | undefined; index: number }
-  | { type: "split-line"; pair: SplitLinePair; index: number }
+  | {
+      type: "line";
+      line: DiffLine;
+      lineNum: number | undefined;
+      index: number;
+      isRebaseArtifact?: boolean;
+    }
+  | { type: "split-line"; pair: SplitLinePair; index: number; isRebaseArtifact?: boolean }
   | { type: "comment-form"; lineNum: number; startLine?: number; index: number }
   | { type: "pending-comment"; comment: LocalPendingComment; index: number }
   | {
@@ -1310,18 +1458,30 @@ const DiffViewer = memo(function DiffViewer({
           rows.push({ type: "skip-spacer", position: "after", index: index++ });
         }
       } else {
+        const artifact = hunk.isRebaseArtifact;
         if (viewMode === "split") {
           // Convert to split pairs
           const pairs = convertToSplitPairs(hunk.lines);
           for (const pair of pairs) {
-            rows.push({ type: "split-line", pair, index: index++ });
+            rows.push({
+              type: "split-line",
+              pair,
+              index: index++,
+              isRebaseArtifact: artifact,
+            });
             addCommentsForLine(pair.lineNum);
           }
         } else {
           // Unified view - sequential lines
           for (const line of hunk.lines) {
             const lineNum = line.newLineNumber || line.oldLineNumber;
-            rows.push({ type: "line", line, lineNum, index: index++ });
+            rows.push({
+              type: "line",
+              line,
+              lineNum,
+              index: index++,
+              isRebaseArtifact: artifact,
+            });
             addCommentsForLine(lineNum);
           }
         }
@@ -1902,9 +2062,20 @@ const VirtualRowRenderer = memo(function VirtualRowRenderer({
         />
       );
     case "line":
-      return <DiffLineRow line={row.line} lineNum={row.lineNum} />;
+      return (
+        <DiffLineRow
+          line={row.line}
+          lineNum={row.lineNum}
+          isRebaseArtifact={row.isRebaseArtifact}
+        />
+      );
     case "split-line":
-      return <SplitDiffLineRow pair={row.pair} />;
+      return (
+        <SplitDiffLineRow
+          pair={row.pair}
+          isRebaseArtifact={row.isRebaseArtifact}
+        />
+      );
     case "comment-form":
       return <InlineCommentForm line={row.lineNum} startLine={row.startLine} />;
     case "pending-comment":
@@ -1936,11 +2107,13 @@ const VirtualRowRenderer = memo(function VirtualRowRenderer({
 interface DiffLineRowProps {
   line: DiffLine;
   lineNum: number | undefined;
+  isRebaseArtifact?: boolean;
 }
 
 const DiffLineRow = memo(function DiffLineRow({
   line,
   lineNum,
+  isRebaseArtifact,
 }: DiffLineRowProps) {
   const store = usePRReviewStore();
   const {
@@ -2087,7 +2260,10 @@ const DiffLineRow = memo(function DiffLineRow({
 
   return (
     <div
-      className="flex h-5 min-h-5 whitespace-pre-wrap box-border group contain-layout diff-line-row"
+      className={cn(
+        "flex h-5 min-h-5 whitespace-pre-wrap box-border group contain-layout diff-line-row",
+        isRebaseArtifact && "opacity-40"
+      )}
       style={styles}
       data-line-num={lineNum}
       data-line-side={lineSide}
@@ -2176,10 +2352,12 @@ const DiffLineRow = memo(function DiffLineRow({
 
 interface SplitDiffLineRowProps {
   pair: SplitLinePair;
+  isRebaseArtifact?: boolean;
 }
 
 const SplitDiffLineRow = memo(function SplitDiffLineRow({
   pair,
+  isRebaseArtifact,
 }: SplitDiffLineRowProps) {
   const store = usePRReviewStore();
   const {
@@ -2359,7 +2537,10 @@ const SplitDiffLineRow = memo(function SplitDiffLineRow({
 
   return (
     <div
-      className="flex h-5 min-h-5 whitespace-pre-wrap box-border group contain-layout split-diff-line-row font-mono text-[0.8rem]"
+      className={cn(
+        "flex h-5 min-h-5 whitespace-pre-wrap box-border group contain-layout split-diff-line-row font-mono text-[0.8rem]",
+        isRebaseArtifact && "opacity-40"
+      )}
       data-line-num={lineNum}
     >
       {/* Left side (old/delete) */}

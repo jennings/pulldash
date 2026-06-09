@@ -28,6 +28,7 @@ import {
   type ReviewThread,
   type PushVersion,
 } from "@/browser/contexts/github";
+import { diffService } from "@/browser/lib/diff";
 
 // ============================================================================
 // File Sorting (match file tree order)
@@ -98,6 +99,7 @@ export interface DiffHunk {
   oldStart: number;
   newStart: number;
   lines: DiffLine[];
+  isRebaseArtifact?: boolean;
 }
 
 export interface DiffSkipBlock {
@@ -176,6 +178,14 @@ interface PRReviewState {
   // Push version selector
   /** The HEAD SHA of the currently selected push version (null = latest) */
   selectedHeadSha: string | null;
+
+  // Per-commit selector
+  /** The commit SHA currently being reviewed (null = full branch) */
+  selectedCommitSha: string | null;
+  /** Whether interdiff mode is active (show changes vs previous commit version) */
+  interdiffEnabled: boolean;
+  /** Interdiff ParsedDiff results per file (populated when interdiffEnabled) */
+  interdiffLoadedDiffs: Record<string, ParsedDiff>;
 
   // Loading states
   loading: boolean;
@@ -431,6 +441,9 @@ export class PRReviewStore {
       pushVersions: [],
       commitVersionHistory: {},
       selectedHeadSha: null,
+      selectedCommitSha: null,
+      interdiffEnabled: false,
+      interdiffLoadedDiffs: {},
       checks: null,
       checksLastUpdated: null,
       workflowRunsAwaitingApproval: [],
@@ -888,6 +901,99 @@ export class PRReviewStore {
       .catch(() => [] as PullRequestFile[]);
 
     this.set({ files: sortFilesLikeTree(versionFiles) });
+  };
+
+  // ---------------------------------------------------------------------------
+  // Per-Commit Selection and Interdiff
+  // ---------------------------------------------------------------------------
+
+  setSelectedCommitSha = async (sha: string | null): Promise<void> => {
+    const { owner, repo } = this.state;
+
+    // Reset interdiff when changing commit
+    const resetBase = {
+      selectedCommitSha: sha,
+      interdiffEnabled: false,
+      interdiffLoadedDiffs: {},
+      loadedDiffs: {},
+      loadingFiles: new Set<string>(),
+      expandedSkipBlocks: {},
+      expandingSkipBlocks: new Set<string>(),
+    };
+
+    if (sha === null) {
+      // Restore files to version-appropriate or base
+      const { selectedHeadSha } = this.state;
+      if (selectedHeadSha) {
+        this.set(resetBase);
+        const versionFiles = await this.github
+          .getPRFilesForRange(owner, repo, this.state.pr.base.sha, selectedHeadSha)
+          .catch(() => [] as PullRequestFile[]);
+        this.set({ files: sortFilesLikeTree(versionFiles) });
+      } else {
+        this.set({ ...resetBase, files: this.baseFiles });
+      }
+      return;
+    }
+
+    this.set(resetBase);
+
+    const commitFiles = await this.github
+      .getCommitFiles(owner, repo, sha)
+      .catch(() => [] as PullRequestFile[]);
+
+    this.set({ files: sortFilesLikeTree(commitFiles) });
+  };
+
+  setInterdiffEnabled = async (enabled: boolean): Promise<void> => {
+    if (!enabled) {
+      this.set({ interdiffEnabled: false, interdiffLoadedDiffs: {} });
+      return;
+    }
+
+    const { selectedCommitSha, commitVersionHistory, owner, repo } = this.state;
+    if (!selectedCommitSha) return;
+
+    // Find the commit in the version history by Change-Id
+    const commit = this.state.commits.find((c) => c.sha === selectedCommitSha)
+      ?? Object.values(commitVersionHistory).flat().find((c) => c.sha === selectedCommitSha);
+    if (!commit) return;
+
+    const changeId = parseChangeId(commit.commit.message);
+    if (!changeId) return;
+
+    const history = commitVersionHistory[changeId];
+    if (!history || history.length < 2) return;
+
+    // Find the previous version (the one before the currently selected commit)
+    const currentIdx = history.findIndex((c) => c.sha === selectedCommitSha);
+    if (currentIdx <= 0) return;
+    const prevCommit = history[currentIdx - 1];
+
+    this.set({ interdiffEnabled: true });
+
+    // Fetch files for the previous version of this commit
+    const prevFiles = await this.github
+      .getCommitFiles(owner, repo, prevCommit.sha)
+      .catch(() => [] as PullRequestFile[]);
+
+    const prevByFilename = new Map(prevFiles.map((f) => [f.filename, f]));
+
+    // Compute interdiff for each current file
+    const currentFiles = this.state.files;
+    const interdiffEntries = await Promise.all(
+      currentFiles.map(async (currFile) => {
+        const prevFile = prevByFilename.get(currFile.filename);
+        const diff = await diffService
+          .interdiff(prevFile?.patch ?? "", currFile.patch ?? "")
+          .catch(() => ({ hunks: [] as ParsedDiff["hunks"] }));
+        return [currFile.filename, diff] as const;
+      })
+    );
+
+    this.set({
+      interdiffLoadedDiffs: Object.fromEntries(interdiffEntries),
+    });
   };
 
   // ---------------------------------------------------------------------------
