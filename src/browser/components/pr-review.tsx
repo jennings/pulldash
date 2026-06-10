@@ -188,6 +188,13 @@ interface PRReviewContentProps {
   tabId?: string;
 }
 
+interface PRFetchResult {
+  pr: PullRequest;
+  files: PullRequestFile[];
+  comments: ReviewComment[];
+  viewerPermission: string | null;
+}
+
 export function PRReviewContent({
   owner,
   repo,
@@ -196,16 +203,12 @@ export function PRReviewContent({
 }: PRReviewContentProps) {
   const { ready: githubReady, error: githubError } = useGitHubReady();
   const github = useGitHubStore();
-  const [pr, setPr] = useState<PullRequest | null>(null);
-  const [files, setFiles] = useState<PullRequestFile[]>([]);
-  const [comments, setComments] = useState<ReviewComment[]>([]);
-  const [viewerPermission, setViewerPermission] = useState<string | null>(null);
-  const [viewerCanMergeAsAdmin, setViewerCanMergeAsAdmin] = useState(false);
+  const [fetchedData, setFetchedData] = useState<PRFetchResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // Sync check status with tab (uses data store for auto-refresh)
-  useSyncTabStatus(tabId, owner, repo, number, pr);
+  useSyncTabStatus(tabId, owner, repo, number, fetchedData?.pr ?? null);
 
   useEffect(() => {
     if (!githubReady) return;
@@ -215,23 +218,23 @@ export function PRReviewContent({
       setError(null);
 
       try {
-        const [prData, filesData, commentsData, reviewThreadsResult] =
-          await Promise.all([
-            github.getPR(owner, repo, number),
-            github.getPRFiles(owner, repo, number),
-            github.getPRComments(owner, repo, number),
-            github.getReviewThreads(owner, repo, number).catch(() => ({
-              threads: [],
-              viewerPermission: null,
-              viewerCanMergeAsAdmin: false,
-            })),
-          ]);
+        const [pr, files, comments, reviewThreadsResult] = await Promise.all([
+          github.getPR(owner, repo, number),
+          github.getPRFiles(owner, repo, number),
+          github.getPRComments(owner, repo, number),
+          github.getReviewThreads(owner, repo, number).catch(() => ({
+            threads: [],
+            viewerPermission: null,
+            viewerCanMergeAsAdmin: false,
+          })),
+        ]);
 
-        setPr(prData);
-        setFiles(filesData);
-        setComments(commentsData as ReviewComment[]);
-        setViewerPermission(reviewThreadsResult.viewerPermission);
-        setViewerCanMergeAsAdmin(reviewThreadsResult.viewerCanMergeAsAdmin);
+        setFetchedData({
+          pr,
+          files,
+          comments: comments as ReviewComment[],
+          viewerPermission: reviewThreadsResult.viewerPermission,
+        });
       } catch (e) {
         setError(e instanceof Error ? e.message : "Unknown error");
       } finally {
@@ -263,7 +266,7 @@ export function PRReviewContent({
     return <PRReviewSkeleton />;
   }
 
-  if (error || !pr) {
+  if (error || !fetchedData) {
     return (
       <div className="flex items-center justify-center h-full">
         <div className="flex flex-col items-center gap-4 max-w-md text-center">
@@ -277,12 +280,12 @@ export function PRReviewContent({
   return (
     <PRReviewProvider
       github={github}
-      pr={pr}
-      files={files}
-      comments={comments}
+      pr={fetchedData.pr}
+      files={fetchedData.files}
+      comments={fetchedData.comments}
       owner={owner}
       repo={repo}
-      viewerPermission={viewerPermission}
+      viewerPermission={fetchedData.viewerPermission}
     >
       <PRReviewLayout />
     </PRReviewProvider>
