@@ -2380,6 +2380,10 @@ export class PRReviewStore {
       focusedPendingCommentId,
       showOverview,
       overviewScrollTarget,
+      selectedHeadSha,
+      selectedCommitSha,
+      compareToSha,
+      compareToCommitSha,
     } = this.state;
 
     // If we're on overview with a scroll target, use GitHub-style hash
@@ -2387,9 +2391,16 @@ export class PRReviewStore {
       return overviewScrollTarget;
     }
 
-    if (!selectedFile) return "";
-
     const params = new URLSearchParams();
+
+    // Version/commit state (omit when at default values)
+    if (selectedHeadSha) params.set("view", selectedHeadSha);
+    if (selectedCommitSha) params.set("commit", selectedCommitSha);
+    if (compareToSha) params.set("compare", compareToSha);
+    if (compareToCommitSha) params.set("ccommit", compareToCommitSha);
+
+    if (!selectedFile) return params.toString();
+
     params.set("file", selectedFile);
 
     // Comment takes priority over line selection
@@ -2416,7 +2427,7 @@ export class PRReviewStore {
    * Supports GitHub-style hashes: #pullrequestreview-{id}, #issuecomment-{id}, #discussion_r{id}
    * Empty hash navigates to the overview screen.
    */
-  navigateFromHash = (hash: string): boolean => {
+  navigateFromHash = async (hash: string): Promise<boolean> => {
     // Remove leading # if present
     const hashStr = hash.startsWith("#") ? hash.slice(1) : hash;
 
@@ -2438,18 +2449,55 @@ export class PRReviewStore {
     }
 
     const params = new URLSearchParams(hashStr);
+    const viewParam = params.get("view");
+    const commitParam = params.get("commit");
+    const compareParam = params.get("compare");
+    const ccommitParam = params.get("ccommit");
     const file = params.get("file");
     const lineParam = params.get("L");
     const commentParam = params.get("comment");
     const pendingParam = params.get("pending");
 
-    if (!file) return false;
+    // Restore version/commit state before file navigation so the correct
+    // file list is loaded before we try to select a file.
 
-    // Check if file exists
+    // 1. Set compareToSha directly (sync) so setSelectedCommitSha can
+    //    auto-match it in the next step.
+    if (compareParam !== this.state.compareToSha) {
+      this.set({
+        compareToSha: compareParam,
+        compareToCommitSha: null,
+        interdiffEnabled: false,
+        interdiffLoadedDiffs: {},
+      });
+    }
+
+    // 2. Apply viewing version (fetches version-specific file list).
+    if (viewParam !== this.state.selectedHeadSha) {
+      await this.setSelectedHeadSha(viewParam);
+    }
+
+    // 3. Apply commit selection (fetches commit files; auto-matches compare-to
+    //    commit via heuristics if compareToSha is set).
+    if (commitParam !== this.state.selectedCommitSha) {
+      await this.setSelectedCommitSha(commitParam);
+    }
+
+    // 4. If an explicit compare-to commit is in the hash, override the
+    //    heuristic auto-match with the exact saved value.
+    if (ccommitParam !== null && ccommitParam !== this.state.compareToCommitSha) {
+      await this.setCompareToCommitSha(ccommitParam);
+    }
+
+    // File navigation
+    if (!file) {
+      return viewParam !== null || commitParam !== null || compareParam !== null;
+    }
+
+    // Check if file exists in the now-current file list
     const fileExists = this.state.files.some((f) => f.filename === file);
     if (!fileExists) return false;
 
-    // Select the file
     if (this.state.selectedFile !== file) {
       this.selectFile(file);
     }
@@ -2458,8 +2506,6 @@ export class PRReviewStore {
     if (commentParam) {
       const commentId = parseInt(commentParam, 10);
       if (!isNaN(commentId)) {
-        // We need to wait for the file's diff to load before focusing comments
-        // The hash navigation hook will handle the timing
         this.set({ focusedCommentId: commentId });
         return true;
       }
@@ -2619,6 +2665,13 @@ export class PRReviewStore {
         branchDeleted: deleteCount > restoreCount,
         loading: false,
       });
+
+      // If compareToSha was restored from the URL before commit history was
+      // available, auto-match now that we have the data.
+      const { compareToSha, selectedCommitSha, compareToCommitSha } = this.state;
+      if (compareToSha && selectedCommitSha && !compareToCommitSha) {
+        await this.autoMatchAndComputeInterdiff(selectedCommitSha);
+      }
     } catch (error) {
       console.error("Failed to load PR data:", error);
       this.set({ loading: false });

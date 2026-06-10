@@ -19,11 +19,9 @@ export function useHashNavigation() {
     const hash = window.location.hash;
     if (hash) {
       isUpdatingHash.current = true;
-      store.navigateFromHash(hash);
-      // Reset after a short delay to allow state to settle
-      setTimeout(() => {
+      store.navigateFromHash(hash).then(() => {
         isUpdatingHash.current = false;
-      }, 100);
+      });
     }
   }, [store]);
 
@@ -45,15 +43,21 @@ export function useHashNavigation() {
         const currentParams = new URLSearchParams(currentHash);
         const newParams = new URLSearchParams(newHash);
 
-        if (currentParams.get("file") !== newParams.get("file")) {
-          // File changed - create history entry
+        const significantChange =
+          currentParams.get("file") !== newParams.get("file") ||
+          currentParams.get("view") !== newParams.get("view") ||
+          currentParams.get("commit") !== newParams.get("commit") ||
+          currentParams.get("compare") !== newParams.get("compare");
+
+        if (significantChange) {
+          // File or version changed - create history entry for back/forward
           window.history.pushState(
             null,
             "",
             newHash ? `#${newHash}` : window.location.pathname
           );
         } else {
-          // Same file, just line/comment change - replace
+          // Line/comment/compare-commit change - replace current entry
           window.history.replaceState(
             null,
             "",
@@ -72,13 +76,11 @@ export function useHashNavigation() {
   // - popstate: fires when using back/forward after pushState calls
   // - hashchange: fires when the hash changes directly (e.g., anchor clicks)
   useEffect(() => {
-    const handleNavigation = () => {
+    const handleNavigation = async () => {
       isUpdatingHash.current = true;
       lastHashRef.current = window.location.hash.slice(1); // Update lastHash to prevent loop
-      store.navigateFromHash(window.location.hash);
-      setTimeout(() => {
-        isUpdatingHash.current = false;
-      }, 100);
+      await store.navigateFromHash(window.location.hash);
+      isUpdatingHash.current = false;
     };
 
     window.addEventListener("popstate", handleNavigation);

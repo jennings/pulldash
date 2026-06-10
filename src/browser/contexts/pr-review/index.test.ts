@@ -609,38 +609,38 @@ test("getHashFromState includes line range", () => {
   expect(hash).toContain("L=5-10");
 });
 
-test("navigateFromHash selects file", () => {
+test("navigateFromHash selects file", async () => {
   const store = createStore();
 
-  const result = store.navigateFromHash("file=src%2Findex.ts");
+  const result = await store.navigateFromHash("file=src%2Findex.ts");
 
   expect(result).toBe(true);
   expect(store.getSnapshot().selectedFile).toBe("src/index.ts");
 });
 
-test("navigateFromHash focuses line", () => {
+test("navigateFromHash focuses line", async () => {
   const store = createStore();
 
-  store.navigateFromHash("file=src%2Findex.ts&L=42");
+  await store.navigateFromHash("file=src%2Findex.ts&L=42");
 
   const state = store.getSnapshot();
   expect(state.selectedFile).toBe("src/index.ts");
   expect(state.focusedLine).toBe(42);
 });
 
-test("navigateFromHash returns false for invalid file", () => {
+test("navigateFromHash returns false for invalid file", async () => {
   const store = createStore();
 
-  const result = store.navigateFromHash("file=nonexistent.ts");
+  const result = await store.navigateFromHash("file=nonexistent.ts");
 
   expect(result).toBe(false);
 });
 
-test("navigateFromHash handles GitHub-style pullrequestreview hash", () => {
+test("navigateFromHash handles GitHub-style pullrequestreview hash", async () => {
   const store = createStore();
   store.selectFile("src/index.ts"); // Start on a file view
 
-  const result = store.navigateFromHash("#pullrequestreview-12345");
+  const result = await store.navigateFromHash("#pullrequestreview-12345");
 
   expect(result).toBe(true);
   const state = store.getSnapshot();
@@ -648,11 +648,11 @@ test("navigateFromHash handles GitHub-style pullrequestreview hash", () => {
   expect(state.overviewScrollTarget).toBe("pullrequestreview-12345");
 });
 
-test("navigateFromHash handles GitHub-style issuecomment hash", () => {
+test("navigateFromHash handles GitHub-style issuecomment hash", async () => {
   const store = createStore();
   store.selectFile("src/index.ts");
 
-  const result = store.navigateFromHash("#issuecomment-98765");
+  const result = await store.navigateFromHash("#issuecomment-98765");
 
   expect(result).toBe(true);
   const state = store.getSnapshot();
@@ -660,12 +660,12 @@ test("navigateFromHash handles GitHub-style issuecomment hash", () => {
   expect(state.overviewScrollTarget).toBe("issuecomment-98765");
 });
 
-test("navigateFromHash with empty hash navigates to overview", () => {
+test("navigateFromHash with empty hash navigates to overview", async () => {
   const store = createStore();
   store.selectFile("src/index.ts");
   expect(store.getSnapshot().showOverview).toBe(false);
 
-  const result = store.navigateFromHash("");
+  const result = await store.navigateFromHash("");
 
   expect(result).toBe(true);
   expect(store.getSnapshot().showOverview).toBe(true);
