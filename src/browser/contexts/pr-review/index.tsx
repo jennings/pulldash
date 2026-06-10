@@ -958,12 +958,16 @@ export class PRReviewStore {
   setSelectedCommitSha = async (sha: string | null): Promise<void> => {
     const { owner, repo } = this.state;
 
+    // loadedDiffs is intentionally NOT in this first set — it must be cleared
+    // atomically with the new files in the second set below. Clearing it here
+    // would cause useDiffLoader to fire in the window between this set and the
+    // files update, at which point files still holds the previous view's patches,
+    // causing stale diffs to be parsed and stored before the correct files arrive.
     const resetBase = {
       selectedCommitSha: sha,
       compareToCommitSha: null,
       interdiffEnabled: false,
       interdiffLoadedDiffs: {},
-      loadedDiffs: {},
       loadingFiles: new Set<string>(),
       expandedSkipBlocks: {},
       expandingSkipBlocks: new Set<string>(),
@@ -981,9 +985,9 @@ export class PRReviewStore {
             selectedHeadSha
           )
           .catch(() => [] as PullRequestFile[]);
-        this.set({ files: sortFilesLikeTree(versionFiles) });
+        this.set({ files: sortFilesLikeTree(versionFiles), loadedDiffs: {} });
       } else {
-        this.set({ ...resetBase, files: this.baseFiles });
+        this.set({ ...resetBase, files: this.baseFiles, loadedDiffs: {} });
       }
       return;
     }
@@ -994,7 +998,7 @@ export class PRReviewStore {
       .getCommitFiles(owner, repo, sha)
       .catch(() => [] as PullRequestFile[]);
 
-    this.set({ files: sortFilesLikeTree(commitFiles) });
+    this.set({ files: sortFilesLikeTree(commitFiles), loadedDiffs: {} });
 
     // If comparing to a specific version, auto-match the commit in that version
     if (this.state.compareToSha) {

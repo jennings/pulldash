@@ -12,12 +12,16 @@ const pendingFetches = new Map<
 const MAX_CACHE_SIZE = 100;
 
 // Check if a diff is already cached with full syntax highlighting (sync check)
-function getFullDiffFromCache(file: PullRequestFile): ParsedDiff | null {
+function getFullDiffFromCache(
+  file: PullRequestFile,
+  cacheContext?: string
+): ParsedDiff | null {
   if (!file.patch || !file.sha) {
     return { hunks: [] };
   }
   // Only return if we have the full content version with proper syntax highlighting
-  return diffCache.get(`${file.sha}:full`) ?? null;
+  const suffix = cacheContext ? `:${cacheContext}` : "";
+  return diffCache.get(`${file.sha}:full${suffix}`) ?? null;
 }
 
 // Abort all pending fetches (used when navigating rapidly)
@@ -36,15 +40,21 @@ async function fetchParsedDiff(
   signal?: AbortSignal,
   getFileContent?: FileContentGetter,
   baseRef?: string,
-  headRef?: string
+  headRef?: string,
+  cacheContext?: string
 ): Promise<ParsedDiff> {
   if (!file.patch || !file.sha) {
     return { hunks: [] };
   }
 
-  // Cache key includes whether we have file content (for better highlighting)
+  // Cache key includes whether we have file content (for better highlighting),
+  // plus an optional context string to prevent collisions between full-branch
+  // and per-commit views that share the same blob SHA.
   const hasContent = !!(getFileContent && baseRef && headRef);
-  const cacheKey = hasContent ? `${file.sha}:full` : file.sha;
+  const suffix = cacheContext ? `:${cacheContext}` : "";
+  const cacheKey = hasContent
+    ? `${file.sha}:full${suffix}`
+    : `${file.sha}${suffix}`;
 
   // Check cache first
   if (diffCache.has(cacheKey)) {
@@ -151,6 +161,7 @@ export function useDiffLoader() {
   const repo = usePRReviewSelector((s) => s.repo);
   const pr = usePRReviewSelector((s) => s.pr);
   const selectedFile = usePRReviewSelector((s) => s.selectedFile);
+  const selectedCommitSha = usePRReviewSelector((s) => s.selectedCommitSha);
   const files = usePRReviewSelector((s) => s.files);
   const loadedDiffs = usePRReviewSelector((s) => s.loadedDiffs);
 
@@ -161,9 +172,12 @@ export function useDiffLoader() {
     if (!file) return;
 
     const currentFile = selectedFile;
+    // Commit-specific views use a distinct cache context so they don't collide
+    // with full-branch diffs that share the same blob SHA.
+    const cacheContext = selectedCommitSha ?? undefined;
 
     // Check cache synchronously - only use if we have full content version
-    const cached = getFullDiffFromCache(file);
+    const cached = getFullDiffFromCache(file, cacheContext);
     if (cached) {
       if (!loadedDiffs[currentFile]) {
         store.setLoadedDiff(currentFile, cached);
@@ -193,7 +207,14 @@ export function useDiffLoader() {
       github.getFileContent(owner, repo, path, ref);
 
     // Fetch immediately with full file content for better highlighting
-    fetchParsedDiff(file, undefined, getFileContent, pr.base.sha, pr.head.sha)
+    fetchParsedDiff(
+      file,
+      undefined,
+      getFileContent,
+      pr.base.sha,
+      pr.head.sha,
+      cacheContext
+    )
       .then((diff) => {
         if (store.getSnapshot().selectedFile === currentFile) {
           store.setLoadedDiff(currentFile, diff);
@@ -210,7 +231,7 @@ export function useDiffLoader() {
           ].filter(
             (f) =>
               !store.getSnapshot().loadedDiffs[f.filename] &&
-              !getFullDiffFromCache(f)
+              !getFullDiffFromCache(f, cacheContext)
           );
 
           // Prefetch with full file content for proper syntax highlighting
@@ -222,7 +243,8 @@ export function useDiffLoader() {
                 undefined,
                 getFileContent,
                 pr.base.sha,
-                pr.head.sha
+                pr.head.sha,
+                cacheContext
               )
                 .then((pdiff) => store.setLoadedDiff(pfile.filename, pdiff))
                 .catch(() => {})
@@ -245,6 +267,14 @@ export function useDiffLoader() {
       clearTimeout(loadingTimeoutId);
       store.setDiffLoading(currentFile, false);
     };
+  // NOTE: selectedCommitSha is intentionally omitted from deps. setSelectedCommitSha
+  // does two sequential this.set() calls separated by an await: first it sets
+  // selectedCommitSha (+ clears loadedDiffs), then after getCommitFiles resolves it
+  // sets the new files. Adding selectedCommitSha here would fire this effect during
+  // that intermediate window when files still holds the previous view's patches,
+  // causing those stale patches to be parsed and cached under the new commit key.
+  // The files dep is sufficient: by the time files updates, selectedCommitSha is
+  // already in place, so cacheContext is correct when this effect body runs.
   }, [
     selectedFile,
     files,
