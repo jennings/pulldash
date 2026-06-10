@@ -6,6 +6,7 @@ import gitDiffParser, {
   InsertChange,
 } from "gitdiff-parser";
 import { diffChars, diffWords } from "diff";
+import { INLINE_MAX_CHAR_EDITS } from "../../../../diff-parse-constants";
 
 export interface LineSegment {
   value: string;
@@ -432,7 +433,7 @@ const defaultOptions: ParseOptions = {
   maxDiffDistance: 30,
   maxChangeRatio: 0.45,
   mergeModifiedLines: true,
-  inlineMaxCharEdits: 8, // Increased to show more character-level diffs inline
+  inlineMaxCharEdits: INLINE_MAX_CHAR_EDITS,
 };
 
 export const parseDiff = (

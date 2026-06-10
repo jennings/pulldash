@@ -13,6 +13,7 @@ import gitDiffParser, {
 import { diffChars, diffWords } from "diff";
 import { refractor } from "refractor/all";
 import { computeInterdiff } from "./interdiff";
+import { INLINE_MAX_CHAR_EDITS } from "../../diff-parse-constants";
 
 // ============================================================================
 // Types
@@ -645,7 +646,7 @@ const defaultOptions: ParseOptions = {
   maxDiffDistance: 30,
   maxChangeRatio: 0.45,
   mergeModifiedLines: true,
-  inlineMaxCharEdits: 4,
+  inlineMaxCharEdits: INLINE_MAX_CHAR_EDITS,
 };
 
 // ============================================================================
