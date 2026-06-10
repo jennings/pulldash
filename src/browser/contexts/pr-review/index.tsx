@@ -423,6 +423,8 @@ export class PRReviewStore {
   private recentlyApprovedWorkflowIds = new Set<number>();
   // Original files from the latest PR version (restored when deselecting a push version)
   private baseFiles: PullRequestFile[] = [];
+  // Full commit list from the latest PR version (restored when deselecting a push version)
+  private baseCommits: PRCommit[] = [];
 
   constructor(
     github: GitHubStore,
@@ -991,12 +993,14 @@ export class PRReviewStore {
   // ---------------------------------------------------------------------------
 
   setSelectedHeadSha = async (sha: string | null): Promise<void> => {
-    const { pr } = this.state;
+    const { owner, repo, pr, pushVersions, commitsByVersion } = this.state;
 
     if (sha === null) {
       this.set({
         selectedHeadSha: null,
+        selectedCommitSha: null,
         files: this.baseFiles,
+        commits: this.baseCommits,
         loadedDiffs: {},
         loadingFiles: new Set(),
         expandedSkipBlocks: {},
@@ -1010,8 +1014,16 @@ export class PRReviewStore {
       return;
     }
 
+    const selectedVersion = pushVersions.find((v) => v.sha === sha);
+    const versionCommits = selectedVersion
+      ? commitsByVersion.find((v) => v.version === selectedVersion.version)
+          ?.commits
+      : undefined;
+
     this.set({
       selectedHeadSha: sha,
+      selectedCommitSha: null,
+      commits: versionCommits ?? this.baseCommits,
       loadedDiffs: {},
       loadingFiles: new Set(),
       expandedSkipBlocks: {},
@@ -2791,6 +2803,8 @@ export class PRReviewStore {
         );
         commitVersionHistory = buildCommitVersionHistory(commitsByVersion);
       }
+
+      this.baseCommits = commitsData;
 
       this.set({
         reviews: reviewsData,
