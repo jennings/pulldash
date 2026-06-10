@@ -612,7 +612,6 @@ const ReadOnlyBanner = memo(function ReadOnlyBanner() {
  */
 function VersionBar() {
   const store = usePRReviewStore();
-  const pr = usePRReviewSelector((s) => s.pr);
   const pushVersions = usePRReviewSelector((s) => s.pushVersions);
   const commits = usePRReviewSelector((s) => s.commits);
   const commitsByVersion = usePRReviewSelector((s) => s.commitsByVersion);
@@ -621,10 +620,7 @@ function VersionBar() {
   const selectedHeadSha = usePRReviewSelector((s) => s.selectedHeadSha);
   const selectedCommitSha = usePRReviewSelector((s) => s.selectedCommitSha);
 
-  if (pushVersions.length === 0 || commits.length === 0) return null;
-
-  const latestSha = pr.head.sha;
-  const latestVersion = pushVersions[pushVersions.length - 1];
+  if (commits.length === 0) return null;
 
   const isViewingLatest = selectedHeadSha === null;
   const viewingLabel = isViewingLatest
@@ -657,43 +653,45 @@ function VersionBar() {
 
   return (
     <div className="mx-2 mt-2 space-y-2 pb-1">
-      {/* ── Viewing ── */}
-      <div>
-        <div className={sectionLabel}>Viewing</div>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button className={triggerBtn}>
-              <span className="truncate">{viewingLabel}</span>
-              <ChevronDown className="w-3 h-3 shrink-0" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-48">
-            <DropdownMenuLabel className="text-xs">
-              Viewing version
-            </DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onClick={() => store.setSelectedHeadSha(null)}
-              className="text-xs flex items-center justify-between"
-            >
-              <span>Latest</span>
-              {isViewingLatest && <Check className="w-3 h-3 ml-2 shrink-0" />}
-            </DropdownMenuItem>
-            {[...pushVersions].reverse().map((pv) => (
+      {/* ── Viewing (only when multiple push versions exist) ── */}
+      {pushVersions.length > 0 && (
+        <div>
+          <div className={sectionLabel}>Viewing</div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button className={triggerBtn}>
+                <span className="truncate">{viewingLabel}</span>
+                <ChevronDown className="w-3 h-3 shrink-0" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-48">
+              <DropdownMenuLabel className="text-xs">
+                Viewing version
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
               <DropdownMenuItem
-                key={pv.sha}
-                onClick={() => store.setSelectedHeadSha(pv.sha)}
+                onClick={() => store.setSelectedHeadSha(null)}
                 className="text-xs flex items-center justify-between"
               >
-                <span>v{pv.version}</span>
-                {selectedHeadSha === pv.sha && (
-                  <Check className="w-3 h-3 ml-2 shrink-0" />
-                )}
+                <span>Latest</span>
+                {isViewingLatest && <Check className="w-3 h-3 ml-2 shrink-0" />}
               </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
+              {[...pushVersions].reverse().map((pv) => (
+                <DropdownMenuItem
+                  key={pv.sha}
+                  onClick={() => store.setSelectedHeadSha(pv.sha)}
+                  className="text-xs flex items-center justify-between"
+                >
+                  <span>v{pv.version}</span>
+                  {selectedHeadSha === pv.sha && (
+                    <Check className="w-3 h-3 ml-2 shrink-0" />
+                  )}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      )}
 
       {/* ── Commit ── */}
       <div>
@@ -742,90 +740,92 @@ function VersionBar() {
         </DropdownMenu>
       </div>
 
-      {/* ── Compare to ── */}
-      <div>
-        <div className={sectionLabel}>Compare to</div>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button className={triggerBtn}>
-              <span className="truncate">{compareToLabel}</span>
-              <ChevronDown className="w-3 h-3 shrink-0" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-48">
-            <DropdownMenuLabel className="text-xs">
-              Compare to
-            </DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onClick={() => store.setCompareToSha(null)}
-              className="text-xs flex items-center justify-between"
-            >
-              <span>Target</span>
-              {!compareToSha && <Check className="w-3 h-3 ml-2 shrink-0" />}
-            </DropdownMenuItem>
-            {[...pushVersions].reverse().map((pv) => (
-              <DropdownMenuItem
-                key={pv.sha}
-                onClick={() => store.setCompareToSha(pv.sha)}
-                className="text-xs flex items-center justify-between"
-              >
-                <span>v{pv.version}</span>
-                {compareToSha === pv.sha && (
-                  <Check className="w-3 h-3 ml-2 shrink-0" />
-                )}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-
-        {/* Compare-to commit — nested below when a version is selected */}
-        {compareToSha && (
+      {/* ── Compare to (only when multiple push versions exist) ── */}
+      {pushVersions.length > 0 && (
+        <div>
+          <div className={sectionLabel}>Compare to</div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="mt-1 ml-3 w-[calc(100%-0.75rem)] flex items-center justify-between gap-1 px-2 py-1 rounded border border-border hover:bg-muted text-xs transition-colors text-muted-foreground">
-                <span className="truncate">
-                  {compareToCommit
-                    ? compareToCommit.commit.message.split("\n")[0]
-                    : "— none —"}
-                </span>
+              <button className={triggerBtn}>
+                <span className="truncate">{compareToLabel}</span>
                 <ChevronDown className="w-3 h-3 shrink-0" />
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-72">
+            <DropdownMenuContent align="start" className="w-48">
               <DropdownMenuLabel className="text-xs">
-                Commit in {compareToLabel}
+                Compare to
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
-              {compareToVersionCommits.map((c) => (
+              <DropdownMenuItem
+                onClick={() => store.setCompareToSha(null)}
+                className="text-xs flex items-center justify-between"
+              >
+                <span>Target</span>
+                {!compareToSha && <Check className="w-3 h-3 ml-2 shrink-0" />}
+              </DropdownMenuItem>
+              {[...pushVersions].reverse().map((pv) => (
                 <DropdownMenuItem
-                  key={c.sha}
-                  onClick={() => store.setCompareToCommitSha(c.sha)}
-                  className="text-xs flex items-center justify-between gap-2"
+                  key={pv.sha}
+                  onClick={() => store.setCompareToSha(pv.sha)}
+                  className="text-xs flex items-center justify-between"
                 >
-                  <span className="flex-1 truncate">
-                    {c.commit.message.split("\n")[0]}
-                  </span>
-                  <span className="font-mono text-muted-foreground shrink-0">
-                    {c.sha.slice(0, 7)}
-                  </span>
-                  {compareToCommitSha === c.sha && (
-                    <Check className="w-3 h-3 shrink-0" />
+                  <span>v{pv.version}</span>
+                  {compareToSha === pv.sha && (
+                    <Check className="w-3 h-3 ml-2 shrink-0" />
                   )}
                 </DropdownMenuItem>
               ))}
-              {compareToVersionCommits.length === 0 && (
-                <DropdownMenuItem
-                  disabled
-                  className="text-xs text-muted-foreground"
-                >
-                  No commits available
-                </DropdownMenuItem>
-              )}
             </DropdownMenuContent>
           </DropdownMenu>
-        )}
-      </div>
+
+          {/* Compare-to commit — nested below when a version is selected */}
+          {compareToSha && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="mt-1 ml-3 w-[calc(100%-0.75rem)] flex items-center justify-between gap-1 px-2 py-1 rounded border border-border hover:bg-muted text-xs transition-colors text-muted-foreground">
+                  <span className="truncate">
+                    {compareToCommit
+                      ? compareToCommit.commit.message.split("\n")[0]
+                      : "— none —"}
+                  </span>
+                  <ChevronDown className="w-3 h-3 shrink-0" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-72">
+                <DropdownMenuLabel className="text-xs">
+                  Commit in {compareToLabel}
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {compareToVersionCommits.map((c) => (
+                  <DropdownMenuItem
+                    key={c.sha}
+                    onClick={() => store.setCompareToCommitSha(c.sha)}
+                    className="text-xs flex items-center justify-between gap-2"
+                  >
+                    <span className="flex-1 truncate">
+                      {c.commit.message.split("\n")[0]}
+                    </span>
+                    <span className="font-mono text-muted-foreground shrink-0">
+                      {c.sha.slice(0, 7)}
+                    </span>
+                    {compareToCommitSha === c.sha && (
+                      <Check className="w-3 h-3 shrink-0" />
+                    )}
+                  </DropdownMenuItem>
+                ))}
+                {compareToVersionCommits.length === 0 && (
+                  <DropdownMenuItem
+                    disabled
+                    className="text-xs text-muted-foreground"
+                  >
+                    No commits available
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
+      )}
     </div>
   );
 }
