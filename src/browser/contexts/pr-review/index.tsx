@@ -584,6 +584,59 @@ export class PRReviewStore {
     this.emit();
   }
 
+  private async refreshFiles(): Promise<void> {
+    const { owner, repo, pr, selectedHeadSha, compareToSha } = this.state;
+
+    const resetBase = {
+      loadedDiffs: {},
+      loadingFiles: new Set<string>(),
+      expandedSkipBlocks: {},
+      expandingSkipBlocks: new Set<string>(),
+    };
+
+    if (compareToSha) {
+      const headSha = selectedHeadSha ?? pr.head.sha;
+
+      const [prevFiles, currFiles] = await Promise.all([
+        this.github
+          .getPRFilesForRange(owner, repo, pr.base.sha, compareToSha)
+          .catch(() => [] as PullRequestFile[]),
+        this.github
+          .getPRFilesForRange(owner, repo, pr.base.sha, headSha)
+          .catch(() => [] as PullRequestFile[]),
+      ]);
+
+      const prevMap = new Map(prevFiles.map((f) => [f.filename, f.patch]));
+      const currMap = new Map(currFiles.map((f) => [f.filename, f.patch]));
+      const allFiles = new Set([...prevMap.keys(), ...currMap.keys()]);
+
+      const interdiffFiles: PullRequestFile[] = [];
+      for (const filename of allFiles) {
+        const prevPatch = prevMap.get(filename);
+        const currPatch = currMap.get(filename);
+
+        if (currPatch === undefined) {
+          const prev = prevFiles.find((f) => f.filename === filename)!;
+          interdiffFiles.push({ ...prev, status: "removed" });
+        } else if (prevPatch === undefined || prevPatch !== currPatch) {
+          interdiffFiles.push(currFiles.find((f) => f.filename === filename)!);
+        }
+      }
+
+      this.set({
+        ...resetBase,
+        files: sortFilesLikeTree(interdiffFiles),
+      });
+    } else if (selectedHeadSha) {
+      const files = await this.github
+        .getPRFilesForRange(owner, repo, pr.base.sha, selectedHeadSha)
+        .catch(() => [] as PullRequestFile[]);
+      this.set({ ...resetBase, files: sortFilesLikeTree(files) });
+    } else {
+      this.set({ ...resetBase, files: this.baseFiles });
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // File Navigation Actions
   // ---------------------------------------------------------------------------
@@ -924,7 +977,7 @@ export class PRReviewStore {
   // ---------------------------------------------------------------------------
 
   setSelectedHeadSha = async (sha: string | null): Promise<void> => {
-    const { owner, repo, pr, pushVersions, commitsByVersion } = this.state;
+    const { pushVersions, commitsByVersion } = this.state;
 
     if (sha === null) {
       this.set({
@@ -956,11 +1009,7 @@ export class PRReviewStore {
       expandingSkipBlocks: new Set(),
     });
 
-    const versionFiles = await this.github
-      .getPRFilesForRange(owner, repo, pr.base.sha, sha)
-      .catch(() => [] as PullRequestFile[]);
-
-    this.set({ files: sortFilesLikeTree(versionFiles) });
+    await this.refreshFiles();
   };
 
   // ---------------------------------------------------------------------------
@@ -1091,6 +1140,7 @@ export class PRReviewStore {
     if (sha && selectedCommitSha) {
       await this.autoMatchAndComputeInterdiff(selectedCommitSha);
     }
+    await this.refreshFiles();
   };
 
   setCompareToCommitSha = async (sha: string | null): Promise<void> => {
