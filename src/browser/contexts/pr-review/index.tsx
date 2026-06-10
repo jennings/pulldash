@@ -2485,13 +2485,18 @@ export class PRReviewStore {
 
     // 4. If an explicit compare-to commit is in the hash, override the
     //    heuristic auto-match with the exact saved value.
-    if (ccommitParam !== null && ccommitParam !== this.state.compareToCommitSha) {
+    if (
+      ccommitParam !== null &&
+      ccommitParam !== this.state.compareToCommitSha
+    ) {
       await this.setCompareToCommitSha(ccommitParam);
     }
 
     // File navigation
     if (!file) {
-      return viewParam !== null || commitParam !== null || compareParam !== null;
+      return (
+        viewParam !== null || commitParam !== null || compareParam !== null
+      );
     }
 
     // Check if file exists in the now-current file list
@@ -2668,7 +2673,8 @@ export class PRReviewStore {
 
       // If compareToSha was restored from the URL before commit history was
       // available, auto-match now that we have the data.
-      const { compareToSha, selectedCommitSha, compareToCommitSha } = this.state;
+      const { compareToSha, selectedCommitSha, compareToCommitSha } =
+        this.state;
       if (compareToSha && selectedCommitSha && !compareToCommitSha) {
         await this.autoMatchAndComputeInterdiff(selectedCommitSha);
       }

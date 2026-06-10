@@ -626,10 +626,9 @@ function VersionBar() {
   const latestSha = pr.head.sha;
   const latestVersion = pushVersions[pushVersions.length - 1];
 
-  const isViewingLatest =
-    selectedHeadSha === null || selectedHeadSha === latestSha;
+  const isViewingLatest = selectedHeadSha === null;
   const viewingLabel = isViewingLatest
-    ? `Latest (v${(latestVersion?.version ?? 0) + 1})`
+    ? `Latest`
     : `v${pushVersions.find((v) => v.sha === selectedHeadSha)?.version ?? "?"}`;
 
   const compareToVersion = compareToSha
@@ -677,7 +676,7 @@ function VersionBar() {
               onClick={() => store.setSelectedHeadSha(null)}
               className="text-xs flex items-center justify-between"
             >
-              <span>Latest (v{(latestVersion?.version ?? 0) + 1})</span>
+              <span>Latest</span>
               {isViewingLatest && <Check className="w-3 h-3 ml-2 shrink-0" />}
             </DropdownMenuItem>
             {[...pushVersions].reverse().map((pv) => (
