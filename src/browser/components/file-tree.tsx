@@ -34,6 +34,7 @@ interface FileTreeProps {
   hideViewed: boolean;
   commentCounts: Record<string, number>;
   pendingCommentCounts?: Record<string, number>;
+  noChangeFiles?: Set<string>;
   onSelectFile: (filename: string) => void;
   onToggleFileSelection: (filename: string, isShiftClick: boolean) => void;
   onToggleViewed: (filename: string) => void;
@@ -193,6 +194,7 @@ export function FileTree({
   hideViewed,
   commentCounts,
   pendingCommentCounts = {},
+  noChangeFiles,
   onSelectFile,
   onToggleFileSelection,
   onToggleViewed,
@@ -388,6 +390,8 @@ export function FileTree({
           const isSelected = selectedFile === node.path;
           const isMultiSelected = selectedFiles.has(node.path);
           const isViewed = viewedFiles.has(node.path);
+          const hasNoChanges =
+            !isSelected && (noChangeFiles?.has(node.path) ?? false);
           const commentCount = commentCounts[node.path] || 0;
           const pendingCount = pendingCommentCounts[node.path] || 0;
           const showMultiSelectMenu =
@@ -414,7 +418,8 @@ export function FileTree({
                       "text-left hover:bg-muted/50 h-full",
                       isSelected && "bg-muted",
                       isMultiSelected && !isSelected && "bg-blue-500/20",
-                      isViewed && !isMultiSelected && "opacity-60"
+                      isViewed && !isMultiSelected && "opacity-60",
+                      hasNoChanges && !isViewed && "opacity-55"
                     )}
                     style={{ paddingLeft: `${depth * 12 + 8}px` }}
                   >

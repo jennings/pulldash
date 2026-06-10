@@ -452,6 +452,20 @@ const FilePanel = memo(function FilePanel({
   const viewedFiles = usePRReviewSelector((s) => s.viewedFiles);
   const hideViewed = usePRReviewSelector((s) => s.hideViewed);
   const showOverview = usePRReviewSelector((s) => s.showOverview);
+  const interdiffEnabled = usePRReviewSelector((s) => s.interdiffEnabled);
+  const interdiffLoadedDiffs = usePRReviewSelector(
+    (s) => s.interdiffLoadedDiffs
+  );
+
+  const noChangeFiles = useMemo(() => {
+    if (!interdiffEnabled) return undefined;
+    const result = new Set<string>();
+    for (const file of files) {
+      if (file.patch && interdiffLoadedDiffs[file.filename]?.hunks.length === 0)
+        result.add(file.filename);
+    }
+    return result.size > 0 ? result : undefined;
+  }, [interdiffEnabled, interdiffLoadedDiffs, files]);
 
   const commentCounts = useCommentCountsByFile();
   const pendingCommentCounts = usePendingCommentCountsByFile();
@@ -557,6 +571,7 @@ const FilePanel = memo(function FilePanel({
         hideViewed={hideViewed}
         commentCounts={commentCounts}
         pendingCommentCounts={pendingCommentCounts}
+        noChangeFiles={noChangeFiles}
         onSelectFile={handleSelectFile}
         onToggleFileSelection={store.toggleFileSelection}
         onToggleViewed={store.toggleViewed}
