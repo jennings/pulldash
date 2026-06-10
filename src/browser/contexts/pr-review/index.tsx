@@ -421,6 +421,8 @@ export class PRReviewStore {
   private recentlyApprovedWorkflowIds = new Set<number>();
   // Original files from the latest PR version (restored when deselecting a push version)
   private baseFiles: PullRequestFile[] = [];
+  // Full commit list from the latest PR version (restored when deselecting a push version)
+  private baseCommits: PRCommit[] = [];
 
   constructor(
     github: GitHubStore,
@@ -922,12 +924,14 @@ export class PRReviewStore {
   // ---------------------------------------------------------------------------
 
   setSelectedHeadSha = async (sha: string | null): Promise<void> => {
-    const { owner, repo, pr } = this.state;
+    const { owner, repo, pr, pushVersions, commitsByVersion } = this.state;
 
     if (sha === null) {
       this.set({
         selectedHeadSha: null,
+        selectedCommitSha: null,
         files: this.baseFiles,
+        commits: this.baseCommits,
         loadedDiffs: {},
         loadingFiles: new Set(),
         expandedSkipBlocks: {},
@@ -936,8 +940,16 @@ export class PRReviewStore {
       return;
     }
 
+    const selectedVersion = pushVersions.find((v) => v.sha === sha);
+    const versionCommits = selectedVersion
+      ? commitsByVersion.find((v) => v.version === selectedVersion.version)
+          ?.commits
+      : undefined;
+
     this.set({
       selectedHeadSha: sha,
+      selectedCommitSha: null,
+      commits: versionCommits ?? this.baseCommits,
       loadedDiffs: {},
       loadingFiles: new Set(),
       expandedSkipBlocks: {},
@@ -2485,13 +2497,18 @@ export class PRReviewStore {
 
     // 4. If an explicit compare-to commit is in the hash, override the
     //    heuristic auto-match with the exact saved value.
-    if (ccommitParam !== null && ccommitParam !== this.state.compareToCommitSha) {
+    if (
+      ccommitParam !== null &&
+      ccommitParam !== this.state.compareToCommitSha
+    ) {
       await this.setCompareToCommitSha(ccommitParam);
     }
 
     // File navigation
     if (!file) {
-      return viewParam !== null || commitParam !== null || compareParam !== null;
+      return (
+        viewParam !== null || commitParam !== null || compareParam !== null
+      );
     }
 
     // Check if file exists in the now-current file list
@@ -2643,6 +2660,8 @@ export class PRReviewStore {
         commitVersionHistory = buildCommitVersionHistory(commitsByVersion);
       }
 
+      this.baseCommits = commitsData;
+
       this.set({
         reviews: reviewsData,
         checks: checksData,
@@ -2668,7 +2687,8 @@ export class PRReviewStore {
 
       // If compareToSha was restored from the URL before commit history was
       // available, auto-match now that we have the data.
-      const { compareToSha, selectedCommitSha, compareToCommitSha } = this.state;
+      const { compareToSha, selectedCommitSha, compareToCommitSha } =
+        this.state;
       if (compareToSha && selectedCommitSha && !compareToCommitSha) {
         await this.autoMatchAndComputeInterdiff(selectedCommitSha);
       }
