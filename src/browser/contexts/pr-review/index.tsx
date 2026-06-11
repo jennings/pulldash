@@ -195,6 +195,8 @@ interface PRReviewState {
   interdiffEnabled: boolean;
   /** Interdiff ParsedDiff results per file (populated when interdiffEnabled) */
   interdiffLoadedDiffs: Record<string, ParsedDiff>;
+  /** Files with identical patches between compare-to and viewing version (full branch, no interdiff) */
+  versionCompareNoChangeFiles: string[];
 
   // Loading states
   loading: boolean;
@@ -490,6 +492,7 @@ export class PRReviewStore {
       compareToCommitSha: null,
       interdiffEnabled: false,
       interdiffLoadedDiffs: {},
+      versionCompareNoChangeFiles: [],
       checks: null,
       checksLastUpdated: null,
       workflowRunsAwaitingApproval: [],
@@ -580,6 +583,72 @@ export class PRReviewStore {
   private set(partial: Partial<PRReviewState>) {
     this.state = { ...this.state, ...partial };
     this.emit();
+  }
+
+  private async refreshFiles(): Promise<void> {
+    const { owner, repo, pr, selectedHeadSha, compareToSha } = this.state;
+
+    const resetBase = {
+      loadedDiffs: {},
+      loadingFiles: new Set<string>(),
+      expandedSkipBlocks: {},
+      expandingSkipBlocks: new Set<string>(),
+    };
+
+    if (compareToSha) {
+      const headSha = selectedHeadSha ?? pr.head.sha;
+
+      const [prevFiles, currFiles] = await Promise.all([
+        this.github
+          .getPRFilesForRange(owner, repo, pr.base.sha, compareToSha)
+          .catch(() => [] as PullRequestFile[]),
+        this.github
+          .getPRFilesForRange(owner, repo, pr.base.sha, headSha)
+          .catch(() => [] as PullRequestFile[]),
+      ]);
+
+      const prevMap = new Map(prevFiles.map((f) => [f.filename, f.patch]));
+      const currMap = new Map(currFiles.map((f) => [f.filename, f.patch]));
+      const allFiles = new Set([...prevMap.keys(), ...currMap.keys()]);
+
+      const interdiffFiles: PullRequestFile[] = [];
+      const noChangeFiles: string[] = [];
+      for (const filename of allFiles) {
+        const prevPatch = prevMap.get(filename);
+        const currPatch = currMap.get(filename);
+
+        if (currPatch === undefined) {
+          const prev = prevFiles.find((f) => f.filename === filename)!;
+          interdiffFiles.push({ ...prev, status: "removed" });
+        } else {
+          interdiffFiles.push(currFiles.find((f) => f.filename === filename)!);
+          if (prevPatch !== undefined && prevPatch === currPatch) {
+            noChangeFiles.push(filename);
+          }
+        }
+      }
+
+      this.set({
+        ...resetBase,
+        files: sortFilesLikeTree(interdiffFiles),
+        versionCompareNoChangeFiles: noChangeFiles,
+      });
+    } else if (selectedHeadSha) {
+      const files = await this.github
+        .getPRFilesForRange(owner, repo, pr.base.sha, selectedHeadSha)
+        .catch(() => [] as PullRequestFile[]);
+      this.set({
+        ...resetBase,
+        files: sortFilesLikeTree(files),
+        versionCompareNoChangeFiles: [],
+      });
+    } else {
+      this.set({
+        ...resetBase,
+        files: this.baseFiles,
+        versionCompareNoChangeFiles: [],
+      });
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -922,39 +991,25 @@ export class PRReviewStore {
   // ---------------------------------------------------------------------------
 
   setSelectedHeadSha = async (sha: string | null): Promise<void> => {
-    const { owner, repo, pr } = this.state;
-
     if (sha === null) {
       this.set({
         selectedHeadSha: null,
-        files: this.baseFiles,
         loadedDiffs: {},
         loadingFiles: new Set(),
         expandedSkipBlocks: {},
         expandingSkipBlocks: new Set(),
       });
-      return;
+    } else {
+      this.set({
+        selectedHeadSha: sha,
+        loadedDiffs: {},
+        loadingFiles: new Set(),
+        expandedSkipBlocks: {},
+        expandingSkipBlocks: new Set(),
+      });
     }
 
-    this.set({
-      selectedHeadSha: sha,
-      loadedDiffs: {},
-      loadingFiles: new Set(),
-      expandedSkipBlocks: {},
-      expandingSkipBlocks: new Set(),
-    });
-
-    const versionFiles = await this.github
-      .getPRFilesForRange(
-        owner,
-        repo,
-        pr.base.sha,
-        sha,
-        `${owner}/${repo}/${pr.number}`
-      )
-      .catch(() => [] as PullRequestFile[]);
-
-    this.set({ files: sortFilesLikeTree(versionFiles) });
+    await this.refreshFiles();
   };
 
   // ---------------------------------------------------------------------------
@@ -1097,6 +1152,7 @@ export class PRReviewStore {
     if (sha && selectedCommitSha) {
       await this.autoMatchAndComputeInterdiff(selectedCommitSha);
     }
+    await this.refreshFiles();
   };
 
   setCompareToCommitSha = async (sha: string | null): Promise<void> => {
@@ -2493,6 +2549,9 @@ export class PRReviewStore {
     // 2. Apply viewing version (fetches version-specific file list).
     if (viewParam !== this.state.selectedHeadSha) {
       await this.setSelectedHeadSha(viewParam);
+    } else if (compareParam) {
+      // Viewing version unchanged (Latest), but compare-to was set
+      await this.refreshFiles();
     }
 
     // 3. Apply commit selection (fetches commit files; auto-matches compare-to
