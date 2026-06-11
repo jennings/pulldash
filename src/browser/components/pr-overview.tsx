@@ -4909,9 +4909,12 @@ function TimelineItem({
               number: number;
               title: string;
               repository?: { full_name: string };
+              pull_request?: object;
             };
           };
         };
+        const fullName = crossRef.source?.issue?.repository?.full_name;
+        const issueNumber = crossRef.source?.issue?.number;
         return {
           icon: <Link className="w-4 h-4" />,
           text: (
@@ -4924,10 +4927,29 @@ function TimelineItem({
                 </UserHoverCard>
               )}{" "}
               mentioned this in{" "}
-              <span className="font-medium">
-                {crossRef.source?.issue?.repository?.full_name}#
-                {crossRef.source?.issue?.number}
-              </span>
+              {fullName && issueNumber ? (
+                crossRef.source?.issue?.pull_request ? (
+                  <a
+                    href={`/${fullName}/pull/${issueNumber}`}
+                    className="font-medium hover:text-blue-400 hover:underline"
+                  >
+                    {fullName}#{issueNumber}
+                  </a>
+                ) : (
+                  <a
+                    href={`https://github.com/${fullName}/issues/${issueNumber}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-medium hover:text-blue-400 hover:underline"
+                  >
+                    {fullName}#{issueNumber}
+                  </a>
+                )
+              ) : (
+                <span className="font-medium">
+                  {fullName}#{issueNumber}
+                </span>
+              )}
             </span>
           ),
           color: "text-muted-foreground",
