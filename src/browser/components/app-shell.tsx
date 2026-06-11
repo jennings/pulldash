@@ -95,6 +95,22 @@ export function AppShell() {
     [navigate]
   );
 
+  // Close a tab and navigate to the next active tab if needed
+  const handleTabClose = useCallback(
+    (tabId: string) => {
+      if (tabId === activeTabId) {
+        const tabIndex = tabs.findIndex((t) => t.id === tabId);
+        const newTabs = tabs.filter((t) => t.id !== tabId);
+        const nextTab = newTabs[Math.min(tabIndex, newTabs.length - 1)];
+        closeTab(tabId);
+        handleTabSelect(nextTab);
+      } else {
+        closeTab(tabId);
+      }
+    },
+    [activeTabId, tabs, closeTab, handleTabSelect]
+  );
+
   // Handle keyboard shortcuts for tab switching
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -110,14 +126,14 @@ export function AppShell() {
       if ((e.metaKey || e.ctrlKey) && e.key === "w") {
         if (activeTabId !== "home") {
           e.preventDefault();
-          closeTab(activeTabId);
+          handleTabClose(activeTabId);
         }
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [tabs, activeTabId, handleTabSelect, closeTab]);
+  }, [tabs, activeTabId, handleTabSelect, handleTabClose]);
 
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-background">
@@ -172,7 +188,7 @@ export function AppShell() {
               tab={tab}
               isActive={tab.id === activeTabId}
               onSelect={() => handleTabSelect(tab)}
-              onClose={() => closeTab(tab.id)}
+              onClose={() => handleTabClose(tab.id)}
             />
           ))}
         </div>
