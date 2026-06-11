@@ -2702,6 +2702,10 @@ export class PRReviewStore {
       if (compareToSha && selectedCommitSha && !compareToCommitSha) {
         await this.autoMatchAndComputeInterdiff(selectedCommitSha);
       }
+
+      if (compareToSha) {
+        await this.refreshFiles();
+      }
     } catch (error) {
       console.error("Failed to load PR data:", error);
       this.set({ loading: false });
