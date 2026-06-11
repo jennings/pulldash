@@ -666,6 +666,10 @@ function VersionBar() {
     ? compareToVersionCommits.find((c) => c.sha === compareToCommitSha)
     : null;
 
+  // Ticket 50: the latest push version is never selectable in Compare to.
+  const latestPushVersionNumber =
+    pushVersions.length > 0 ? pushVersions[pushVersions.length - 1].version : 0;
+
   const sectionLabel =
     "text-[10px] uppercase tracking-wide text-muted-foreground/60 mb-0.5";
   const triggerBtn =
@@ -788,23 +792,27 @@ function VersionBar() {
                 <span>Target</span>
                 {!compareToSha && <Check className="w-3 h-3 ml-2 shrink-0" />}
               </DropdownMenuItem>
-              {[...pushVersions].reverse().map((pv) => (
-                <DropdownMenuItem
-                  key={pv.sha}
-                  onClick={() => store.setCompareToSha(pv.sha)}
-                  className="text-xs flex items-center justify-between"
-                >
-                  <span>
-                    v{pv.version}{" "}
-                    <span className="text-muted-foreground">
-                      ({getTimeAgo(new Date(pv.pushedAt))})
+              {[...pushVersions]
+                .reverse()
+                // Ticket 50: the latest push version is never selectable.
+                .filter((pv) => pv.version < latestPushVersionNumber)
+                .map((pv) => (
+                  <DropdownMenuItem
+                    key={pv.sha}
+                    onClick={() => store.setCompareToSha(pv.sha)}
+                    className="text-xs flex items-center justify-between"
+                  >
+                    <span>
+                      v{pv.version}{" "}
+                      <span className="text-muted-foreground">
+                        ({getTimeAgo(new Date(pv.pushedAt))})
+                      </span>
                     </span>
-                  </span>
-                  {compareToSha === pv.sha && (
-                    <Check className="w-3 h-3 ml-2 shrink-0" />
-                  )}
-                </DropdownMenuItem>
-              ))}
+                    {compareToSha === pv.sha && (
+                      <Check className="w-3 h-3 ml-2 shrink-0" />
+                    )}
+                  </DropdownMenuItem>
+                ))}
             </DropdownMenuContent>
           </DropdownMenu>
 
