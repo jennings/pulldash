@@ -5,8 +5,9 @@ import gitDiffParser, {
   DeleteChange,
   InsertChange,
 } from "gitdiff-parser";
-import { diffChars, diffWords } from "diff";
+import { diffWords } from "diff";
 import { INLINE_MAX_CHAR_EDITS } from "../../../../diff-parse-constants";
+import { buildInlineDiffSegments } from "../../../../shared/diff-utils";
 
 export interface LineSegment {
   value: string;
@@ -71,84 +72,6 @@ const changeToLine = (change: _Change): Line => ({
   ],
 });
 
-function diffCharsIfWithinEditLimit(
-  a: string,
-  b: string,
-  maxEdits = 4
-):
-  | {
-      exceededLimit: true;
-    }
-  | {
-      exceededLimit: false;
-      diffs: LineSegment[];
-    } {
-  const diffs = diffChars(a, b);
-
-  let edits = 0;
-  for (const part of diffs) {
-    if (part.added || part.removed) {
-      edits += part.value.length;
-      if (edits > maxEdits) return { exceededLimit: true };
-    }
-  }
-
-  return {
-    exceededLimit: false,
-    diffs: diffs.map((d) => ({
-      value: d.value,
-      type: d.added ? "insert" : d.removed ? "delete" : "normal",
-    })),
-  };
-}
-
-const buildInlineDiffSegments = (
-  current: _Change,
-  next: _Change,
-  options: ParseOptions
-): Line["content"] => {
-  const segments: LineSegment[] = diffWords(current.content, next.content).map(
-    (token) => ({
-      value: token.value,
-      type: token.added ? "insert" : token.removed ? "delete" : "normal",
-    })
-  );
-
-  const result: LineSegment[] = [];
-
-  const mergeIntoResult = (segment: LineSegment) => {
-    const last = result[result.length - 1];
-    if (last && last.type === segment.type) {
-      last.value += segment.value;
-    } else {
-      result.push(segment);
-    }
-  };
-
-  for (let i = 0; i < segments.length; i++) {
-    const current = segments[i];
-    const next = segments[i + 1];
-    if (current.type === "delete" && next?.type === "insert") {
-      const charDiff = diffCharsIfWithinEditLimit(
-        current.value,
-        next.value,
-        options.inlineMaxCharEdits
-      );
-
-      if (!charDiff.exceededLimit) {
-        charDiff.diffs.forEach(mergeIntoResult);
-
-        i++;
-      } else {
-        result.push(current);
-      }
-    } else {
-      mergeIntoResult(current);
-    }
-  }
-
-  return result;
-};
 
 const mergeAdjacentLines = (
   changes: _Change[],
@@ -170,7 +93,7 @@ const mergeAdjacentLines = (
         isNormal: true,
         oldLineNumber: current.lineNumber,
         newLineNumber: next.lineNumber,
-        content: buildInlineDiffSegments(current, next, options),
+        content: buildInlineDiffSegments(current.content, next.content, options.inlineMaxCharEdits),
       });
       i++;
     } else {
@@ -299,7 +222,7 @@ function emitModified(
     newLineNumber: add.lineNumber,
     type: "normal",
     isNormal: true,
-    content: buildInlineDiffSegments(del, add, options),
+    content: buildInlineDiffSegments(del.content, add.content, options.inlineMaxCharEdits),
   });
 }
 
