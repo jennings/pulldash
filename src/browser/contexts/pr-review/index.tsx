@@ -937,6 +937,14 @@ export class PRReviewStore {
         expandedSkipBlocks: {},
         expandingSkipBlocks: new Set(),
       });
+
+      // Fetch checks for the latest version
+      this.github
+        .getPRChecks(owner, repo, pr.head.sha)
+        .then((checks) => {
+          this.set({ checks, checksLastUpdated: new Date() });
+        })
+        .catch(() => {});
       return;
     }
 
@@ -967,6 +975,15 @@ export class PRReviewStore {
       .catch(() => [] as PullRequestFile[]);
 
     this.set({ files: sortFilesLikeTree(versionFiles) });
+
+    // Fetch checks for the selected version
+    const checksSha = sha ?? pr.head.sha;
+    this.github
+      .getPRChecks(owner, repo, checksSha)
+      .then((checks) => {
+        this.set({ checks, checksLastUpdated: new Date() });
+      })
+      .catch(() => {});
   };
 
   // ---------------------------------------------------------------------------
@@ -2726,14 +2743,15 @@ export class PRReviewStore {
    * Refresh just the checks data
    */
   refreshChecks = async (): Promise<void> => {
-    const { owner, repo, pr } = this.state;
+    const { owner, repo, pr, selectedHeadSha } = this.state;
+    const sha = selectedHeadSha ?? pr.head.sha;
 
     this.set({ loadingChecks: true });
 
     try {
       const [checksData, workflowRunsData] = await Promise.all([
-        this.github.getPRChecks(owner, repo, pr.head.sha).catch(() => null),
-        this.github.getWorkflowRuns(owner, repo, pr.head.sha).catch(() => ({
+        this.github.getPRChecks(owner, repo, sha).catch(() => null),
+        this.github.getWorkflowRuns(owner, repo, sha).catch(() => ({
           workflow_runs: [] as Array<{
             id: number;
             name: string;
