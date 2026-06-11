@@ -30,7 +30,8 @@ export function useSkipBlockExpansion() {
           owner,
           repo,
           selectedFile,
-          pr.head.sha
+          pr.head.sha,
+          `${owner}/${repo}/${pr.number}`
         );
 
         if (!content) {

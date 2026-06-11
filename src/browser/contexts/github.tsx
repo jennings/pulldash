@@ -10,6 +10,7 @@ import {
 import { Octokit } from "@octokit/core";
 import type { components } from "@octokit/openapi-types";
 import { useAuth } from "./auth";
+import * as PersistentCache from "../lib/persistent-cache";
 
 // Re-export types
 // Extended PullRequest with body_html from GitHub's HTML media type
@@ -1149,7 +1150,8 @@ function createGitHubStore() {
   async function getCommitFiles(
     owner: string,
     repo: string,
-    sha: string
+    sha: string,
+    prKey?: string
   ): Promise<PullRequestFile[]> {
     if (!octokit) throw new Error("Not initialized");
 
@@ -1157,6 +1159,14 @@ function createGitHubStore() {
 
     const cached = cache.get<PullRequestFile[]>(cacheKey);
     if (cached) return cached;
+
+    if (prKey) {
+      const persistent = await PersistentCache.get<PullRequestFile[]>(cacheKey);
+      if (persistent) {
+        cache.set(cacheKey, persistent);
+        return persistent;
+      }
+    }
 
     const pending = cache.getPending<PullRequestFile[]>(cacheKey);
     if (pending) return pending;
@@ -1170,6 +1180,7 @@ function createGitHubStore() {
       .then((res) => {
         const files = (res.data.files ?? []) as PullRequestFile[];
         cache.set(cacheKey, files);
+        if (prKey) PersistentCache.put(cacheKey, files, prKey);
         return files;
       });
 
@@ -1181,7 +1192,8 @@ function createGitHubStore() {
     owner: string,
     repo: string,
     baseSha: string,
-    headSha: string
+    headSha: string,
+    prKey?: string
   ): Promise<PullRequestFile[]> {
     if (!octokit) throw new Error("Not initialized");
 
@@ -1189,6 +1201,14 @@ function createGitHubStore() {
 
     const cached = cache.get<PullRequestFile[]>(cacheKey);
     if (cached) return cached;
+
+    if (prKey) {
+      const persistent = await PersistentCache.get<PullRequestFile[]>(cacheKey);
+      if (persistent) {
+        cache.set(cacheKey, persistent);
+        return persistent;
+      }
+    }
 
     const pending = cache.getPending<PullRequestFile[]>(cacheKey);
     if (pending) return pending;
@@ -1203,6 +1223,7 @@ function createGitHubStore() {
       .then((res) => {
         const files = (res.data.files ?? []) as PullRequestFile[];
         cache.set(cacheKey, files);
+        if (prKey) PersistentCache.put(cacheKey, files, prKey);
         return files;
       });
 
@@ -1585,7 +1606,8 @@ function createGitHubStore() {
     owner: string,
     repo: string,
     baseSha: string,
-    headSha: string
+    headSha: string,
+    prKey?: string
   ): Promise<components["schemas"]["commit"][]> {
     if (!octokit) throw new Error("Not initialized");
 
@@ -1593,6 +1615,15 @@ function createGitHubStore() {
 
     const cached = cache.get<components["schemas"]["commit"][]>(cacheKey);
     if (cached) return cached;
+
+    if (prKey) {
+      const persistent =
+        await PersistentCache.get<components["schemas"]["commit"][]>(cacheKey);
+      if (persistent) {
+        cache.set(cacheKey, persistent);
+        return persistent;
+      }
+    }
 
     const pending =
       cache.getPending<components["schemas"]["commit"][]>(cacheKey);
@@ -1608,6 +1639,7 @@ function createGitHubStore() {
       .then((res) => {
         const commits = res.data.commits as components["schemas"]["commit"][];
         cache.set(cacheKey, commits);
+        if (prKey) PersistentCache.put(cacheKey, commits, prKey);
         return commits;
       });
 
@@ -2261,7 +2293,8 @@ function createGitHubStore() {
     owner: string,
     repo: string,
     path: string,
-    ref: string
+    ref: string,
+    prKey?: string
   ): Promise<string> {
     if (!octokit) throw new Error("Not initialized");
 
@@ -2269,6 +2302,14 @@ function createGitHubStore() {
 
     const cached = cache.get<string>(cacheKey, 300_000);
     if (cached) return cached;
+
+    if (prKey) {
+      const persistent = await PersistentCache.get<string>(cacheKey);
+      if (persistent !== null) {
+        cache.set(cacheKey, persistent);
+        return persistent;
+      }
+    }
 
     const pending = cache.getPending<string>(cacheKey);
     if (pending) return pending;
@@ -2287,6 +2328,7 @@ function createGitHubStore() {
         );
         const content = response.data as unknown as string;
         cache.set(cacheKey, content);
+        if (prKey) PersistentCache.put(cacheKey, content, prKey);
         return content;
       } catch (error: unknown) {
         if (
@@ -2296,6 +2338,7 @@ function createGitHubStore() {
           error.status === 404
         ) {
           cache.set(cacheKey, "");
+          if (prKey) PersistentCache.put(cacheKey, "", prKey);
           return "";
         }
         throw error;

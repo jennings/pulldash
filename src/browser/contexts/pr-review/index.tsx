@@ -945,7 +945,13 @@ export class PRReviewStore {
     });
 
     const versionFiles = await this.github
-      .getPRFilesForRange(owner, repo, pr.base.sha, sha)
+      .getPRFilesForRange(
+        owner,
+        repo,
+        pr.base.sha,
+        sha,
+        `${owner}/${repo}/${pr.number}`
+      )
       .catch(() => [] as PullRequestFile[]);
 
     this.set({ files: sortFilesLikeTree(versionFiles) });
@@ -977,12 +983,14 @@ export class PRReviewStore {
       const { selectedHeadSha } = this.state;
       if (selectedHeadSha) {
         this.set(resetBase);
+        const { pr } = this.state;
         const versionFiles = await this.github
           .getPRFilesForRange(
             owner,
             repo,
-            this.state.pr.base.sha,
-            selectedHeadSha
+            pr.base.sha,
+            selectedHeadSha,
+            `${owner}/${repo}/${pr.number}`
           )
           .catch(() => [] as PullRequestFile[]);
         this.set({ files: sortFilesLikeTree(versionFiles), loadedDiffs: {} });
@@ -995,7 +1003,12 @@ export class PRReviewStore {
     this.set(resetBase);
 
     const commitFiles = await this.github
-      .getCommitFiles(owner, repo, sha)
+      .getCommitFiles(
+        owner,
+        repo,
+        sha,
+        `${owner}/${repo}/${this.state.pr.number}`
+      )
       .catch(() => [] as PullRequestFile[]);
 
     this.set({ files: sortFilesLikeTree(commitFiles), loadedDiffs: {} });
@@ -1010,14 +1023,15 @@ export class PRReviewStore {
     baseCommitSha: string,
     headCommitSha: string
   ): Promise<void> => {
-    const { owner, repo } = this.state;
+    const { owner, repo, pr } = this.state;
+    const prKey = `${owner}/${repo}/${pr.number}`;
 
     const [prevFiles, headFiles] = await Promise.all([
       this.github
-        .getCommitFiles(owner, repo, baseCommitSha)
+        .getCommitFiles(owner, repo, baseCommitSha, prKey)
         .catch(() => [] as PullRequestFile[]),
       this.github
-        .getCommitFiles(owner, repo, headCommitSha)
+        .getCommitFiles(owner, repo, headCommitSha, prKey)
         .catch(() => [] as PullRequestFile[]),
     ]);
 
@@ -2644,7 +2658,13 @@ export class PRReviewStore {
         commitsByVersion = await Promise.all(
           pushVersionsData.map(async (pv) => {
             const commits = await this.github
-              .getCommitsForHeadSha(owner, repo, pr.base.sha, pv.sha)
+              .getCommitsForHeadSha(
+                owner,
+                repo,
+                pr.base.sha,
+                pv.sha,
+                `${owner}/${repo}/${pr.number}`
+              )
               .catch(() => [] as PRCommit[]);
             return { version: pv.version, commits };
           })

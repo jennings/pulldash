@@ -203,8 +203,9 @@ export function useDiffLoader() {
     }, 50);
 
     // Create file content getter for better syntax highlighting
+    const prKey = `${owner}/${repo}/${pr.number}`;
     const getFileContent: FileContentGetter = (path, ref) =>
-      github.getFileContent(owner, repo, path, ref);
+      github.getFileContent(owner, repo, path, ref, prKey);
 
     // Fetch immediately with full file content for better highlighting
     fetchParsedDiff(
@@ -267,14 +268,14 @@ export function useDiffLoader() {
       clearTimeout(loadingTimeoutId);
       store.setDiffLoading(currentFile, false);
     };
-  // NOTE: selectedCommitSha is intentionally omitted from deps. setSelectedCommitSha
-  // does two sequential this.set() calls separated by an await: first it sets
-  // selectedCommitSha (+ clears loadedDiffs), then after getCommitFiles resolves it
-  // sets the new files. Adding selectedCommitSha here would fire this effect during
-  // that intermediate window when files still holds the previous view's patches,
-  // causing those stale patches to be parsed and cached under the new commit key.
-  // The files dep is sufficient: by the time files updates, selectedCommitSha is
-  // already in place, so cacheContext is correct when this effect body runs.
+    // NOTE: selectedCommitSha is intentionally omitted from deps. setSelectedCommitSha
+    // does two sequential this.set() calls separated by an await: first it sets
+    // selectedCommitSha (+ clears loadedDiffs), then after getCommitFiles resolves it
+    // sets the new files. Adding selectedCommitSha here would fire this effect during
+    // that intermediate window when files still holds the previous view's patches,
+    // causing those stale patches to be parsed and cached under the new commit key.
+    // The files dep is sufficient: by the time files updates, selectedCommitSha is
+    // already in place, so cacheContext is correct when this effect body runs.
   }, [
     selectedFile,
     files,

@@ -21,7 +21,8 @@ export function useFileCopyActions() {
         owner,
         repo,
         filename,
-        pr.head.sha
+        pr.head.sha,
+        `${owner}/${repo}/${pr.number}`
       );
       await navigator.clipboard.writeText(content);
     } catch (error) {
@@ -37,7 +38,8 @@ export function useFileCopyActions() {
         owner,
         repo,
         basePath,
-        pr.base.sha
+        pr.base.sha,
+        `${owner}/${repo}/${pr.number}`
       );
       await navigator.clipboard.writeText(content);
     } catch (error) {
