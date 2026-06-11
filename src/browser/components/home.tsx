@@ -399,7 +399,7 @@ export function Home() {
         const slashMatch = query.match(/^([^/\s]+)\/([^/\s]+)$/);
         if (slashMatch) {
           const [, org, name] = slashMatch;
-          query = `org:${org} ${name}`;
+          query = `org:${org} ${name} fork:true`;
         }
 
         const data = await github.searchRepos(query);
