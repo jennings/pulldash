@@ -34,7 +34,13 @@ describe("mergeModifiedLines", () => {
     return { type: "insert", lineNumber, content } as Change;
   }
   function makeNormal(lineNumber: number, content: string): Change {
-    return { type: "normal", lineNumber, oldLineNumber: lineNumber, newLineNumber: lineNumber, content } as any;
+    return {
+      type: "normal",
+      lineNumber,
+      oldLineNumber: lineNumber,
+      newLineNumber: lineNumber,
+      content,
+    } as any;
   }
 
   test("returns empty array for empty changes", () => {
@@ -49,10 +55,7 @@ describe("mergeModifiedLines", () => {
   });
 
   test("merges similar delete+insert into a single normal line with inline diff", () => {
-    const changes = [
-      makeDelete(1, "foo bar"),
-      makeInsert(1, "foo baz"),
-    ];
+    const changes = [makeDelete(1, "foo bar"), makeInsert(1, "foo baz")];
     const result = mergeModifiedLines(changes, defaultOpts);
     expect(result).toHaveLength(1);
     expect(result[0].type).toBe("normal");
@@ -87,7 +90,9 @@ describe("mergeModifiedLines", () => {
     // 5 changes all pass through unmerged
     expect(result).toHaveLength(5);
     // Delete at line 1 and insert at line 10 are NOT merged into a single normal line
-    const merged = (result as any[]).find((l) => l.oldLineNumber === 1 && l.newLineNumber === 10);
+    const merged = (result as any[]).find(
+      (l) => l.oldLineNumber === 1 && l.newLineNumber === 10
+    );
     expect(merged).toBeUndefined();
     // They come out as their original types
     const types = result.map((l) => l.type);
@@ -152,7 +157,10 @@ describe("parseHunk (via parseDiff)", () => {
     const hunk = files[0].hunks.find((h) => h.type === "hunk");
     if (hunk?.type === "hunk") {
       const merged = (hunk.lines as any[]).find(
-        (l) => l.type === "normal" && l.oldLineNumber !== undefined && l.newLineNumber !== undefined
+        (l) =>
+          l.type === "normal" &&
+          l.oldLineNumber !== undefined &&
+          l.newLineNumber !== undefined
       );
       expect(merged).toBeDefined();
     }
@@ -245,7 +253,10 @@ describe("calculateChangeRatio (via mergeModifiedLines)", () => {
 
   test("identical strings have ratio 0 (always merge)", () => {
     const changes = [makeDelete(1, "identical"), makeInsert(1, "identical")];
-    const result = mergeModifiedLines(changes, { ...defaultOpts, maxChangeRatio: 0 });
+    const result = mergeModifiedLines(changes, {
+      ...defaultOpts,
+      maxChangeRatio: 0,
+    });
     // ratio 0 means identical → merges
     expect(result).toHaveLength(1);
     expect(result[0].type).toBe("normal");
@@ -253,7 +264,10 @@ describe("calculateChangeRatio (via mergeModifiedLines)", () => {
 
   test("completely different strings have ratio 1 (never merge at tight threshold)", () => {
     const changes = [makeDelete(1, "aaaaaa"), makeInsert(1, "bbbbbb")];
-    const result = mergeModifiedLines(changes, { ...defaultOpts, maxChangeRatio: 0.01 });
+    const result = mergeModifiedLines(changes, {
+      ...defaultOpts,
+      maxChangeRatio: 0.01,
+    });
     // ratio ~1 → won't merge
     expect(result).toHaveLength(2);
   });
@@ -270,7 +284,10 @@ describe("diffCharsIfWithinEditLimit (via parseDiff inline diff)", () => {
     const diff = makeDiff(`@@ -1,1 +1,1 @@
 -foo bar baz
 +foo bar bar`);
-    const files = parseDiff(diff, { mergeModifiedLines: true, inlineMaxCharEdits: INLINE_MAX_CHAR_EDITS });
+    const files = parseDiff(diff, {
+      mergeModifiedLines: true,
+      inlineMaxCharEdits: INLINE_MAX_CHAR_EDITS,
+    });
     const hunk = files[0].hunks.find((h) => h.type === "hunk");
     if (hunk?.type === "hunk") {
       const merged = hunk.lines[0];
@@ -290,13 +307,18 @@ describe("diffCharsIfWithinEditLimit (via parseDiff inline diff)", () => {
     const diff = makeDiff(`@@ -1,1 +1,1 @@
 -${longOld}
 +${longNew}`);
-    const files = parseDiff(diff, { mergeModifiedLines: true, inlineMaxCharEdits: INLINE_MAX_CHAR_EDITS });
+    const files = parseDiff(diff, {
+      mergeModifiedLines: true,
+      inlineMaxCharEdits: INLINE_MAX_CHAR_EDITS,
+    });
     const hunk = files[0].hunks.find((h) => h.type === "hunk");
     if (hunk?.type === "hunk") {
       const line = hunk.lines[0];
       if (line.type === "normal") {
-            // Each segment value should be at least INLINE_MAX_CHAR_EDITS+5 chars long
-        const bigSeg = line.content.find((s) => s.value.length >= INLINE_MAX_CHAR_EDITS + 5);
+        // Each segment value should be at least INLINE_MAX_CHAR_EDITS+5 chars long
+        const bigSeg = line.content.find(
+          (s) => s.value.length >= INLINE_MAX_CHAR_EDITS + 5
+        );
         expect(bigSeg).toBeDefined();
       }
     }
@@ -344,7 +366,9 @@ diff --git a/b.ts b/b.ts
 -fooX
 +fooy`);
     const withDefault = parseDiff(diff);
-    const withExplicit = parseDiff(diff, { inlineMaxCharEdits: INLINE_MAX_CHAR_EDITS });
+    const withExplicit = parseDiff(diff, {
+      inlineMaxCharEdits: INLINE_MAX_CHAR_EDITS,
+    });
     // Structural equality (content values should match)
     const defaultHunk = withDefault[0].hunks[0];
     const explicitHunk = withExplicit[0].hunks[0];

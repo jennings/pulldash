@@ -21,14 +21,34 @@ describe("parseDiffWithHighlighting", () => {
 
   test("returns cached result on second call with same cacheKey", () => {
     const key = "cache-test-unique-key-1";
-    const r1 = parseDiffWithHighlighting(SIMPLE_PATCH, "test.ts", undefined, key);
-    const r2 = parseDiffWithHighlighting(SIMPLE_PATCH, "test.ts", undefined, key);
+    const r1 = parseDiffWithHighlighting(
+      SIMPLE_PATCH,
+      "test.ts",
+      undefined,
+      key
+    );
+    const r2 = parseDiffWithHighlighting(
+      SIMPLE_PATCH,
+      "test.ts",
+      undefined,
+      key
+    );
     expect(r1).toBe(r2);
   });
 
   test("produces distinct objects for different cache keys", () => {
-    const r1 = parseDiffWithHighlighting(SIMPLE_PATCH, "test.ts", undefined, "key-alpha");
-    const r2 = parseDiffWithHighlighting(SIMPLE_PATCH, "test.ts", undefined, "key-beta");
+    const r1 = parseDiffWithHighlighting(
+      SIMPLE_PATCH,
+      "test.ts",
+      undefined,
+      "key-alpha"
+    );
+    const r2 = parseDiffWithHighlighting(
+      SIMPLE_PATCH,
+      "test.ts",
+      undefined,
+      "key-beta"
+    );
     expect(r1).not.toBe(r2);
   });
 
@@ -43,7 +63,9 @@ describe("parseDiffWithHighlighting", () => {
     expect(hunk?.type).toBe("hunk");
     if (hunk?.type === "hunk") {
       const lines = hunk.lines;
-      expect(lines.every((l) => l.content.every((s) => typeof s.html === "string"))).toBe(true);
+      expect(
+        lines.every((l) => l.content.every((s) => typeof s.html === "string"))
+      ).toBe(true);
     }
   });
 
@@ -55,7 +77,12 @@ describe("parseDiffWithHighlighting", () => {
     const hunk = result.hunks.find((h) => h.type === "hunk");
     expect(hunk?.type).toBe("hunk");
     if (hunk?.type === "hunk") {
-      const merged = hunk.lines.find((l) => l.type === "normal" && l.oldLineNumber !== undefined && l.newLineNumber !== undefined);
+      const merged = hunk.lines.find(
+        (l) =>
+          l.type === "normal" &&
+          l.oldLineNumber !== undefined &&
+          l.newLineNumber !== undefined
+      );
       expect(merged).toBeDefined();
     }
   });

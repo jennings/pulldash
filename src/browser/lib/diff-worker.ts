@@ -250,7 +250,6 @@ const changeToLine = (change: _Change): Line => ({
   content: [{ value: change.content, type: "normal" }],
 });
 
-
 const UNPAIRED = -1;
 
 function buildChangeIndices(changes: _Change[]) {
@@ -359,7 +358,11 @@ function emitModified(
     newLineNumber: add.lineNumber,
     type: "normal",
     isNormal: true,
-    content: buildInlineDiffSegments(del.content, add.content, options.inlineMaxCharEdits),
+    content: buildInlineDiffSegments(
+      del.content,
+      add.content,
+      options.inlineMaxCharEdits
+    ),
   });
 }
 

@@ -28,7 +28,9 @@ describe("parse-diff message", () => {
 +new
  context`;
 
-    handler({ data: { type: "parse-diff", id: "1", patch, filename: "test.ts" } });
+    handler({
+      data: { type: "parse-diff", id: "1", patch, filename: "test.ts" },
+    });
 
     expect(posted).toHaveLength(1);
     expect(posted[0].type).toBe("parse-diff-result");
@@ -42,7 +44,9 @@ describe("parse-diff message", () => {
 -foo
 +bar`;
 
-    handler({ data: { type: "parse-diff", id: "2", patch, filename: "test.ts" } });
+    handler({
+      data: { type: "parse-diff", id: "2", patch, filename: "test.ts" },
+    });
 
     const response = posted[0];
     expect(response.type).toBe("parse-diff-result");
@@ -52,7 +56,9 @@ describe("parse-diff message", () => {
   });
 
   test("result is empty hunks for an empty/invalid patch", () => {
-    handler({ data: { type: "parse-diff", id: "3", patch: "", filename: "test.ts" } });
+    handler({
+      data: { type: "parse-diff", id: "3", patch: "", filename: "test.ts" },
+    });
 
     expect(posted[0].type).toBe("parse-diff-result");
     expect(posted[0].result.hunks).toHaveLength(0);
@@ -133,7 +139,9 @@ describe("interdiff message", () => {
 +new
  context`;
 
-    handler({ data: { type: "interdiff", id: "7", patch1: patch, patch2: patch } });
+    handler({
+      data: { type: "interdiff", id: "7", patch1: patch, patch2: patch },
+    });
 
     expect(posted).toHaveLength(1);
     expect(posted[0].type).toBe("interdiff-result");
@@ -149,7 +157,9 @@ describe("interdiff message", () => {
 +new
  context`;
 
-    handler({ data: { type: "interdiff", id: "8", patch1: patch, patch2: patch } });
+    handler({
+      data: { type: "interdiff", id: "8", patch1: patch, patch2: patch },
+    });
 
     expect(posted[0].result.hunks).toHaveLength(0);
   });
@@ -185,7 +195,14 @@ describe("error propagation", () => {
   test("parse-diff with a bad patch posts an error response rather than throwing", () => {
     // parseDiffWithHighlighting is resilient (returns {hunks: []}) for bad patches,
     // so the handler should always post a result, not an error, for well-formed messages
-    handler({ data: { type: "parse-diff", id: "bad", patch: "not a valid patch", filename: "x.ts" } });
+    handler({
+      data: {
+        type: "parse-diff",
+        id: "bad",
+        patch: "not a valid patch",
+        filename: "x.ts",
+      },
+    });
     expect(posted).toHaveLength(1);
     // Either a result or an error — either way something is posted and the handler doesn't throw
     expect(["parse-diff-result", "error"]).toContain(posted[0].type);

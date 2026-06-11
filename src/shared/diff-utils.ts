@@ -116,9 +116,7 @@ export function diffCharsIfWithinEditLimit(
   a: string,
   b: string,
   maxEdits = 4
-):
-  | { exceededLimit: true }
-  | { exceededLimit: false; diffs: RawLineSegment[] } {
+): { exceededLimit: true } | { exceededLimit: false; diffs: RawLineSegment[] } {
   const diffs = diffChars(a, b);
   let edits = 0;
   for (const part of diffs) {

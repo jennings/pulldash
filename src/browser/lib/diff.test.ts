@@ -25,7 +25,11 @@ class FakeWorker {
     queueMicrotask(() => {
       if (this.onmessage && data?.type === "parse-diff") {
         this.onmessage({
-          data: { type: "parse-diff-result", id: data.id, result: { hunks: [] } },
+          data: {
+            type: "parse-diff-result",
+            id: data.id,
+            result: { hunks: [] },
+          },
         });
       } else if (this.onmessage && data?.type === "highlight-lines") {
         this.onmessage({
@@ -33,7 +37,11 @@ class FakeWorker {
         });
       } else if (this.onmessage && data?.type === "interdiff") {
         this.onmessage({
-          data: { type: "interdiff-result", id: data.id, result: { hunks: [] } },
+          data: {
+            type: "interdiff-result",
+            id: data.id,
+            result: { hunks: [] },
+          },
         });
       }
     });
@@ -168,7 +176,9 @@ describe("error propagation", () => {
       postMessage(data: any) {
         this.messages.push(data);
         queueMicrotask(() => {
-          this.onmessage?.({ data: { type: "error", id: data.id, error: "parse failed" } });
+          this.onmessage?.({
+            data: { type: "error", id: data.id, error: "parse failed" },
+          });
         });
       }
     }

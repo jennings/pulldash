@@ -72,7 +72,6 @@ const changeToLine = (change: _Change): Line => ({
   ],
 });
 
-
 const mergeAdjacentLines = (
   changes: _Change[],
   options: ParseOptions
@@ -93,7 +92,11 @@ const mergeAdjacentLines = (
         isNormal: true,
         oldLineNumber: current.lineNumber,
         newLineNumber: next.lineNumber,
-        content: buildInlineDiffSegments(current.content, next.content, options.inlineMaxCharEdits),
+        content: buildInlineDiffSegments(
+          current.content,
+          next.content,
+          options.inlineMaxCharEdits
+        ),
       });
       i++;
     } else {
@@ -222,7 +225,11 @@ function emitModified(
     newLineNumber: add.lineNumber,
     type: "normal",
     isNormal: true,
-    content: buildInlineDiffSegments(del.content, add.content, options.inlineMaxCharEdits),
+    content: buildInlineDiffSegments(
+      del.content,
+      add.content,
+      options.inlineMaxCharEdits
+    ),
   });
 }
 

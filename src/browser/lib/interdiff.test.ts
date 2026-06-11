@@ -59,9 +59,7 @@ describe("hastToHtml", () => {
       properties: { className: ["token", "keyword"] },
       children: [{ type: "text", value: "const" }],
     };
-    expect(hastToHtml(node)).toBe(
-      '<span class="token keyword">const</span>'
-    );
+    expect(hastToHtml(node)).toBe('<span class="token keyword">const</span>');
   });
 
   test("handles nested elements", () => {

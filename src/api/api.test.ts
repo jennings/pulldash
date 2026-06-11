@@ -3,7 +3,9 @@ import app from "./api";
 
 const originalFetch = globalThis.fetch;
 
-function mockFetch(impl: (url: string, init?: RequestInit) => Promise<Response>) {
+function mockFetch(
+  impl: (url: string, init?: RequestInit) => Promise<Response>
+) {
   globalThis.fetch = impl as unknown as typeof fetch;
 }
 
@@ -16,14 +18,18 @@ describe("POST /api/auth/device/code", () => {
     mockFetch(async (url) => {
       expect(url).toBe("https://github.com/login/device/code");
       return new Response(
-        JSON.stringify({ device_code: "abc", user_code: "ABCD-1234", expires_in: 900 }),
+        JSON.stringify({
+          device_code: "abc",
+          user_code: "ABCD-1234",
+          expires_in: 900,
+        }),
         { status: 200, headers: { "Content-Type": "application/json" } }
       );
     });
 
     const res = await app.request("/api/auth/device/code", { method: "POST" });
     expect(res.status).toBe(200);
-    const data = await res.json() as any;
+    const data = (await res.json()) as any;
     expect(data.device_code).toBe("abc");
     expect(data.user_code).toBe("ABCD-1234");
   });
@@ -33,16 +39,18 @@ describe("POST /api/auth/device/code", () => {
 
     const res = await app.request("/api/auth/device/code", { method: "POST" });
     expect(res.status).toBe(500);
-    const data = await res.json() as any;
+    const data = (await res.json()) as any;
     expect(data.error).toBeDefined();
   });
 
   test("returns 500 with error message when fetch throws", async () => {
-    mockFetch(async () => { throw new Error("network failure"); });
+    mockFetch(async () => {
+      throw new Error("network failure");
+    });
 
     const res = await app.request("/api/auth/device/code", { method: "POST" });
     expect(res.status).toBe(500);
-    const data = await res.json() as any;
+    const data = (await res.json()) as any;
     expect(data.error).toBe("network failure");
   });
 });
@@ -55,7 +63,7 @@ describe("POST /api/auth/device/token", () => {
       headers: { "Content-Type": "application/json" },
     });
     expect(res.status).toBe(400);
-    const data = await res.json() as any;
+    const data = (await res.json()) as any;
     expect(data.error).toMatch(/device_code/);
   });
 
@@ -74,7 +82,7 @@ describe("POST /api/auth/device/token", () => {
       headers: { "Content-Type": "application/json" },
     });
     expect(res.status).toBe(200);
-    const data = await res.json() as any;
+    const data = (await res.json()) as any;
     expect(data.access_token).toBe("gho_abc123");
   });
 
@@ -87,12 +95,14 @@ describe("POST /api/auth/device/token", () => {
       headers: { "Content-Type": "application/json" },
     });
     expect(res.status).toBe(500);
-    const data = await res.json() as any;
+    const data = (await res.json()) as any;
     expect(data.error).toBeDefined();
   });
 
   test("returns 500 with error message when fetch throws", async () => {
-    mockFetch(async () => { throw new Error("timeout"); });
+    mockFetch(async () => {
+      throw new Error("timeout");
+    });
 
     const res = await app.request("/api/auth/device/token", {
       method: "POST",
@@ -100,7 +110,7 @@ describe("POST /api/auth/device/token", () => {
       headers: { "Content-Type": "application/json" },
     });
     expect(res.status).toBe(500);
-    const data = await res.json() as any;
+    const data = (await res.json()) as any;
     expect(data.error).toBe("timeout");
   });
 
@@ -121,7 +131,9 @@ describe("POST /api/auth/device/token", () => {
     });
 
     expect(capturedBody.device_code).toBe("mycode");
-    expect(capturedBody.grant_type).toBe("urn:ietf:params:oauth:grant-type:device_code");
+    expect(capturedBody.grant_type).toBe(
+      "urn:ietf:params:oauth:grant-type:device_code"
+    );
     expect(capturedBody.client_id).toBeDefined();
   });
 });
