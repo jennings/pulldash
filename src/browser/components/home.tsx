@@ -445,14 +445,50 @@ export function Home() {
     []
   );
 
-  const handleToggleRepo = useCallback((repoName: string) => {
-    setConfig((prev) => ({
-      ...prev,
-      repos: prev.repos.map((r) =>
-        r.name === repoName ? { ...r, enabled: r.enabled === false } : r
-      ),
-    }));
-  }, []);
+  const handleToggleRepo = useCallback(
+    (repoName: string, shiftKey: boolean) => {
+      setConfig((prev) => {
+        const target = prev.repos.find((r) => r.name === repoName);
+        const isEnabled = target ? target.enabled !== false : true;
+        if (shiftKey) {
+          if (isEnabled) {
+            const isOnlyEnabled = prev.repos.every(
+              (r) => r.name === repoName || r.enabled === false
+            );
+            if (isOnlyEnabled) {
+              // Already the only enabled filter — re-enable all
+              return {
+                ...prev,
+                repos: prev.repos.map((r) => ({ ...r, enabled: true })),
+              };
+            }
+            // Shift+click on enabled: disable all others, keep this one enabled
+            return {
+              ...prev,
+              repos: prev.repos.map((r) =>
+                r.name === repoName
+                  ? { ...r, enabled: true }
+                  : { ...r, enabled: false }
+              ),
+            };
+          } else {
+            // Shift+click on disabled: enable all filters
+            return {
+              ...prev,
+              repos: prev.repos.map((r) => ({ ...r, enabled: true })),
+            };
+          }
+        }
+        return {
+          ...prev,
+          repos: prev.repos.map((r) =>
+            r.name === repoName ? { ...r, enabled: r.enabled === false } : r
+          ),
+        };
+      });
+    },
+    []
+  );
 
   const handleStateChange = useCallback((state: FilterConfig["state"]) => {
     setConfig((prev) => ({ ...prev, state }));
@@ -593,7 +629,7 @@ export function Home() {
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleToggleRepo(repo.name);
+                        handleToggleRepo(repo.name, e.shiftKey);
                       }}
                       className={cn(
                         "p-0.5 rounded transition-colors",
@@ -601,7 +637,7 @@ export function Home() {
                           ? "hover:bg-muted-foreground/20 text-muted-foreground hover:text-foreground"
                           : "hover:bg-muted-foreground/20 text-muted-foreground/50 hover:text-foreground"
                       )}
-                      title={isEnabled ? "Disable filter" : "Enable filter"}
+                      title={`${isEnabled ? "Disable filter" : "Enable filter"} (shift-click: toggle others)`}
                     >
                       {isEnabled ? (
                         <Eye className="w-3 h-3" />
