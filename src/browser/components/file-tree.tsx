@@ -321,6 +321,11 @@ export function FileTree({
               : 0;
             const allViewed =
               filesInFolder && viewedCount === filesInFolder.length;
+            const folderHasNoChanges =
+              noChangeFiles !== undefined &&
+              filesInFolder !== undefined &&
+              filesInFolder.length > 0 &&
+              filesInFolder.every((f) => noChangeFiles.has(f));
 
             return (
               <div
@@ -340,7 +345,8 @@ export function FileTree({
                       onClick={(e) => handleItemClick(item, e)}
                       className={cn(
                         "w-full flex items-center gap-1 px-2 text-sm hover:bg-muted/50 transition-colors",
-                        "text-left h-full"
+                        "text-left h-full",
+                        folderHasNoChanges && "opacity-55"
                       )}
                       style={{ paddingLeft: `${depth * 12 + 8}px` }}
                     >
