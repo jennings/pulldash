@@ -486,6 +486,66 @@
   background-color: oklch(0.18 0 0 / 50%);
 }
 
+/* GitHub suggested changes */
+.markdown-body .js-suggested-changes-blob {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.markdown-body .js-suggested-changes-blob .f6 {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.markdown-body .js-suggested-changes-blob table {
+  margin: 0;
+  border: none;
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.markdown-body .js-suggested-changes-blob td {
+  border: none;
+  padding: 1px 8px;
+  vertical-align: top;
+  font-family: var(--font-mono);
+  white-space: pre;
+}
+
+.markdown-body .js-suggested-changes-blob .blob-num {
+  width: 1%;
+  min-width: 20px;
+  text-align: right;
+  color: var(--muted-foreground);
+  font-size: 10px;
+  user-select: none;
+}
+
+.markdown-body .js-suggested-changes-blob .blob-num-deletion {
+  background: rgba(239, 68, 68, 0.15);
+}
+
+.markdown-body .js-suggested-changes-blob .blob-num-addition {
+  background: rgba(34, 197, 94, 0.15);
+}
+
+.markdown-body .js-suggested-changes-blob .blob-code-deletion {
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.markdown-body .js-suggested-changes-blob .blob-code-addition {
+  background: rgba(34, 197, 94, 0.1);
+}
+
+.markdown-body .js-suggested-changes-blob tr:nth-child(2n) {
+  background: transparent;
+}
+
 /* Horizontal rules */
 .markdown-body hr {
   height: 0.25em;
@@ -585,4 +645,35 @@
 
 .markdown-body .hljs-strong {
   font-weight: bold;
+}
+
+/* GitHub syntax highlighting (pl-* classes from body_html), matching Prism dark theme */
+.markdown-body .pl-c,
+.markdown-body .pl-cce,
+.markdown-body .pl-c2 {
+  color: hsl(220, 10%, 40%);
+}
+
+.markdown-body .pl-ent,
+.markdown-body .pl-eo,
+.markdown-body .pl-ms,
+.markdown-body .pl-mh {
+  color: hsl(207, 82%, 66%);
+}
+
+.markdown-body .pl-k {
+  color: hsl(286, 60%, 67%);
+}
+
+.markdown-body .pl-s,
+.markdown-body .pl-pds {
+  color: hsl(95, 38%, 62%);
+}
+
+.markdown-body .pl-en {
+  color: hsl(207, 82%, 66%);
+}
+
+.markdown-body .pl-ii {
+  color: hsl(355, 65%, 65%);
 }
