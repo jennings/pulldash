@@ -122,6 +122,7 @@ export const PROverview = memo(function PROverview() {
   const merging = usePRReviewSelector((s) => s.merging);
   const mergeMethod = usePRReviewSelector((s) => s.mergeMethod);
   const mergeError = usePRReviewSelector((s) => s.mergeError);
+  const repoHasMergeQueue = usePRReviewSelector((s) => s.repoHasMergeQueue);
 
   // Action loading states from store
   const closingPR = usePRReviewSelector((s) => s.closingPR);
@@ -1372,6 +1373,7 @@ export const PROverview = memo(function PROverview() {
                       showMergeOptions={showMergeOptions}
                       mergeError={mergeError}
                       latestReviews={latestReviews}
+                      hasMergeQueue={repoHasMergeQueue}
                       onMerge={handleMerge}
                       onSetMergeMethod={store.setMergeMethod}
                       onToggleMergeOptions={() =>
@@ -3008,6 +3010,7 @@ function MergeSection({
   showMergeOptions,
   mergeError,
   latestReviews,
+  hasMergeQueue,
   onMerge,
   onSetMergeMethod,
   onToggleMergeOptions,
@@ -3035,6 +3038,7 @@ function MergeSection({
   showMergeOptions: boolean;
   mergeError: string | null;
   latestReviews: Review[];
+  hasMergeQueue: boolean;
   onMerge: () => void;
   onSetMergeMethod: (method: "merge" | "squash" | "rebase") => void;
   onToggleMergeOptions: () => void;
@@ -3627,18 +3631,20 @@ function MergeSection({
           </div>
 
           {/* Merge queue info */}
-          <p className="text-xs text-muted-foreground">
-            This repository uses the{" "}
-            <a
-              href="https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-a-merge-queue"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-blue-400 hover:underline"
-            >
-              merge queue
-            </a>{" "}
-            for all merges into the main branch.
-          </p>
+          {hasMergeQueue && (
+            <p className="text-xs text-muted-foreground">
+              This repository uses the{" "}
+              <a
+                href="https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-a-merge-queue"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-400 hover:underline"
+              >
+                merge queue
+              </a>{" "}
+              for all merges into the main branch.
+            </p>
+          )}
         </div>
       )}
     </div>

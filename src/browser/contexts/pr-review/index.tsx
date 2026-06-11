@@ -204,6 +204,9 @@ interface PRReviewState {
   loading: boolean;
   loadingChecks: boolean;
 
+  // Repository merge settings
+  repoHasMergeQueue: boolean;
+
   // Merge state
   merging: boolean;
   mergeMethod: MergeMethod;
@@ -506,6 +509,9 @@ export class PRReviewStore {
       // Loading states
       loading: true,
       loadingChecks: false,
+
+      // Repository merge settings
+      repoHasMergeQueue: false,
 
       // Merge state
       merging: false,
@@ -2826,6 +2832,7 @@ export class PRReviewStore {
           threads: [] as ReviewThread[],
           viewerPermission: null,
           viewerCanMergeAsAdmin: false,
+          hasMergeQueue: false,
         })),
         this.github
           .getPushVersions(owner, repo, pr.number)
@@ -2929,6 +2936,7 @@ export class PRReviewStore {
         viewerPermission:
           reviewThreadsResult.viewerPermission ?? this.state.viewerPermission,
         viewerCanMergeAsAdmin: reviewThreadsResult.viewerCanMergeAsAdmin,
+        repoHasMergeQueue: reviewThreadsResult.hasMergeQueue,
         branchDeleted: deleteCount > restoreCount,
         loading: false,
       });

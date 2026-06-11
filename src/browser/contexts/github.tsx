@@ -2692,6 +2692,7 @@ function createGitHubStore() {
     threads: ReviewThread[];
     viewerPermission: string | null;
     viewerCanMergeAsAdmin: boolean;
+    hasMergeQueue: boolean;
   }> {
     if (!batcher) throw new Error("Not initialized");
 
@@ -2727,6 +2728,7 @@ function createGitHubStore() {
     const data = await batcher.query<{
       repository: {
         viewerPermission: string | null;
+        mergeQueue: { id: string } | null;
         pullRequest: {
           viewerCanMergeAsAdmin: boolean;
           reviewThreads: { nodes: RawReviewThread[] };
@@ -2737,6 +2739,9 @@ function createGitHubStore() {
       query ($owner: String!, $repo: String!, $number: Int!) {
         repository(owner: $owner, name: $repo) {
           viewerPermission
+          mergeQueue {
+            id
+          }
           pullRequest(number: $number) {
             viewerCanMergeAsAdmin
             reviewThreads(first: 100) {
@@ -2790,6 +2795,7 @@ function createGitHubStore() {
       threads,
       viewerPermission: data.repository.viewerPermission,
       viewerCanMergeAsAdmin: data.repository.pullRequest.viewerCanMergeAsAdmin,
+      hasMergeQueue: data.repository.mergeQueue !== null,
     };
   }
 
