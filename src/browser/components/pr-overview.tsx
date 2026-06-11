@@ -4299,6 +4299,7 @@ interface TimelineItemProps {
 }
 
 function TimelineItem({ event, pr, pushVersions }: TimelineItemProps) {
+  const store = usePRReviewStore();
   // Commits are handled by CommitGroup
   if ("sha" in event && "author" in event) return null;
 
@@ -4681,12 +4682,22 @@ function TimelineItem({ event, pr, pushVersions }: TimelineItemProps) {
               <code className="px-1.5 py-0.5 bg-blue-500/20 text-blue-300 rounded text-xs">
                 {pr?.head?.ref || "branch"}
               </code>{" "}
-              branch
+              branch{" "}
               {toVersion && fromVersion && (
-                <span className="text-muted-foreground">
-                  {" "}
+                <button
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    await store.setCompareToSha(fromVersion.sha);
+                    await store.setSelectedHeadSha(toVersion.sha);
+                    const { files } = store.getSnapshot();
+                    if (files.length > 0) {
+                      store.selectFile(files[0].filename);
+                    }
+                  }}
+                  className="text-muted-foreground hover:text-blue-400 hover:underline cursor-pointer transition-colors"
+                >
                   (v{fromVersion.version} → v{toVersion.version})
-                </span>
+                </button>
               )}
               {forcePush.commit_id && (
                 <>
