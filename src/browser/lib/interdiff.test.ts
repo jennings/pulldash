@@ -183,4 +183,56 @@ describe("computeInterdiff", () => {
     const result = computeInterdiff("", "");
     expect(result.hunks).toHaveLength(0);
   });
+
+  test("v2 adds a second hunk that v1 did not touch", () => {
+    // v1: changes line 10 only (3 lines of context each side)
+    const patch1 = `@@ -7,7 +7,7 @@
+ ctx7
+ ctx8
+ ctx9
+-old10
++new10v1
+ ctx11
+ ctx12
+ ctx13`;
+
+    // v2: changes line 10 differently AND adds line 15
+    // GitHub merges these into one big hunk (lines 7-18)
+    const patch2 = `@@ -7,12 +7,13 @@
+ ctx7
+ ctx8
+ ctx9
+-old10
++new10v2
+ ctx11
+ ctx12
+ ctx13
+ ctx14
++new15
+ ctx16
+ ctx17
+ ctx18`;
+
+    const result = computeInterdiff(patch1, patch2);
+
+    // Must have at least one hunk
+    const hunks = result.hunks.filter((h) => h.type === "hunk") as DiffHunk[];
+    expect(hunks.length).toBeGreaterThan(0);
+
+    const allLines = hunks.flatMap((h) => h.lines);
+    const insertLines = allLines.filter((l) => l.type === "insert");
+    const deleteLines = allLines.filter((l) => l.type === "delete");
+
+    // The change at line 10 shows as a modify (delete + insert)
+    expect(deleteLines.some((l) => l.oldLineNumber === 10)).toBe(true);
+    expect(insertLines.some((l) => l.newLineNumber === 10)).toBe(true);
+
+    // The new line 15 shows as an insert
+    expect(insertLines.some((l) => l.newLineNumber === 15)).toBe(true);
+
+    // Context lines 11-14 (shared between v1 and v2) must NOT be shown as inserts
+    for (const n of [11, 12, 13, 14]) {
+      expect(insertLines.some((l) => l.newLineNumber === n)).toBe(false);
+    }
+  });
 });

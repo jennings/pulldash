@@ -6,16 +6,16 @@
  * rebase noise stripped.
  *
  * Algorithm:
- * 1. Reconstruct the post-image of each patch (context + insert lines).
- * 2. Diff the two post-images.
- * 3. Return the result as a ParsedDiff.
+ * 1. Build a map from newLineNumber → {content, kind} for each patch.
+ * 2. Short-circuit if both post-images are byte-identical (pure rebase shift).
+ * 3. Walk the sorted union of newLineNumbers and classify each position.
+ * 4. Return the result as a ParsedDiff.
  *
  * Pure rebase shifts (same content at different line numbers) produce
  * identical post-images and therefore empty output.
  */
 
 import gitDiffParser from "gitdiff-parser";
-import { diffLines } from "diff";
 import type {
   ParsedDiff,
   DiffHunk,
@@ -27,30 +27,54 @@ import { escapeHtml } from "../../shared/diff-utils";
 
 const CONTEXT_LINES = 3;
 
+interface PostImageEntry {
+  content: string;
+  kind: "context" | "insert";
+}
+
+/**
+ * Build a map from new-file line number to post-image entry.
+ * Only non-delete lines (context + inserts) are included.
+ */
+function buildPostImageMap(patch: string): Map<number, PostImageEntry> {
+  const map = new Map<number, PostImageEntry>();
+  if (!patch.trim()) return map;
+
+  const diffContent = `diff --git a/file b/file\n--- a/file\n+++ b/file\n${patch}`;
+  try {
+    const files = gitDiffParser.parse(diffContent);
+    if (!files[0]) return map;
+
+    for (const hunk of files[0].hunks) {
+      for (const change of hunk.changes) {
+        if (change.type === "normal") {
+          map.set(change.newLineNumber, {
+            content: change.content,
+            kind: "context",
+          });
+        } else if (change.type === "insert") {
+          map.set(change.lineNumber, {
+            content: change.content,
+            kind: "insert",
+          });
+        }
+      }
+    }
+  } catch {
+    // ignore parse errors
+  }
+  return map;
+}
+
 /**
  * Extract the post-image lines from a unified-diff patch string.
  * Returns only the lines that survive into the new file (context + inserts).
  */
 export function buildPostImageLines(patch: string): string[] {
-  if (!patch.trim()) return [];
-
-  const diffContent = `diff --git a/file b/file\n--- a/file\n+++ b/file\n${patch}`;
-  try {
-    const files = gitDiffParser.parse(diffContent);
-    if (!files[0]) return [];
-
-    const lines: string[] = [];
-    for (const hunk of files[0].hunks) {
-      for (const change of hunk.changes) {
-        if (change.type !== "delete") {
-          lines.push(change.content);
-        }
-      }
-    }
-    return lines;
-  } catch {
-    return [];
-  }
+  const map = buildPostImageMap(patch);
+  if (map.size === 0) return [];
+  const keys = Array.from(map.keys()).sort((a, b) => a - b);
+  return keys.map((k) => map.get(k)!.content);
 }
 
 /**
@@ -61,43 +85,73 @@ export function buildPostImageLines(patch: string): string[] {
  * @returns ParsedDiff showing deliberate changes between versions
  */
 export function computeInterdiff(patch1: string, patch2: string): ParsedDiff {
+  const mapA = buildPostImageMap(patch1);
+  const mapB = buildPostImageMap(patch2);
+
+  // Pure-rebase short-circuit: byte-identical post-image content (may be at
+  // different line positions due to shifts above/below the changed region).
   const linesA = buildPostImageLines(patch1);
   const linesB = buildPostImageLines(patch2);
-
-  const diffs = diffLines(linesA.join("\n"), linesB.join("\n"));
-
-  if (!diffs.some((d) => d.added || d.removed)) {
+  if (linesA.join("\n") === linesB.join("\n")) {
     return { hunks: [] };
   }
+
+  // Walk the sorted union of all newLineNumbers from both patches.
+  const allKeys = Array.from(new Set([...mapA.keys(), ...mapB.keys()])).sort(
+    (a, b) => a - b
+  );
 
   interface FlatLine {
     type: "equal" | "delete" | "insert";
     content: string;
-    oldLine: number | undefined;
-    newLine: number | undefined;
+    lineNumber: number; // the newLineNumber in v2-coordinate space
   }
 
   const flat: FlatLine[] = [];
-  let oldLine = 1;
-  let newLine = 1;
 
-  for (const diff of diffs) {
-    const raw = diff.value.endsWith("\n")
-      ? diff.value.slice(0, -1)
-      : diff.value;
-    const parts = raw.split("\n");
-    for (const content of parts) {
-      if (!diff.added && !diff.removed) {
-        flat.push({ type: "equal", content, oldLine, newLine });
-        oldLine++;
-        newLine++;
-      } else if (diff.removed) {
-        flat.push({ type: "delete", content, oldLine, newLine: undefined });
-        oldLine++;
+  for (const n of allKeys) {
+    const a = mapA.get(n);
+    const b = mapB.get(n);
+
+    if (!a && !b) continue;
+
+    if (!a) {
+      // Absent in v1, present in v2
+      if (b!.kind === "context") {
+        flat.push({ type: "equal", content: b!.content, lineNumber: n });
       } else {
-        flat.push({ type: "insert", content, oldLine: undefined, newLine });
-        newLine++;
+        flat.push({ type: "insert", content: b!.content, lineNumber: n });
       }
+    } else if (!b) {
+      // Present in v1, absent in v2
+      if (a.kind === "context") {
+        flat.push({ type: "equal", content: a.content, lineNumber: n });
+      } else {
+        flat.push({ type: "delete", content: a.content, lineNumber: n });
+      }
+    } else if (a.kind === "context" && b.kind === "context") {
+      // Both are context — equal if same content, modify if different
+      if (a.content === b.content) {
+        flat.push({ type: "equal", content: b.content, lineNumber: n });
+      } else {
+        flat.push({ type: "delete", content: a.content, lineNumber: n });
+        flat.push({ type: "insert", content: b.content, lineNumber: n });
+      }
+    } else if (a.kind === "insert" && b.kind === "insert") {
+      // Both are inserts
+      if (a.content === b.content) {
+        flat.push({ type: "equal", content: b.content, lineNumber: n });
+      } else {
+        flat.push({ type: "delete", content: a.content, lineNumber: n });
+        flat.push({ type: "insert", content: b.content, lineNumber: n });
+      }
+    } else if (a.kind === "context" && b.kind === "insert") {
+      // v2 inserted a line where v1 had base context
+      flat.push({ type: "insert", content: b.content, lineNumber: n });
+    } else {
+      // a.kind === "insert" && b.kind === "context"
+      // v1 inserted a line that v2 reverted to base context
+      flat.push({ type: "delete", content: a.content, lineNumber: n });
     }
   }
 
@@ -145,32 +199,31 @@ export function computeInterdiff(patch1: string, patch2: string): ParsedDiff {
       if (fl.type === "equal") {
         hunkLines.push({
           type: "normal",
-          oldLineNumber: fl.oldLine,
-          newLineNumber: fl.newLine,
+          oldLineNumber: fl.lineNumber,
+          newLineNumber: fl.lineNumber,
           content: segs,
         });
       } else if (fl.type === "delete") {
         hunkLines.push({
           type: "delete",
-          oldLineNumber: fl.oldLine,
+          oldLineNumber: fl.lineNumber,
           content: segs,
         });
       } else {
         hunkLines.push({
           type: "insert",
-          newLineNumber: fl.newLine,
+          newLineNumber: fl.lineNumber,
           content: segs,
         });
       }
     }
 
-    const hunkOldStart = flat[start].oldLine ?? flat[start].newLine ?? 1;
-    const hunkNewStart = flat[start].newLine ?? flat[start].oldLine ?? 1;
+    const hunkStart = flat[start].lineNumber;
 
     output.push({
       type: "hunk",
-      oldStart: hunkOldStart,
-      newStart: hunkNewStart,
+      oldStart: hunkStart,
+      newStart: hunkStart,
       lines: hunkLines,
     });
 
