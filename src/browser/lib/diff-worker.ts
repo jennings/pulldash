@@ -14,7 +14,13 @@ import { diffWords } from "diff";
 import { refractor } from "refractor/all";
 import { computeInterdiff } from "./interdiff";
 import { INLINE_MAX_CHAR_EDITS } from "../../diff-parse-constants";
-import { buildInlineDiffSegments, type RawLineSegment } from "../../shared/diff-utils";
+import {
+  buildInlineDiffSegments,
+  escapeHtml,
+  hastToHtml,
+  highlightFileByLines,
+  type RawLineSegment,
+} from "../../shared/diff-utils";
 
 // ============================================================================
 // Types
@@ -216,124 +222,12 @@ function guessLang(filename?: string): string {
 // Syntax Highlighting
 // ============================================================================
 
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-}
-
-function hastToHtml(node: any): string {
-  if (node.type === "text") {
-    return escapeHtml(node.value);
-  }
-  if (node.type === "element") {
-    const { tagName, properties, children } = node;
-    const className = (properties.className as string[] | undefined)?.join(" ");
-    const attrs = className ? ` class="${className}"` : "";
-    const inner = children.map(hastToHtml).join("");
-    return `<${tagName}${attrs}>${inner}</${tagName}>`;
-  }
-  return "";
-}
-
 function highlight(code: string, lang: string): string {
   try {
     const tree = refractor.highlight(code, lang);
     return tree.children.map(hastToHtml).join("");
   } catch {
     return escapeHtml(code);
-  }
-}
-
-/**
- * Highlight an entire file and return an array of HTML strings, one per line.
- * This handles multi-line constructs (strings, comments) correctly by
- * closing and reopening tags at line boundaries.
- */
-interface OpenTag {
-  tagName: string;
-  className?: string;
-}
-
-function highlightFileByLines(content: string, lang: string): string[] {
-  if (!content) return [];
-
-  try {
-    const tree = refractor.highlight(content, lang);
-    const lines: string[] = [];
-    let currentLine: string[] = [];
-    const openTags: OpenTag[] = [];
-
-    function closeAllTags(): string {
-      return [...openTags]
-        .reverse()
-        .map((t) => `</${t.tagName}>`)
-        .join("");
-    }
-
-    function openAllTags(): string {
-      return openTags
-        .map((t) => {
-          const cls = t.className ? ` class="${t.className}"` : "";
-          return `<${t.tagName}${cls}>`;
-        })
-        .join("");
-    }
-
-    function processText(text: string) {
-      const parts = text.split("\n");
-      for (let i = 0; i < parts.length; i++) {
-        if (i > 0) {
-          // End current line with closing tags
-          currentLine.push(closeAllTags());
-          lines.push(currentLine.join(""));
-          // Start new line with opening tags
-          currentLine = [openAllTags()];
-        }
-        if (parts[i]) {
-          currentLine.push(escapeHtml(parts[i]));
-        }
-      }
-    }
-
-    function walkNode(node: any) {
-      if (node.type === "text") {
-        processText(node.value);
-      } else if (node.type === "element") {
-        const { tagName, properties, children } = node;
-        const className = (properties?.className as string[] | undefined)?.join(
-          " "
-        );
-        const tag: OpenTag = { tagName, className };
-
-        // Open tag
-        const cls = className ? ` class="${className}"` : "";
-        currentLine.push(`<${tagName}${cls}>`);
-        openTags.push(tag);
-
-        // Process children
-        children.forEach(walkNode);
-
-        // Close tag
-        openTags.pop();
-        currentLine.push(`</${tagName}>`);
-      }
-    }
-
-    tree.children.forEach(walkNode);
-
-    // Don't forget the last line
-    if (currentLine.length > 0) {
-      lines.push(currentLine.join(""));
-    }
-
-    return lines;
-  } catch {
-    // Fallback: escape each line
-    return content.split("\n").map(escapeHtml);
   }
 }
 

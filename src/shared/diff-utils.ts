@@ -1,4 +1,111 @@
 import { diffChars, diffWords } from "diff";
+import { refractor } from "refractor/all";
+import type { RootContent, ElementContent } from "hast";
+
+// ============================================================================
+// Syntax Highlighting
+// ============================================================================
+
+export function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+interface OpenTag {
+  tagName: string;
+  className?: string;
+}
+
+export function hastToHtml(node: RootContent | ElementContent): string {
+  if (node.type === "text") {
+    return escapeHtml(node.value);
+  }
+  if (node.type === "element") {
+    const { tagName, properties, children } = node;
+    const className = (properties.className as string[] | undefined)?.join(" ");
+    const attrs = className ? ` class="${className}"` : "";
+    const inner = children.map(hastToHtml).join("");
+    return `<${tagName}${attrs}>${inner}</${tagName}>`;
+  }
+  return "";
+}
+
+export function highlightFileByLines(content: string, lang: string): string[] {
+  if (!content) return [];
+
+  try {
+    const tree = refractor.highlight(content, lang);
+    const lines: string[] = [];
+    let currentLine: string[] = [];
+    const openTags: OpenTag[] = [];
+
+    function closeAllTags(): string {
+      return [...openTags]
+        .reverse()
+        .map((t) => `</${t.tagName}>`)
+        .join("");
+    }
+
+    function openAllTags(): string {
+      return openTags
+        .map((t) => {
+          const cls = t.className ? ` class="${t.className}"` : "";
+          return `<${t.tagName}${cls}>`;
+        })
+        .join("");
+    }
+
+    function processText(text: string) {
+      const parts = text.split("\n");
+      for (let i = 0; i < parts.length; i++) {
+        if (i > 0) {
+          currentLine.push(closeAllTags());
+          lines.push(currentLine.join(""));
+          currentLine = [openAllTags()];
+        }
+        if (parts[i]) {
+          currentLine.push(escapeHtml(parts[i]));
+        }
+      }
+    }
+
+    function walkNode(node: RootContent | ElementContent) {
+      if (node.type === "text") {
+        processText(node.value);
+      } else if (node.type === "element") {
+        const { tagName, properties, children } = node;
+        const className = (properties?.className as string[] | undefined)?.join(
+          " "
+        );
+        const tag: OpenTag = { tagName, className };
+        const cls = className ? ` class="${className}"` : "";
+        currentLine.push(`<${tagName}${cls}>`);
+        openTags.push(tag);
+        children.forEach(walkNode);
+        openTags.pop();
+        currentLine.push(`</${tagName}>`);
+      }
+    }
+
+    tree.children.forEach(walkNode);
+
+    if (currentLine.length > 0) {
+      lines.push(currentLine.join(""));
+    }
+
+    return lines;
+  } catch {
+    return content.split("\n").map(escapeHtml);
+  }
+}
+
+// ============================================================================
+// Inline Diff Segments
+// ============================================================================
 
 export interface RawLineSegment {
   value: string;

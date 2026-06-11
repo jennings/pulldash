@@ -23,17 +23,9 @@ import type {
   DiffLine,
   LineSegment,
 } from "./diff-worker";
+import { escapeHtml } from "../../shared/diff-utils";
 
 const CONTEXT_LINES = 3;
-
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-}
 
 /**
  * Extract the post-image lines from a unified-diff patch string.
