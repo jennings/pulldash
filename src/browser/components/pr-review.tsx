@@ -638,16 +638,21 @@ function VersionBar() {
   if (commits.length === 0) return null;
 
   const isViewingLatest = selectedHeadSha === null;
+  const viewingVersion = pushVersions.find((v) => v.sha === selectedHeadSha);
   const viewingLabel = isViewingLatest
     ? `Latest`
-    : `v${pushVersions.find((v) => v.sha === selectedHeadSha)?.version ?? "?"}`;
+    : viewingVersion
+      ? `v${viewingVersion.version} (${getTimeAgo(new Date(viewingVersion.pushedAt))})`
+      : `v?`;
 
   const compareToVersion = compareToSha
     ? pushVersions.find((v) => v.sha === compareToSha)
     : null;
-  const compareToLabel = compareToSha
-    ? `v${compareToVersion?.version ?? "?"}`
-    : "Target";
+  const compareToLabel = compareToVersion
+    ? `v${compareToVersion.version} (${getTimeAgo(new Date(compareToVersion.pushedAt))})`
+    : compareToSha
+      ? "v?"
+      : "Target";
 
   const compareToVersionCommits = compareToVersion
     ? (commitsByVersion.find((v) => v.version === compareToVersion.version)
@@ -697,7 +702,12 @@ function VersionBar() {
                   onClick={() => store.setSelectedHeadSha(pv.sha)}
                   className="text-xs flex items-center justify-between"
                 >
-                  <span>v{pv.version}</span>
+                  <span>
+                    v{pv.version}{" "}
+                    <span className="text-muted-foreground">
+                      ({getTimeAgo(new Date(pv.pushedAt))})
+                    </span>
+                  </span>
                   {selectedHeadSha === pv.sha && (
                     <Check className="w-3 h-3 ml-2 shrink-0" />
                   )}
@@ -784,7 +794,12 @@ function VersionBar() {
                   onClick={() => store.setCompareToSha(pv.sha)}
                   className="text-xs flex items-center justify-between"
                 >
-                  <span>v{pv.version}</span>
+                  <span>
+                    v{pv.version}{" "}
+                    <span className="text-muted-foreground">
+                      ({getTimeAgo(new Date(pv.pushedAt))})
+                    </span>
+                  </span>
                   {compareToSha === pv.sha && (
                     <Check className="w-3 h-3 ml-2 shrink-0" />
                   )}
