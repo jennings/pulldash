@@ -1,7 +1,15 @@
-import { test, expect, beforeEach } from "bun:test";
+import { test, expect, beforeEach, mock } from "bun:test";
 import type { PullRequest, PullRequestFile, ReviewComment } from "@/api/types";
 import { PRReviewStore, sortFilesLikeTree } from "./index";
 import type { GitHubStore } from "@/browser/contexts/github";
+
+// Mock diffService so interdiff calls resolve without real WebWorkers
+mock.module("@/browser/lib/diff", () => ({
+  diffService: {
+    parseDiff: mock(() => Promise.resolve({ hunks: [] })),
+    interdiff: mock(() => Promise.resolve({ hunks: [] })),
+  },
+}));
 
 // Mock localStorage
 const storage = new Map<string, string>();
@@ -687,4 +695,131 @@ test("clearOverviewScrollTarget clears the target", () => {
   store.clearOverviewScrollTarget();
 
   expect(store.getSnapshot().overviewScrollTarget).toBeNull();
+});
+
+// ============================================================================
+// Full-branch interdiff (#59)
+// ============================================================================
+
+function createMockGitHubStoreWithVersions(
+  filesForRange: (base: string, head: string) => PullRequestFile[]
+): GitHubStore {
+  return {
+    getPRReviews: async () => [],
+    getPRChecks: async () => ({
+      checkRuns: [],
+      status: { state: "", statuses: [] },
+    }),
+    getWorkflowRuns: async () => ({ workflow_runs: [] }),
+    getPRConversation: async () => [],
+    getPRCommits: async () => [],
+    getPRTimeline: async () => [],
+    getReviewThreads: async () => ({
+      threads: [],
+      viewerPermission: null,
+      viewerCanMergeAsAdmin: false,
+    }),
+    invalidateCache: () => {},
+    getPR: async () => createMockPR(),
+    mergePR: async () => ({ merged: true }),
+    closePR: async () => {},
+    reopenPR: async () => {},
+    deleteBranch: async () => {},
+    restoreBranch: async () => {},
+    convertToDraft: async () => {},
+    markReadyForReview: async () => {},
+    approveWorkflowRun: async () => {},
+    updateBranch: async () => {},
+    getPushVersions: async () => [],
+    getPRFilesForRange: async (
+      _owner: string,
+      _repo: string,
+      base: string,
+      head: string
+    ) => filesForRange(base, head),
+    getCommitFiles: async () => [],
+  } as unknown as GitHubStore;
+}
+
+function createStoreWithVersions(
+  filesForRange: (base: string, head: string) => PullRequestFile[] = () => []
+) {
+  const github = createMockGitHubStoreWithVersions(filesForRange);
+  return new PRReviewStore(github, {
+    pr: createMockPR(),
+    files: [createMockFile("src/index.ts")],
+    comments: [],
+    owner: "test",
+    repo: "repo",
+    viewerPermission: "WRITE",
+  });
+}
+
+test("setCompareToSha with full branch enables interdiff and computes branch diff", async () => {
+  const store = createStoreWithVersions(() => [createMockFile("src/index.ts")]);
+
+  await store.setCompareToSha("comparesha");
+
+  const state = store.getSnapshot();
+  expect(state.interdiffEnabled).toBe(true);
+  expect(state.compareToSha).toBe("comparesha");
+  // interdiffLoadedDiffs should be populated (keyed by filename)
+  expect("src/index.ts" in state.interdiffLoadedDiffs).toBe(true);
+});
+
+test("setCompareToSha(null) disables interdiff", async () => {
+  const store = createStoreWithVersions(() => [createMockFile("src/index.ts")]);
+  await store.setCompareToSha("comparesha");
+
+  await store.setCompareToSha(null);
+
+  const state = store.getSnapshot();
+  expect(state.interdiffEnabled).toBe(false);
+  expect(state.interdiffLoadedDiffs).toEqual({});
+});
+
+test("setSelectedHeadSha re-computes interdiff when compareToSha is set and commit is full branch", async () => {
+  const store = createStoreWithVersions(() => [createMockFile("src/index.ts")]);
+  await store.setCompareToSha("comparesha");
+
+  await store.setSelectedHeadSha("headsha");
+
+  const state = store.getSnapshot();
+  expect(state.interdiffEnabled).toBe(true);
+  expect("src/index.ts" in state.interdiffLoadedDiffs).toBe(true);
+});
+
+test("setSelectedHeadSha does not enable interdiff when compareToSha is null", async () => {
+  const store = createStoreWithVersions(() => [createMockFile("src/index.ts")]);
+
+  await store.setSelectedHeadSha("headsha");
+
+  expect(store.getSnapshot().interdiffEnabled).toBe(false);
+});
+
+test("setSelectedCommitSha(null) computes branch interdiff when compareToSha and selectedHeadSha are set", async () => {
+  const store = createStoreWithVersions(() => [createMockFile("src/index.ts")]);
+  // Start in commit-level mode by first setting a commit, then set versions
+  await store.setCompareToSha("comparesha");
+  await store.setSelectedHeadSha("headsha");
+  // Now switch back to full branch
+  await store.setSelectedCommitSha(null);
+
+  const state = store.getSnapshot();
+  expect(state.interdiffEnabled).toBe(true);
+  expect(state.selectedCommitSha).toBeNull();
+  expect("src/index.ts" in state.interdiffLoadedDiffs).toBe(true);
+});
+
+test("getPRFilesForRange is called with base.sha and compareToSha / headSha for branch interdiff", async () => {
+  const calls: Array<[string, string]> = [];
+  const store = createStoreWithVersions((base, head) => {
+    calls.push([base, head]);
+    return [createMockFile("src/index.ts")];
+  });
+
+  await store.setCompareToSha("v1sha");
+  // pr.base.sha is "def456", pr.head.sha is "abc123" (from createMockPR)
+  expect(calls).toContainEqual(["def456", "v1sha"]);
+  expect(calls).toContainEqual(["def456", "abc123"]);
 });

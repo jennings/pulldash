@@ -933,6 +933,11 @@ export class PRReviewStore {
         expandedSkipBlocks: {},
         expandingSkipBlocks: new Set(),
       });
+      const { compareToSha, selectedCommitSha } = this.state;
+      if (compareToSha && selectedCommitSha === null) {
+        this.set({ interdiffEnabled: true, interdiffLoadedDiffs: {} });
+        await this.computeFullBranchInterdiff(compareToSha, pr.head.sha);
+      }
       return;
     }
 
@@ -955,6 +960,12 @@ export class PRReviewStore {
       .catch(() => [] as PullRequestFile[]);
 
     this.set({ files: sortFilesLikeTree(versionFiles) });
+
+    const { compareToSha, selectedCommitSha } = this.state;
+    if (compareToSha && selectedCommitSha === null) {
+      this.set({ interdiffEnabled: true, interdiffLoadedDiffs: {} });
+      await this.computeFullBranchInterdiff(compareToSha, sha);
+    }
   };
 
   // ---------------------------------------------------------------------------
@@ -980,7 +991,7 @@ export class PRReviewStore {
     };
 
     if (sha === null) {
-      const { selectedHeadSha } = this.state;
+      const { selectedHeadSha, compareToSha } = this.state;
       if (selectedHeadSha) {
         this.set(resetBase);
         const { pr } = this.state;
@@ -994,8 +1005,17 @@ export class PRReviewStore {
           )
           .catch(() => [] as PullRequestFile[]);
         this.set({ files: sortFilesLikeTree(versionFiles), loadedDiffs: {} });
+        if (compareToSha) {
+          this.set({ interdiffEnabled: true, interdiffLoadedDiffs: {} });
+          await this.computeFullBranchInterdiff(compareToSha, selectedHeadSha);
+        }
       } else {
         this.set({ ...resetBase, files: this.baseFiles, loadedDiffs: {} });
+        if (compareToSha) {
+          const { pr } = this.state;
+          this.set({ interdiffEnabled: true, interdiffLoadedDiffs: {} });
+          await this.computeFullBranchInterdiff(compareToSha, pr.head.sha);
+        }
       }
       return;
     }
@@ -1032,6 +1052,37 @@ export class PRReviewStore {
         .catch(() => [] as PullRequestFile[]),
       this.github
         .getCommitFiles(owner, repo, headCommitSha, prKey)
+        .catch(() => [] as PullRequestFile[]),
+    ]);
+
+    const prevByFilename = new Map(prevFiles.map((f) => [f.filename, f]));
+
+    const interdiffEntries = await Promise.all(
+      headFiles.map(async (currFile) => {
+        const prevFile = prevByFilename.get(currFile.filename);
+        const diff = await diffService
+          .interdiff(prevFile?.patch ?? "", currFile.patch ?? "")
+          .catch(() => ({ hunks: [] as ParsedDiff["hunks"] }));
+        return [currFile.filename, diff] as const;
+      })
+    );
+
+    this.set({ interdiffLoadedDiffs: Object.fromEntries(interdiffEntries) });
+  };
+
+  private computeFullBranchInterdiff = async (
+    compareToSha: string,
+    headSha: string
+  ): Promise<void> => {
+    const { owner, repo, pr } = this.state;
+    const prKey = `${owner}/${repo}/${pr.number}`;
+
+    const [prevFiles, headFiles] = await Promise.all([
+      this.github
+        .getPRFilesForRange(owner, repo, pr.base.sha, compareToSha, prKey)
+        .catch(() => [] as PullRequestFile[]),
+      this.github
+        .getPRFilesForRange(owner, repo, pr.base.sha, headSha, prKey)
         .catch(() => [] as PullRequestFile[]),
     ]);
 
@@ -1093,9 +1144,15 @@ export class PRReviewStore {
       interdiffEnabled: false,
       interdiffLoadedDiffs: {},
     });
-    const { selectedCommitSha } = this.state;
+    const { selectedCommitSha, selectedHeadSha, pr } = this.state;
     if (sha && selectedCommitSha) {
       await this.autoMatchAndComputeInterdiff(selectedCommitSha);
+    } else if (sha && !selectedCommitSha) {
+      this.set({ interdiffEnabled: true, interdiffLoadedDiffs: {} });
+      await this.computeFullBranchInterdiff(
+        sha,
+        selectedHeadSha ?? pr.head.sha
+      );
     }
   };
 
@@ -2696,11 +2753,21 @@ export class PRReviewStore {
       });
 
       // If compareToSha was restored from the URL before commit history was
-      // available, auto-match now that we have the data.
-      const { compareToSha, selectedCommitSha, compareToCommitSha } =
-        this.state;
+      // available, auto-match or compute branch interdiff now that we have the data.
+      const {
+        compareToSha,
+        selectedCommitSha,
+        compareToCommitSha,
+        selectedHeadSha,
+      } = this.state;
       if (compareToSha && selectedCommitSha && !compareToCommitSha) {
         await this.autoMatchAndComputeInterdiff(selectedCommitSha);
+      } else if (compareToSha && !selectedCommitSha) {
+        this.set({ interdiffEnabled: true, interdiffLoadedDiffs: {} });
+        await this.computeFullBranchInterdiff(
+          compareToSha,
+          selectedHeadSha ?? pr.head.sha
+        );
       }
     } catch (error) {
       console.error("Failed to load PR data:", error);

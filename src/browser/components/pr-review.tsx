@@ -855,8 +855,8 @@ function VersionBar() {
             </DropdownMenuContent>
           </DropdownMenu>
 
-          {/* Compare-to commit — nested below when a version is selected */}
-          {compareToSha && (
+          {/* Compare-to commit — nested below when a specific commit (not full branch) is selected */}
+          {compareToSha && selectedCommitSha !== null && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button className="mt-1 ml-3 w-[calc(100%-0.75rem)] flex items-center justify-between gap-1 px-2 py-1 rounded border border-border hover:bg-muted text-xs transition-colors text-muted-foreground">
