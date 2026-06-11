@@ -34,7 +34,7 @@ interface PendingRequest {
   reject: (error: Error) => void;
 }
 
-class DiffWorkerPool {
+export class DiffWorkerPool {
   private workers: Worker[] = [];
   private pendingRequests = new Map<string, PendingRequest>();
   private nextId = 0;
