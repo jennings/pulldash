@@ -113,6 +113,7 @@ export const PROverview = memo(function PROverview() {
   const timeline = usePRReviewSelector((s) => s.timeline);
   const commits = usePRReviewSelector((s) => s.commits);
   const pushVersions = usePRReviewSelector((s) => s.pushVersions);
+  const versionDiffCounts = usePRReviewSelector((s) => s.versionDiffCounts);
   const conversation = usePRReviewSelector((s) => s.conversation);
   const loading = usePRReviewSelector((s) => s.loading);
   const branchDeleted = usePRReviewSelector((s) => s.branchDeleted);
@@ -1289,6 +1290,7 @@ export const PROverview = memo(function PROverview() {
                             event={entry.data}
                             pr={pr}
                             pushVersions={pushVersions}
+                            versionDiffCounts={versionDiffCounts}
                           />
                         );
                       }
@@ -4296,9 +4298,15 @@ interface TimelineItemProps {
   event: TimelineEvent;
   pr?: PullRequest;
   pushVersions?: PushVersion[];
+  versionDiffCounts?: Record<string, number>;
 }
 
-function TimelineItem({ event, pr, pushVersions }: TimelineItemProps) {
+function TimelineItem({
+  event,
+  pr,
+  pushVersions,
+  versionDiffCounts,
+}: TimelineItemProps) {
   const store = usePRReviewStore();
   // Commits are handled by CommitGroup
   if ("sha" in event && "author" in event) return null;
@@ -4667,6 +4675,17 @@ function TimelineItem({ event, pr, pushVersions }: TimelineItemProps) {
           toVersion && pushVersions
             ? pushVersions.find((v) => v.version === toVersion.version - 1)
             : undefined;
+        const diffKey =
+          fromVersion &&
+          toVersion &&
+          `${fromVersion.version}-${toVersion.version}`;
+        const diffCount = diffKey ? versionDiffCounts?.[diffKey] : undefined;
+        const diffSummary =
+          diffCount !== undefined
+            ? diffCount === 0
+              ? "no change"
+              : `${diffCount} file${diffCount !== 1 ? "s" : ""} modified`
+            : null;
         return {
           icon: <GitBranch className="w-4 h-4" />,
           text: (
@@ -4696,7 +4715,8 @@ function TimelineItem({ event, pr, pushVersions }: TimelineItemProps) {
                   }}
                   className="text-muted-foreground hover:text-blue-400 hover:underline cursor-pointer transition-colors"
                 >
-                  (v{fromVersion.version} → v{toVersion.version})
+                  (v{fromVersion.version} → v{toVersion.version}
+                  {diffSummary !== null ? `, ${diffSummary}` : ""})
                 </button>
               )}
               {forcePush.commit_id && (

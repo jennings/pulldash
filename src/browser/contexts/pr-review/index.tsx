@@ -195,6 +195,10 @@ interface PRReviewState {
   interdiffEnabled: boolean;
   /** Interdiff ParsedDiff results per file (populated when interdiffEnabled) */
   interdiffLoadedDiffs: Record<string, ParsedDiff>;
+  /** Files with identical patches between compare-to and viewing version (full branch, no interdiff) */
+  versionCompareNoChangeFiles: string[];
+  /** File diff count between adjacent version pairs, e.g. "5-6": 3 */
+  versionDiffCounts: Record<string, number>;
 
   // Loading states
   loading: boolean;
@@ -421,6 +425,8 @@ export class PRReviewStore {
   private recentlyApprovedWorkflowIds = new Set<number>();
   // Original files from the latest PR version (restored when deselecting a push version)
   private baseFiles: PullRequestFile[] = [];
+  // Full commit list from the latest PR version (restored when deselecting a push version)
+  private baseCommits: PRCommit[] = [];
 
   constructor(
     github: GitHubStore,
@@ -490,6 +496,8 @@ export class PRReviewStore {
       compareToCommitSha: null,
       interdiffEnabled: false,
       interdiffLoadedDiffs: {},
+      versionCompareNoChangeFiles: [],
+      versionDiffCounts: {},
       checks: null,
       checksLastUpdated: null,
       workflowRunsAwaitingApproval: [],
@@ -2672,6 +2680,39 @@ export class PRReviewStore {
         commitVersionHistory = buildCommitVersionHistory(commitsByVersion);
       }
 
+      // Fetch files for each push version and compute diff between adjacent pairs
+      let versionDiffCounts: Record<string, number> = {};
+      if (pushVersionsData.length > 1) {
+        const filesByVersion = await Promise.all(
+          pushVersionsData.map(async (pv) => {
+            const files = await this.github
+              .getPRFilesForRange(owner, repo, pr.base.sha, pv.sha)
+              .catch(() => [] as PullRequestFile[]);
+            return {
+              version: pv.version,
+              patchMap: new Map(files.map((f) => [f.filename, f.patch])),
+            };
+          })
+        );
+
+        for (let i = 1; i < filesByVersion.length; i++) {
+          const prev = filesByVersion[i - 1];
+          const curr = filesByVersion[i];
+          const allFiles = new Set([
+            ...prev.patchMap.keys(),
+            ...curr.patchMap.keys(),
+          ]);
+          let changed = 0;
+          for (const filename of allFiles) {
+            if (prev.patchMap.get(filename) !== curr.patchMap.get(filename)) {
+              changed++;
+            }
+          }
+          versionDiffCounts[`${prev.version}-${curr.version}`] = changed;
+        }
+      }
+
+      this.baseCommits = commitsData;
       this.set({
         reviews: reviewsData,
         checks: checksData,
@@ -2682,6 +2723,7 @@ export class PRReviewStore {
         pushVersions: pushVersionsData,
         commitVersionHistory,
         commitsByVersion,
+        versionDiffCounts,
         timeline: timelineData,
         reviewThreads: reviewThreadsResult.threads,
         comments: this.enrichCommentsFromThreads(
