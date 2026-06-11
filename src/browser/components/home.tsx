@@ -1133,8 +1133,10 @@ function PRListItem({ pr, onSelect }: PRListItemProps) {
     const checks = pr.ciChecks || [];
     const successChecks = checks.filter((c) => c.state === "success");
     const failureChecks = checks.filter((c) => c.state === "failure");
+    const skippedChecks = checks.filter((c) => c.state === "skipped");
     const pendingChecks = checks.filter(
-      (c) => c.state !== "success" && c.state !== "failure"
+      (c) =>
+        c.state !== "success" && c.state !== "failure" && c.state !== "skipped"
     );
 
     const TooltipChecks = () => (
@@ -1218,6 +1220,24 @@ function PRListItem({ pr, onSelect }: PRListItemProps) {
                     <span>{successChecks.length} checks passed</span>
                   </div>
                 )}
+              </div>
+            )}
+            {/* Skipped checks */}
+            {skippedChecks.length > 0 && (
+              <div className="space-y-1">
+                {skippedChecks.map((c) => (
+                  <div
+                    key={c.name}
+                    className="flex items-center gap-2 text-[11px]"
+                  >
+                    <div className="w-3 h-3 rounded-full border border-muted-foreground shrink-0 flex items-center justify-center">
+                      <div className="w-1.5 h-px bg-muted-foreground" />
+                    </div>
+                    <span className="truncate text-muted-foreground">
+                      {c.name}
+                    </span>
+                  </div>
+                ))}
               </div>
             )}
           </div>

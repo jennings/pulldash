@@ -88,7 +88,7 @@ export interface PRSearchResult {
   ciSummary?: string; // e.g. "2/3 checks passed" or "Build failed"
   ciChecks?: Array<{
     name: string;
-    state: "pending" | "success" | "failure";
+    state: "pending" | "success" | "failure" | "skipped";
   }>;
   // Review status
   reviewDecision?: "APPROVED" | "CHANGES_REQUESTED" | "REVIEW_REQUIRED" | null;
@@ -129,7 +129,7 @@ export interface PREnrichment {
   ciSummary: string;
   ciChecks: Array<{
     name: string;
-    state: "pending" | "success" | "failure";
+    state: "pending" | "success" | "failure" | "skipped";
   }>;
   // Review status
   reviewDecision: "APPROVED" | "CHANGES_REQUESTED" | "REVIEW_REQUIRED" | null;
@@ -2596,9 +2596,20 @@ function createGitHubStore() {
         const contexts = lastCommit?.statusCheckRollup?.contexts?.nodes || [];
         const ciChecks: PREnrichment["ciChecks"] = contexts.map((ctx) => {
           if (ctx.__typename === "CheckRun") {
-            let state: "pending" | "success" | "failure" = "pending";
+            let state: "pending" | "success" | "failure" | "skipped" =
+              "pending";
             if (ctx.status === "COMPLETED") {
-              state = ctx.conclusion === "SUCCESS" ? "success" : "failure";
+              if (ctx.conclusion === "SUCCESS") {
+                state = "success";
+              } else if (
+                ctx.conclusion === "SKIPPED" ||
+                ctx.conclusion === "NEUTRAL" ||
+                ctx.conclusion === "CANCELLED"
+              ) {
+                state = "skipped";
+              } else {
+                state = "failure";
+              }
             }
             return { name: ctx.name, state };
           } else {
@@ -2619,6 +2630,7 @@ function createGitHubStore() {
           const passed = ciChecks.filter((c) => c.state === "success").length;
           const failed = ciChecks.filter((c) => c.state === "failure").length;
           const pending = ciChecks.filter((c) => c.state === "pending").length;
+          const skipped = ciChecks.filter((c) => c.state === "skipped").length;
 
           if (failed > 0) {
             const failedCheck = ciChecks.find((c) => c.state === "failure");
@@ -2627,7 +2639,9 @@ function createGitHubStore() {
             const pendingCheck = ciChecks.find((c) => c.state === "pending");
             ciSummary = pendingCheck ? pendingCheck.name : `${pending} running`;
           } else {
-            ciSummary = `${passed}/${ciChecks.length} passed`;
+            const nonSkipped = ciChecks.length - skipped;
+            ciSummary =
+              nonSkipped > 0 ? `${passed}/${nonSkipped} passed` : "All skipped";
           }
         }
 
