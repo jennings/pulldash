@@ -224,6 +224,14 @@ export const PROverview = memo(function PROverview() {
     setRefreshingChecks(false);
   }, [store]);
 
+  const handleNavigateChecks = useCallback(
+    async (sha: string) => {
+      await store.setSelectedHeadSha(sha);
+      setActiveTab("checks");
+    },
+    [store]
+  );
+
   // Auto-refresh checks every 30 seconds when PR is open
   useEffect(() => {
     if (pr.state !== "open" || pr.merged) return;
@@ -1291,6 +1299,7 @@ export const PROverview = memo(function PROverview() {
                             pr={pr}
                             pushVersions={pushVersions}
                             versionDiffCounts={versionDiffCounts}
+                            onNavigateChecks={handleNavigateChecks}
                           />
                         );
                       }
@@ -4290,6 +4299,44 @@ function CommitGroup({ commits, prCommits, owner, repo }: CommitGroupProps) {
   );
 }
 
+function ChecksIcon({
+  sha,
+  onNavigate,
+}: {
+  sha: string;
+  onNavigate: (sha: string) => void;
+}) {
+  const store = usePRReviewStore();
+  const [status, setStatus] = useState<
+    "success" | "failure" | "pending" | null
+  >(null);
+
+  useEffect(() => {
+    store.getChecksStatus(sha).then(setStatus);
+  }, [sha, store]);
+
+  return (
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        onNavigate(sha);
+      }}
+      className="ml-1 align-middle inline-flex hover:opacity-80 transition-opacity cursor-pointer"
+      title="View checks"
+    >
+      {status === null ? (
+        <Loader2 className="w-3 h-3 text-muted-foreground animate-spin" />
+      ) : status === "success" ? (
+        <CheckCircle2 className="w-3 h-3 text-green-500" />
+      ) : status === "failure" ? (
+        <XCircle className="w-3 h-3 text-red-500" />
+      ) : (
+        <Clock className="w-3 h-3 text-yellow-500" />
+      )}
+    </button>
+  );
+}
+
 // ============================================================================
 // Timeline Item Component - Compact event display
 // ============================================================================
@@ -4299,6 +4346,7 @@ interface TimelineItemProps {
   pr?: PullRequest;
   pushVersions?: PushVersion[];
   versionDiffCounts?: Record<string, number>;
+  onNavigateChecks?: (sha: string) => void;
 }
 
 function TimelineItem({
@@ -4306,6 +4354,7 @@ function TimelineItem({
   pr,
   pushVersions,
   versionDiffCounts,
+  onNavigateChecks,
 }: TimelineItemProps) {
   const store = usePRReviewStore();
   // Commits are handled by CommitGroup
@@ -4737,6 +4786,10 @@ function TimelineItem({
                       {forcePush.commit_id.slice(0, 7)}
                     </code>
                   )}
+                  <ChecksIcon
+                    sha={forcePush.commit_id}
+                    onNavigate={onNavigateChecks!}
+                  />
                 </>
               )}
             </span>

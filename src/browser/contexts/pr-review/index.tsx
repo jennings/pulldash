@@ -1248,6 +1248,58 @@ export class PRReviewStore {
     await this.refreshFiles();
   };
 
+  getChecksStatus = async (
+    sha: string
+  ): Promise<"success" | "failure" | "pending" | null> => {
+    const { owner, repo } = this.state;
+    const checks = await this.github
+      .getPRChecks(owner, repo, sha)
+      .catch(() => null);
+    if (!checks) return null;
+    const all = [
+      ...checks.checkRuns.map((c) =>
+        c.status === "completed" ? c.conclusion : "pending"
+      ),
+      ...checks.status.statuses.map((s) => s.state),
+    ];
+    if (all.some((c) => c === "failure" || c === "error")) return "failure";
+    if (all.some((c) => c === "pending" || c === null)) return "pending";
+    return "success";
+  };
+
+  fetchChecksForSha = async (sha: string): Promise<void> => {
+    const { owner, repo } = this.state;
+    this.set({ loadingChecks: true });
+    const [checksData, workflowRunsData] = await Promise.all([
+      this.github.getPRChecks(owner, repo, sha).catch(() => null),
+      this.github.getWorkflowRuns(owner, repo, sha).catch(() => ({
+        workflow_runs: [] as Array<{
+          id: number;
+          name: string;
+          conclusion: string | null;
+          html_url: string;
+        }>,
+      })),
+    ]);
+    const awaitingApproval = workflowRunsData.workflow_runs
+      .filter(
+        (run) =>
+          run.conclusion === "action_required" &&
+          !this.recentlyApprovedWorkflowIds.has(run.id)
+      )
+      .map((run) => ({
+        id: run.id,
+        name: run.name || "Workflow",
+        html_url: run.html_url,
+      }));
+    this.set({
+      checks: checksData,
+      checksLastUpdated: new Date(),
+      loadingChecks: false,
+      workflowRunsAwaitingApproval: awaitingApproval,
+    });
+  };
+
   setCompareToCommitSha = async (sha: string | null): Promise<void> => {
     const { selectedCommitSha } = this.state;
     const interdiffEnabled = sha !== null && selectedCommitSha !== null;
