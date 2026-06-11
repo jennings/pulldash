@@ -454,6 +454,13 @@ function renderNode(
     }
 
     if (voidElements.has(node.tag)) {
+      // Convert checked attribute to boolean for checkboxes
+      if (node.tag === "input" && safeAttributes.type === "checkbox") {
+        safeAttributes.checked =
+          safeAttributes.checked !== undefined &&
+          safeAttributes.checked !== false &&
+          safeAttributes.checked !== null;
+      }
       return createElement(node.tag, { key, ...safeAttributes });
     }
 
