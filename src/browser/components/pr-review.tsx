@@ -670,6 +670,13 @@ function VersionBar() {
   const latestPushVersionNumber =
     pushVersions.length > 0 ? pushVersions[pushVersions.length - 1].version : 0;
 
+  // Used by the ticket 51 safety net in the Compare to onClick to detect an
+  // invalid range (Compare to >= Viewing). Latest counts as Infinity since it
+  // is always newer than any numbered push version.
+  const currentViewingVersionNumber = isViewingLatest
+    ? Infinity
+    : (viewingVersion?.version ?? Infinity);
+
   const sectionLabel =
     "text-[10px] uppercase tracking-wide text-muted-foreground/60 mb-0.5";
   const triggerBtn =
@@ -703,7 +710,26 @@ function VersionBar() {
               {[...pushVersions].reverse().map((pv) => (
                 <DropdownMenuItem
                   key={pv.sha}
-                  onClick={() => store.setSelectedHeadSha(pv.sha)}
+                  onClick={async () => {
+                    // Ticket 51: if Viewing moves to a version at or before
+                    // Compare to, shift Compare to to the version immediately
+                    // before the new Viewing (or Target if none).
+                    if (compareToSha) {
+                      const compareToVersion = pushVersions.find(
+                        (v) => v.sha === compareToSha
+                      );
+                      if (
+                        compareToVersion &&
+                        pv.version <= compareToVersion.version
+                      ) {
+                        const prevVersion = pushVersions.find(
+                          (v) => v.version === pv.version - 1
+                        );
+                        await store.setCompareToSha(prevVersion?.sha ?? null);
+                      }
+                    }
+                    store.setSelectedHeadSha(pv.sha);
+                  }}
                   className="text-xs flex items-center justify-between"
                 >
                   <span>
@@ -799,7 +825,20 @@ function VersionBar() {
                 .map((pv) => (
                   <DropdownMenuItem
                     key={pv.sha}
-                    onClick={() => store.setCompareToSha(pv.sha)}
+                    onClick={async () => {
+                      // Ticket 51: if Compare to moves to >= Viewing, shift
+                      // Viewing to the version immediately after Compare to
+                      // (or Latest if none).
+                      if (pv.version >= currentViewingVersionNumber) {
+                        const nextVersion = pushVersions.find(
+                          (v) => v.version === pv.version + 1
+                        );
+                        await store.setSelectedHeadSha(
+                          nextVersion?.sha ?? null
+                        );
+                      }
+                      store.setCompareToSha(pv.sha);
+                    }}
                     className="text-xs flex items-center justify-between"
                   >
                     <span>
