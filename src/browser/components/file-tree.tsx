@@ -396,8 +396,7 @@ export function FileTree({
           const isSelected = selectedFile === node.path;
           const isMultiSelected = selectedFiles.has(node.path);
           const isViewed = viewedFiles.has(node.path);
-          const hasNoChanges =
-            !isSelected && (noChangeFiles?.has(node.path) ?? false);
+          const hasNoChanges = noChangeFiles?.has(node.path) ?? false;
           const commentCount = commentCounts[node.path] || 0;
           const pendingCount = pendingCommentCounts[node.path] || 0;
           const showMultiSelectMenu =
