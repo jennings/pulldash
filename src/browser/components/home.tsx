@@ -1224,20 +1224,11 @@ function PRListItem({ pr, onSelect }: PRListItemProps) {
             )}
             {/* Skipped checks */}
             {skippedChecks.length > 0 && (
-              <div className="space-y-1">
-                {skippedChecks.map((c) => (
-                  <div
-                    key={c.name}
-                    className="flex items-center gap-2 text-[11px]"
-                  >
-                    <div className="w-3 h-3 rounded-full border border-muted-foreground shrink-0 flex items-center justify-center">
-                      <div className="w-1.5 h-px bg-muted-foreground" />
-                    </div>
-                    <span className="truncate text-muted-foreground">
-                      {c.name}
-                    </span>
-                  </div>
-                ))}
+              <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                <div className="w-3 h-3 rounded-full border border-muted-foreground shrink-0 flex items-center justify-center">
+                  <div className="w-1.5 h-px bg-muted-foreground" />
+                </div>
+                <span>{skippedChecks.length} checks skipped</span>
               </div>
             )}
           </div>
