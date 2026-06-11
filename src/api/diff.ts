@@ -523,18 +523,16 @@ ${patch}`;
       oldStart: hunk.oldStart,
       newStart: hunk.newStart,
       lines: hunk.lines.map((line): DiffLine => {
-        // Normal changes have oldLineNumber/newLineNumber, insert/delete have lineNumber
-        const isNormal = line.type === "normal";
-        const oldNum = isNormal
-          ? (line as any).oldLineNumber
-          : line.type === "delete"
-            ? (line as any).lineNumber
-            : undefined;
-        const newNum = isNormal
-          ? (line as any).newLineNumber
-          : line.type === "insert"
-            ? (line as any).lineNumber
-            : undefined;
+        let oldNum: number | undefined;
+        let newNum: number | undefined;
+        if (line.type === "normal") {
+          oldNum = line.oldLineNumber;
+          newNum = line.newLineNumber;
+        } else if (line.type === "delete") {
+          oldNum = line.lineNumber;
+        } else {
+          newNum = line.lineNumber;
+        }
 
         // For lines with a single segment (no inline diff), use pre-highlighted content
         // For lines with multiple segments (inline diff), highlight each segment
