@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import { useNavigate } from "react-router-dom";
+import * as PersistentCache from "../lib/persistent-cache";
 
 // ============================================================================
 // Types
@@ -156,6 +157,19 @@ export function TabProvider({ children }: TabProviderProps) {
     setState((prev) => {
       const tabIndex = prev.tabs.findIndex((t) => t.id === tabId);
       if (tabIndex === -1) return prev;
+
+      const closedTab = prev.tabs[tabIndex];
+      if (
+        closedTab.type === "pr-review" &&
+        closedTab.owner &&
+        closedTab.repo &&
+        closedTab.number !== undefined
+      ) {
+        const prKey = `${closedTab.owner}/${closedTab.repo}/${closedTab.number}`;
+        PersistentCache.deleteByPRKey(prKey).catch((err) =>
+          console.error("PersistentCache.deleteByPRKey failed", err)
+        );
+      }
 
       const newTabs = prev.tabs.filter((t) => t.id !== tabId);
       let newActiveId = prev.activeTabId;
