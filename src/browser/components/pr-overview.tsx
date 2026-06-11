@@ -3658,12 +3658,20 @@ function CommitsTab({
   owner: string;
   repo: string;
 }) {
+  const store = usePRReviewStore();
   return (
     <div className="border border-border rounded-md overflow-hidden divide-y divide-border">
       {commits.map((commit) => (
         <div
           key={commit.sha}
-          className="flex items-center gap-3 p-3 hover:bg-card/30"
+          className="flex items-center gap-3 p-3 hover:bg-card/30 cursor-pointer"
+          onClick={async () => {
+            await store.setSelectedCommitSha(commit.sha);
+            const { files } = store.getSnapshot();
+            if (files.length > 0) {
+              store.selectFile(files[0].filename);
+            }
+          }}
         >
           <img
             src={commit.author?.avatar_url || commit.committer?.avatar_url}
@@ -3671,14 +3679,9 @@ function CommitsTab({
             className="w-6 h-6 rounded-full"
           />
           <div className="flex-1 min-w-0">
-            <a
-              href={`https://github.com/${owner}/${repo}/commit/${commit.sha}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-sm font-medium truncate block hover:text-blue-400"
-            >
+            <span className="text-sm font-medium truncate block">
               {commit.commit.message.split("\n")[0]}
-            </a>
+            </span>
             <p className="text-xs text-muted-foreground">
               {commit.commit.author?.name} committed{" "}
               {commit.commit.author?.date &&
@@ -3696,7 +3699,10 @@ function CommitsTab({
               {commit.sha.slice(0, 7)}
             </a>
             <button
-              onClick={() => navigator.clipboard.writeText(commit.sha)}
+              onClick={(e) => {
+                e.stopPropagation();
+                navigator.clipboard.writeText(commit.sha);
+              }}
               className="p-1 text-muted-foreground hover:text-foreground rounded hover:bg-muted"
               title="Copy commit SHA"
             >
