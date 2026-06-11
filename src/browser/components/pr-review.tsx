@@ -456,16 +456,34 @@ const FilePanel = memo(function FilePanel({
   const interdiffLoadedDiffs = usePRReviewSelector(
     (s) => s.interdiffLoadedDiffs
   );
+  const versionCompareNoChangeFiles = usePRReviewSelector(
+    (s) => s.versionCompareNoChangeFiles
+  );
 
   const noChangeFiles = useMemo(() => {
-    if (!interdiffEnabled) return undefined;
     const result = new Set<string>();
-    for (const file of files) {
-      if (file.patch && interdiffLoadedDiffs[file.filename]?.hunks.length === 0)
-        result.add(file.filename);
+
+    if (interdiffEnabled) {
+      for (const file of files) {
+        if (
+          file.patch &&
+          interdiffLoadedDiffs[file.filename]?.hunks.length === 0
+        )
+          result.add(file.filename);
+      }
     }
+
+    for (const filename of versionCompareNoChangeFiles) {
+      result.add(filename);
+    }
+
     return result.size > 0 ? result : undefined;
-  }, [interdiffEnabled, interdiffLoadedDiffs, files]);
+  }, [
+    interdiffEnabled,
+    interdiffLoadedDiffs,
+    files,
+    versionCompareNoChangeFiles,
+  ]);
 
   const commentCounts = useCommentCountsByFile();
   const pendingCommentCounts = usePendingCommentCountsByFile();
