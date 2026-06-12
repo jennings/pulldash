@@ -2396,6 +2396,49 @@ const DiffLineRow = memo(function DiffLineRow({
   // Determine which side this line is on: 'old' for deletes, 'new' for insert/context
   const lineSide: "old" | "new" = line.type === "delete" ? "old" : "new";
 
+  // Split leading whitespace from insert/delete segments so indentation
+  // is not highlighted — only the actual changed text gets the bg color.
+  // Also strip leading whitespace from NORMAL segments after the first,
+  // since diffWords may have absorbed new-text whitespace into them.
+  const processedContent = useMemo(() => {
+    const result: typeof line.content = [];
+    let hasRealContent = false;
+    for (const seg of line.content) {
+      if (
+        (seg.type === "insert" || seg.type === "delete") &&
+        seg.value.trim()
+      ) {
+        const m = seg.value.match(/^(\s+)/);
+        if (m) {
+          result.push({ ...seg, value: m[1], html: m[1], type: "normal" });
+        }
+        result.push({
+          ...seg,
+          value: seg.value.trimStart(),
+          html: seg.value.trimStart(),
+        });
+        hasRealContent = true;
+      } else if (seg.type === "normal") {
+        // Strip leading whitespace from subsequent NORMAL segments
+        // — diffWords may have absorbed new-text whitespace into them
+        const stripped = hasRealContent
+          ? seg.value.replace(/^\s+/, "")
+          : seg.value;
+        result.push({
+          ...seg,
+          value: stripped,
+          html: stripped,
+        });
+        if (seg.value.trim()) {
+          hasRealContent = true;
+        }
+      } else {
+        result.push(seg);
+      }
+    }
+    return result;
+  }, [line.content]);
+
   // Selection highlighting is handled via CSS data attributes (no per-row subscription needed)
 
   // Check if this line has an in-progress comment draft
@@ -2585,7 +2628,7 @@ const DiffLineRow = memo(function DiffLineRow({
         onClick={handleContentClick}
       >
         <Tag className="no-underline">
-          {line.content.map((seg, i) => {
+          {processedContent.map((seg, i) => {
             // For tiny inline changes, use more prominent styling
             const isTinyChange = seg.type !== "normal" && seg.html.length <= 3;
             return (
