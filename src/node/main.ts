@@ -27,12 +27,20 @@ app.get("*", (c) => {
   return c.html(html.replaceAll("./", "/"));
 });
 
-serve(
-  {
-    fetch: app.fetch,
-    port: 3002,
-  },
-  (address) => {
+const DEFAULT_PORT = Number(process.env.PORT ?? 3002);
+
+function tryServe(port: number): void {
+  const server = serve({ fetch: app.fetch, port }, (address) => {
     console.log(`🚀 pulldash running at http://localhost:${address.port}`);
-  }
-);
+  });
+  server.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code === "EADDRINUSE") {
+      console.log(`Port ${port} in use, trying ${port + 1}...`);
+      tryServe(port + 1);
+    } else {
+      throw err;
+    }
+  });
+}
+
+tryServe(DEFAULT_PORT);
