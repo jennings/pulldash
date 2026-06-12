@@ -6,23 +6,31 @@
  * rebase noise stripped.
  *
  * Algorithm:
- * 1. Extract the post-image line sequence (content, line number, kind) from
- *    each patch.  kind="insert" means the commit added this line; kind=
- *    "context" means it was already in the base file and is shown for context.
- * 2. Short-circuit if both post-images are byte-identical (pure rebase shift).
+ * 1. Extract every line from each patch (context, insert, delete) preserving
+ *    its kind and the line number it carries.
+ * 2. Short-circuit if both patches' kind-tagged sequences are byte-identical.
  * 3. LCS-align the two sequences by content using diffArrays.
- * 4. Walk the alignment:
- *    - equal pair                   → equal (regardless of kind)
- *    - v1-only AND kind="insert"    → delete
- *    - v1-only AND kind="context"   → skip (not a deliberate change)
- *    - v2-only AND kind="insert"    → insert
- *    - v2-only AND kind="context"   → skip
+ * 4. Walk the alignment.  For each chunk, classify per (side, kind):
+ *      B-only insert  → INSERT (v2 added a line v1 didn't)
+ *      B-only delete  → DELETE (v2 removed a line v1 didn't touch)
+ *      A-only insert  → DELETE (v1 added a line v2 doesn't have)
+ *      A-only delete  → INSERT (v1 removed a line v2 still has)
+ *      *-only context → skip (rebase noise — patch window only)
+ *      equal pair, same kind          → equal (skip if both delete)
+ *      equal pair, insertA/deleteB    → DELETE (v1 added it; v2 removed it)
+ *      equal pair, deleteA/insertB    → INSERT (v1 removed it; v2 re-added it)
+ *      equal pair, other kind mismatch → equal
  * 5. Group into hunks with CONTEXT_LINES of surrounding context.
  *
- * Content-based alignment (step 3) fixes the line-number-shift bug: when v2
+ * Content-based alignment (step 3) handles the line-number-shift case: when v2
  * deletes a block above shared content, those shared lines move to smaller
  * line numbers but their content stays the same, so the LCS correctly groups
  * them as equal rather than emitting spurious delete+insert pairs.
+ *
+ * Including delete lines (vs. the older post-image-only model) handles the
+ * case where v2's patch contains -X/+Y in a region v1's patch doesn't touch:
+ * the older algorithm could only see +Y and emitted a lone insert.  Now -X is
+ * preserved through the alignment and emitted as a DELETE.
  */
 
 import gitDiffParser from "gitdiff-parser";
@@ -38,19 +46,22 @@ import { escapeHtml } from "../../shared/diff-utils";
 
 const CONTEXT_LINES = 3;
 
-interface PostImageEntry {
-  lineNumber: number;
+interface PatchLineEntry {
   content: string;
-  kind: "context" | "insert";
+  kind: "context" | "insert" | "delete";
+  // context: both line numbers populated
+  // insert : only newLineNumber
+  // delete : only oldLineNumber
+  oldLineNumber?: number;
+  newLineNumber?: number;
 }
 
 /**
- * Extract post-image lines (context + inserts) from a patch, preserving their
- * line numbers and whether they were added by the commit (insert) or pre-
- * existing context (context).
+ * Extract every line from a patch (context, insert, delete), preserving each
+ * line's kind and the line numbers gitdiff-parser exposes for it.
  */
-function buildPostImageEntries(patch: string): PostImageEntry[] {
-  const entries: PostImageEntry[] = [];
+function buildPatchEntries(patch: string): PatchLineEntry[] {
+  const entries: PatchLineEntry[] = [];
   if (!patch.trim()) return entries;
 
   const diffContent = `diff --git a/file b/file\n--- a/file\n+++ b/file\n${patch}`;
@@ -62,15 +73,22 @@ function buildPostImageEntries(patch: string): PostImageEntry[] {
       for (const change of hunk.changes) {
         if (change.type === "normal") {
           entries.push({
-            lineNumber: change.newLineNumber,
             content: change.content,
             kind: "context",
+            oldLineNumber: change.oldLineNumber,
+            newLineNumber: change.newLineNumber,
           });
         } else if (change.type === "insert") {
           entries.push({
-            lineNumber: change.lineNumber,
             content: change.content,
             kind: "insert",
+            newLineNumber: change.lineNumber,
+          });
+        } else if (change.type === "delete") {
+          entries.push({
+            content: change.content,
+            kind: "delete",
+            oldLineNumber: change.lineNumber,
           });
         }
       }
@@ -86,7 +104,9 @@ function buildPostImageEntries(patch: string): PostImageEntry[] {
  * Returns only the lines that survive into the new file (context + inserts).
  */
 export function buildPostImageLines(patch: string): string[] {
-  return buildPostImageEntries(patch).map((e) => e.content);
+  return buildPatchEntries(patch)
+    .filter((e) => e.kind !== "delete")
+    .map((e) => e.content);
 }
 
 /**
@@ -97,18 +117,21 @@ export function buildPostImageLines(patch: string): string[] {
  * @returns ParsedDiff showing deliberate changes between versions
  */
 export function computeInterdiff(patch1: string, patch2: string): ParsedDiff {
-  const entriesA = buildPostImageEntries(patch1);
-  const entriesB = buildPostImageEntries(patch2);
+  const entriesA = buildPatchEntries(patch1);
+  const entriesB = buildPatchEntries(patch2);
 
-  // Pure-rebase short-circuit: byte-identical post-image content (may be at
-  // different line positions due to shifts above/below the changed region).
-  const contentsA = entriesA.map((e) => e.content);
-  const contentsB = entriesB.map((e) => e.content);
-  if (contentsA.join("\n") === contentsB.join("\n")) {
+  // Pure-rebase short-circuit: identical kind-tagged sequences mean both
+  // patches do the same thing (possibly at different line positions).
+  // Comparing content alone would falsely match a +X patch against a -X patch.
+  const sigA = entriesA.map((e) => `${e.kind[0]}:${e.content}`).join("\n");
+  const sigB = entriesB.map((e) => `${e.kind[0]}:${e.content}`).join("\n");
+  if (sigA === sigB) {
     return { hunks: [] };
   }
 
-  // LCS-align the two post-image sequences by content.
+  // LCS-align the two entry sequences by content.
+  const contentsA = entriesA.map((e) => e.content);
+  const contentsB = entriesB.map((e) => e.content);
   const chunks = diffArrays(contentsA, contentsB);
 
   interface FlatLine {
@@ -124,38 +147,95 @@ export function computeInterdiff(patch1: string, patch2: string): ParsedDiff {
 
   for (const chunk of chunks) {
     if (!chunk.added && !chunk.removed) {
-      // LCS equal: same content in both post-images.
+      // LCS equal: same content in both sequences.  Disambiguate by kind.
       for (const content of chunk.value) {
         const ea = entriesA[idxA++];
         const eb = entriesB[idxB++];
-        flat.push({
-          type: "equal",
-          content,
-          oldLineNumber: ea.lineNumber,
-          newLineNumber: eb.lineNumber,
-        });
+        if (ea.kind === "insert" && eb.kind === "delete") {
+          // v1 added it; v2 removed it.  Net: line is gone in v2.
+          flat.push({
+            type: "delete",
+            content,
+            oldLineNumber: ea.newLineNumber,
+          });
+        } else if (ea.kind === "delete" && eb.kind === "insert") {
+          // v1 removed it; v2 re-added it.  Net: line is present in v2 only.
+          flat.push({
+            type: "insert",
+            content,
+            newLineNumber: eb.newLineNumber,
+          });
+        } else if (ea.kind === "delete" && eb.kind === "delete") {
+          // Both versions remove the same line — equal, but not part of either
+          // post-image, so skip rather than emitting a context line.
+        } else {
+          flat.push({
+            type: "equal",
+            content,
+            oldLineNumber: ea.newLineNumber ?? ea.oldLineNumber,
+            newLineNumber: eb.newLineNumber ?? eb.oldLineNumber,
+          });
+        }
       }
     } else if (chunk.removed) {
-      // Present in v1 post-image but not v2.
+      // Present in v1's patch sequence but not v2's.
       for (const content of chunk.value) {
         const ea = entriesA[idxA++];
         if (ea.kind === "insert") {
           // v1 deliberately added this line; v2 doesn't have it → delete.
-          flat.push({ type: "delete", content, oldLineNumber: ea.lineNumber });
+          flat.push({
+            type: "delete",
+            content,
+            oldLineNumber: ea.newLineNumber,
+          });
+        } else if (ea.kind === "delete") {
+          // v1 removed this line; v2's patch doesn't touch it (so v2 still has
+          // it) → present in v2 but absent in v1 → insert.
+          flat.push({
+            type: "insert",
+            content,
+            newLineNumber: ea.oldLineNumber,
+          });
+        } else {
+          // kind="context": line is in v1's patch window but not v2's.
+          // Most often it's genuine surrounding context outside v2's patch
+          // window — keep it as equal so nearby changes have visible context.
+          flat.push({
+            type: "equal",
+            content,
+            oldLineNumber: ea.newLineNumber,
+            newLineNumber: ea.newLineNumber,
+          });
         }
-        // kind="context": pre-existing line that was in v1's patch window but
-        // not v2's.  Not a deliberate change → skip.
       }
     } else {
-      // Present in v2 post-image but not v1.
+      // Present in v2's patch sequence but not v1's.
       for (const content of chunk.value) {
         const eb = entriesB[idxB++];
         if (eb.kind === "insert") {
           // v2 deliberately added this line; v1 doesn't have it → insert.
-          flat.push({ type: "insert", content, newLineNumber: eb.lineNumber });
+          flat.push({
+            type: "insert",
+            content,
+            newLineNumber: eb.newLineNumber,
+          });
+        } else if (eb.kind === "delete") {
+          // v2 removed this line; v1's patch doesn't touch it (so v1 still had
+          // it) → present in v1 but absent in v2 → delete.
+          flat.push({
+            type: "delete",
+            content,
+            oldLineNumber: eb.oldLineNumber,
+          });
+        } else {
+          // kind="context": same logic as the A-only branch — keep as equal.
+          flat.push({
+            type: "equal",
+            content,
+            oldLineNumber: eb.newLineNumber,
+            newLineNumber: eb.newLineNumber,
+          });
         }
-        // kind="context": pre-existing line that was in v2's patch window but
-        // not v1's.  Not a deliberate change → skip.
       }
     }
   }

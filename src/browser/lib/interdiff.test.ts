@@ -337,4 +337,194 @@ describe("computeInterdiff", () => {
       insertLines.some((l) => l.content.some((s) => s.value.includes("blockB")))
     ).toBe(false);
   });
+
+  test("v2 deletes a line v1 doesn't touch shows the deletion", () => {
+    // Mirrors the real-world case: v1 changes one region; v2 also changes
+    // that region the same way AND swaps Main→TimeWanted in a region v1
+    // never touched.  The lone -Main from v2's patch must surface as a
+    // DELETE in the interdiff (older post-image-only algorithm dropped it).
+    const patch1 = `@@ -1,5 +1,5 @@
+ firstA
+ firstB
+-shared_old
++shared_new
+ firstC`;
+    const patch2 = `@@ -1,5 +1,5 @@
+ firstA
+ firstB
+-shared_old
++shared_new
+ firstC
+@@ -10,3 +10,3 @@
+ ctx_above
+-setMenuState(HandoffView.Main)
++setMenuState(HandoffView.TimeWanted)
+ ctx_below`;
+    const result = computeInterdiff(patch1, patch2);
+    const hunks = result.hunks.filter((h) => h.type === "hunk") as DiffHunk[];
+    expect(hunks.length).toBeGreaterThan(0);
+    const allLines = hunks.flatMap((h) => h.lines);
+    const deletes = allLines.filter((l) => l.type === "delete");
+    const inserts = allLines.filter((l) => l.type === "insert");
+    expect(
+      deletes.some((l) =>
+        l.content.some((s) => s.value.includes("HandoffView.Main"))
+      )
+    ).toBe(true);
+    expect(
+      inserts.some((l) =>
+        l.content.some((s) => s.value.includes("HandoffView.TimeWanted"))
+      )
+    ).toBe(true);
+  });
+
+  test("v1 deletes a line v2 doesn't touch shows as insert", () => {
+    // v1 removes -orphan_line in a region v2's patch doesn't cover.
+    // Since v2 still has that line in its file, the interdiff must show
+    // it as an INSERT (it exists in v2 but not in v1).
+    const patch1 = `@@ -1,4 +1,4 @@
+ ctx_above
+-orphan_line
++new_in_v1
+ ctx_below
+@@ -10,3 +10,3 @@
+ other_ctx
+-shared_old
++shared_new
+ other_ctx_b`;
+    const patch2 = `@@ -10,3 +10,3 @@
+ other_ctx
+-shared_old
++shared_new
+ other_ctx_b`;
+    const result = computeInterdiff(patch1, patch2);
+    const allLines = (
+      result.hunks.filter((h) => h.type === "hunk") as DiffHunk[]
+    ).flatMap((h) => h.lines);
+    const inserts = allLines.filter((l) => l.type === "insert");
+    const deletes = allLines.filter((l) => l.type === "delete");
+    expect(
+      inserts.some((l) =>
+        l.content.some((s) => s.value.includes("orphan_line"))
+      )
+    ).toBe(true);
+    expect(
+      deletes.some((l) => l.content.some((s) => s.value.includes("new_in_v1")))
+    ).toBe(true);
+  });
+
+  test("v1 adds a line v2 deletes shows as single delete", () => {
+    // v1 inserts X.  v2 deletes X.  Net result: X is gone in v2's file but
+    // present in v1's → DELETE in the interdiff (no INSERT counterpart).
+    const patch1 = `@@ -1,3 +1,4 @@
+ ctx
++X
+ ctx2
+ ctx3`;
+    const patch2 = `@@ -1,4 +1,3 @@
+ ctx
+-X
+ ctx2
+ ctx3`;
+    const result = computeInterdiff(patch1, patch2);
+    const allLines = (
+      result.hunks.filter((h) => h.type === "hunk") as DiffHunk[]
+    ).flatMap((h) => h.lines);
+    const deletes = allLines.filter((l) => l.type === "delete");
+    const inserts = allLines.filter((l) => l.type === "insert");
+    expect(deletes.some((l) => l.content.some((s) => s.value === "X"))).toBe(
+      true
+    );
+    expect(inserts).toHaveLength(0);
+  });
+
+  test("both versions delete same line with different replacements", () => {
+    // Shared deletion is rebase noise; only the divergent replacements
+    // surface as a delete/insert pair.
+    const patch1 = `@@ -1,3 +1,3 @@
+ ctx
+-shared_removed
++v1_replacement
+ ctx2`;
+    const patch2 = `@@ -1,3 +1,3 @@
+ ctx
+-shared_removed
++v2_replacement
+ ctx2`;
+    const result = computeInterdiff(patch1, patch2);
+    const allLines = (
+      result.hunks.filter((h) => h.type === "hunk") as DiffHunk[]
+    ).flatMap((h) => h.lines);
+    const deletes = allLines.filter((l) => l.type === "delete");
+    const inserts = allLines.filter((l) => l.type === "insert");
+    expect(
+      deletes.some((l) =>
+        l.content.some((s) => s.value.includes("v1_replacement"))
+      )
+    ).toBe(true);
+    expect(
+      inserts.some((l) =>
+        l.content.some((s) => s.value.includes("v2_replacement"))
+      )
+    ).toBe(true);
+    expect(
+      deletes.some((l) =>
+        l.content.some((s) => s.value.includes("shared_removed"))
+      )
+    ).toBe(false);
+    expect(
+      inserts.some((l) =>
+        l.content.some((s) => s.value.includes("shared_removed"))
+      )
+    ).toBe(false);
+  });
+
+  test("delete-only change in v2 includes surrounding context", () => {
+    // v2's patch deletes `removed_line` flanked by 3+ context lines on each
+    // side.  Hunk should include those context lines and a sensible
+    // newStart line number (the line starts as a pure DELETE).
+    const patch1 = `@@ -1,3 +1,3 @@
+ unrelated_a
+-unrelated_old
++unrelated_new
+ unrelated_b`;
+    const patch2 = `@@ -1,3 +1,3 @@
+ unrelated_a
+-unrelated_old
++unrelated_new
+ unrelated_b
+@@ -10,7 +10,6 @@
+ ctx_a
+ ctx_b
+ ctx_c
+-removed_line
+ ctx_d
+ ctx_e
+ ctx_f`;
+    const result = computeInterdiff(patch1, patch2);
+    const hunks = result.hunks.filter((h) => h.type === "hunk") as DiffHunk[];
+    const allLines = hunks.flatMap((h) => h.lines);
+    const deletes = allLines.filter((l) => l.type === "delete");
+    const normals = allLines.filter((l) => l.type === "normal");
+    expect(
+      deletes.some((l) =>
+        l.content.some((s) => s.value.includes("removed_line"))
+      )
+    ).toBe(true);
+    expect(
+      normals.some((l) => l.content.some((s) => s.value.includes("ctx_b")))
+    ).toBe(true);
+    expect(
+      normals.some((l) => l.content.some((s) => s.value.includes("ctx_d")))
+    ).toBe(true);
+    const deleteHunk = hunks.find((h) =>
+      h.lines.some(
+        (l) =>
+          l.type === "delete" &&
+          l.content.some((s) => s.value.includes("removed_line"))
+      )
+    );
+    expect(deleteHunk).toBeDefined();
+    expect(deleteHunk!.newStart).toBeGreaterThan(0);
+  });
 });
