@@ -16,6 +16,8 @@ import remarkGemoji from "remark-gemoji";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
 import rehypeHighlight from "rehype-highlight";
+import { refractor } from "refractor/all";
+import { hastToHtml } from "../../shared/diff-utils";
 import { cn } from "../cn";
 import { isMac } from "./keycap";
 import { Popover, PopoverContent, PopoverAnchor } from "./popover";
@@ -285,6 +287,25 @@ function parseStyleString(styleStr: string): Record<string, string> {
   return style;
 }
 
+function extractLanguage(className: string): string | null {
+  const langMatch = className.match(/lang(uage)?-(\w+)/);
+  if (langMatch) return langMatch[2];
+  const sourceMatch = className.match(/highlight-source-(\w+)/);
+  return sourceMatch ? sourceMatch[1] : null;
+}
+
+function extractCodeText(nodes: HtmlNode[]): string {
+  let result = "";
+  for (const node of nodes) {
+    if (node.type === "text") {
+      result += node.content ?? "";
+    } else if (node.type === "element" && node.children) {
+      result += extractCodeText(node.children);
+    }
+  }
+  return result;
+}
+
 function parseHtmlToNodes(html: string): HtmlNode[] {
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, "text/html");
@@ -462,6 +483,54 @@ function renderNode(
           safeAttributes.checked !== null;
       }
       return createElement(node.tag, { key, ...safeAttributes });
+    }
+
+    // Syntax-highlight code blocks from GitHub's body_html
+    if (
+      node.tag === "div" &&
+      safeAttributes.className &&
+      typeof safeAttributes.className === "string"
+    ) {
+      const lang = extractLanguage(safeAttributes.className);
+      if (lang && node.children) {
+        const preChild = node.children.find(
+          (c): c is HtmlNode & { type: "element"; tag: string } =>
+            c.type === "element" && c.tag === "pre"
+        );
+        if (preChild && preChild.children) {
+          const codeText = extractCodeText(preChild.children);
+          if (codeText) {
+            try {
+              const tree = refractor.highlight(codeText, lang);
+              const html = tree.children.map(hastToHtml).join("");
+              preChild.children = parseHtmlToNodes(html);
+            } catch {}
+          }
+        }
+      }
+    }
+
+    // Syntax-highlight code blocks with a language class
+    if (
+      node.tag === "code" &&
+      safeAttributes.className &&
+      typeof safeAttributes.className === "string"
+    ) {
+      const lang = extractLanguage(safeAttributes.className);
+      if (lang && node.children) {
+        const codeText = extractCodeText(node.children);
+        if (codeText) {
+          try {
+            const tree = refractor.highlight(codeText, lang);
+            const html = tree.children.map(hastToHtml).join("");
+            const highlightedNodes = parseHtmlToNodes(html);
+            const children = renderNodes(highlightedNodes, openPreview);
+            return createElement("code", { key, ...safeAttributes }, children);
+          } catch {
+            // Fall through to default rendering
+          }
+        }
+      }
     }
 
     const children = node.children
