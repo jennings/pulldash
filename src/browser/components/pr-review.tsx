@@ -4179,7 +4179,16 @@ const SubmitReviewDropdown = memo(function SubmitReviewDropdown() {
   return (
     <DropdownMenu open={isOpen} onOpenChange={setIsOpen} modal={false}>
       <DropdownMenuTrigger asChild>
-        <button className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded-md bg-green-600 text-white hover:bg-green-700 transition-colors">
+        <button
+          className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded-md bg-green-600 text-white hover:bg-green-700 transition-colors"
+          onPointerDown={(e) => {
+            if (e.altKey) {
+              e.preventDefault();
+              e.stopPropagation();
+              submitReview("APPROVE");
+            }
+          }}
+        >
           <span>Submit review</span>
           {pendingCount > 0 && (
             <span className="px-1 py-0.5 text-[10px] bg-green-500/50 rounded">
