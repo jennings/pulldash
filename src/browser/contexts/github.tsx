@@ -2273,17 +2273,29 @@ function createGitHubStore() {
     const pending = cache.getPending<TimelineEvent[]>(cacheKey);
     if (pending) return pending;
 
-    const promise = octokit
-      .request("GET /repos/{owner}/{repo}/issues/{issue_number}/timeline", {
-        owner,
-        repo,
-        issue_number: number,
-        per_page: 100,
-      })
-      .then((res) => {
-        cache.set(cacheKey, res.data as TimelineEvent[]);
-        return res.data as TimelineEvent[];
-      });
+    const promise = (async () => {
+      const events: TimelineEvent[] = [];
+      let page = 1;
+
+      while (true) {
+        const { data } = await octokit!.request(
+          "GET /repos/{owner}/{repo}/issues/{issue_number}/timeline",
+          {
+            owner,
+            repo,
+            issue_number: number,
+            per_page: 100,
+            page,
+          }
+        );
+        events.push(...(data as TimelineEvent[]));
+        if (data.length < 100) break;
+        page++;
+      }
+
+      cache.set(cacheKey, events);
+      return events;
+    })();
 
     cache.setPending(cacheKey, promise);
     return promise;
