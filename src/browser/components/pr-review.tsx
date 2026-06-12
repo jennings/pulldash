@@ -2583,7 +2583,7 @@ const DiffLineRow = memo(function DiffLineRow({
   return (
     <div
       className={cn(
-        "flex h-5 min-h-5 whitespace-pre-wrap box-border group contain-layout diff-line-row",
+        "flex h-5 min-h-5 whitespace-pre box-border group contain-layout diff-line-row",
         isRebaseArtifact && "opacity-40"
       )}
       style={styles}
@@ -2634,7 +2634,7 @@ const DiffLineRow = memo(function DiffLineRow({
       </div>
       {/* Code content - click to focus line (unless selecting text) */}
       <div
-        className="flex-1 whitespace-pre-wrap break-words pr-6 overflow-hidden pl-2 cursor-text"
+        className="flex-1 whitespace-pre pr-6 overflow-hidden pl-2 cursor-text"
         onMouseDown={handleContentMouseDown}
         onClick={handleContentClick}
       >
@@ -2820,7 +2820,7 @@ const SplitDiffLineRow = memo(function SplitDiffLineRow({
         </div>
         {/* Code content */}
         <div
-          className="flex-1 whitespace-pre-wrap break-words pr-2 overflow-hidden pl-2 cursor-text"
+          className="flex-1 whitespace-pre pr-2 overflow-hidden pl-2 cursor-text"
           onMouseDown={handleContentMouseDown}
           onClick={handleContentClick}
         >
@@ -2860,7 +2860,7 @@ const SplitDiffLineRow = memo(function SplitDiffLineRow({
   return (
     <div
       className={cn(
-        "flex h-5 min-h-5 whitespace-pre-wrap box-border group contain-layout split-diff-line-row font-mono text-[0.8rem]",
+        "flex h-5 min-h-5 whitespace-pre box-border group contain-layout split-diff-line-row font-mono text-[0.8rem]",
         isRebaseArtifact && "opacity-40"
       )}
       data-line-num={lineNum}
