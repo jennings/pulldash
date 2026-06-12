@@ -235,4 +235,106 @@ describe("computeInterdiff", () => {
       expect(insertLines.some((l) => l.newLineNumber === n)).toBe(false);
     }
   });
+
+  test("inline-and-shift: lines shifted by a deletion above are not marked changed", () => {
+    // v1: commit adds a helper function (HELPER_DEF, HELPER_BODY, HELPER_END)
+    // and changes the call site from OLD_CALL to CALL_HELPER.
+    // v2: inlines the helper — helper function removed, call site changed to
+    // INLINE_BODY.  PREAMBLE, MAIN_START, MAIN_END, AFTER are context in both.
+    const patch1 = `@@ -1,5 +1,8 @@
+ PREAMBLE
++HELPER_DEF
++HELPER_BODY
++HELPER_END
+ MAIN_START
+-OLD_CALL
++CALL_HELPER
+ MAIN_END
+ AFTER`;
+
+    const patch2 = `@@ -1,5 +1,4 @@
+ PREAMBLE
+ MAIN_START
+-OLD_CALL
++INLINE_BODY
+ MAIN_END
+ AFTER`;
+
+    const result = computeInterdiff(patch1, patch2);
+    const hunks = result.hunks.filter((h) => h.type === "hunk") as DiffHunk[];
+    expect(hunks.length).toBeGreaterThan(0);
+
+    const allLines = hunks.flatMap((h) => h.lines);
+    const insertLines = allLines.filter((l) => l.type === "insert");
+    const deleteLines = allLines.filter((l) => l.type === "delete");
+
+    // Helper function lines from v1 should be deleted
+    const deletedContents = deleteLines.map((l) =>
+      l.content.map((s) => s.value).join("")
+    );
+    expect(deletedContents.some((c) => c.includes("HELPER_DEF"))).toBe(true);
+    expect(deletedContents.some((c) => c.includes("CALL_HELPER"))).toBe(true);
+
+    // The inlined body should be inserted
+    const insertedContents = insertLines.map((l) =>
+      l.content.map((s) => s.value).join("")
+    );
+    expect(insertedContents.some((c) => c.includes("INLINE_BODY"))).toBe(true);
+
+    // Shared context lines must NOT appear as inserts
+    expect(
+      insertLines.some((l) =>
+        l.content.some(
+          (s) =>
+            s.value.includes("PREAMBLE") ||
+            s.value.includes("MAIN_START") ||
+            s.value.includes("MAIN_END") ||
+            s.value.includes("AFTER")
+        )
+      )
+    ).toBe(false);
+  });
+
+  test("deletion above shared block: shared block stays equal, not delete+insert", () => {
+    // v1: adds block A (lines 1-3) and block B (lines 5-7)
+    const patch1 = `@@ -1,6 +1,8 @@
+ intro
++blockA_line1
++blockA_line2
+ gap
++blockB_line1
++blockB_line2
+ outro`;
+
+    // v2: only adds block B (block A was removed in this revision)
+    const patch2 = `@@ -1,3 +1,5 @@
+ intro
+ gap
++blockB_line1
++blockB_line2
+ outro`;
+
+    const result = computeInterdiff(patch1, patch2);
+    const hunks = result.hunks.filter((h) => h.type === "hunk") as DiffHunk[];
+    expect(hunks.length).toBeGreaterThan(0);
+
+    const allLines = hunks.flatMap((h) => h.lines);
+    const insertLines = allLines.filter((l) => l.type === "insert");
+    const deleteLines = allLines.filter((l) => l.type === "delete");
+
+    // block A should show as deleted
+    const deletedContents = deleteLines.map((l) =>
+      l.content.map((s) => s.value).join("")
+    );
+    expect(deletedContents.some((c) => c.includes("blockA_line1"))).toBe(true);
+    expect(deletedContents.some((c) => c.includes("blockA_line2"))).toBe(true);
+
+    // block B is shared by both post-images; must NOT appear as delete or insert
+    expect(
+      deleteLines.some((l) => l.content.some((s) => s.value.includes("blockB")))
+    ).toBe(false);
+    expect(
+      insertLines.some((l) => l.content.some((s) => s.value.includes("blockB")))
+    ).toBe(false);
+  });
 });
