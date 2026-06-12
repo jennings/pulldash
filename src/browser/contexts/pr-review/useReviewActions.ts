@@ -1,5 +1,9 @@
 import type { ReviewComment } from "@/api/types";
-import { useGitHub, type Review } from "@/browser/contexts/github";
+import {
+  useGitHub,
+  type Review,
+  type TimelineEvent,
+} from "@/browser/contexts/github";
 import { usePRReviewStore, usePRReviewSelector } from ".";
 
 export function useReviewActions() {
@@ -8,6 +12,7 @@ export function useReviewActions() {
   const owner = usePRReviewSelector((s) => s.owner);
   const repo = usePRReviewSelector((s) => s.repo);
   const pr = usePRReviewSelector((s) => s.pr);
+  const currentUser = usePRReviewSelector((s) => s.currentUser);
 
   const submitReview = async (
     event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT"
@@ -59,6 +64,19 @@ export function useReviewActions() {
         github.getPRReviews(owner, repo, pr.number),
         github.getPRTimeline(owner, repo, pr.number),
       ]);
+
+      // If the review we just submitted isn't in the re-fetched data yet
+      // (eventual consistency), add it manually so it appears immediately.
+      if (newReview?.id && !reviews.some((r) => r.id === newReview!.id)) {
+        reviews.unshift(newReview);
+        timeline.unshift({
+          id: newReview.id,
+          event: "reviewed",
+          actor: { login: currentUser ?? "", avatar_url: "" },
+          created_at: new Date().toISOString(),
+        } as TimelineEvent);
+      }
+
       store.setComments(newComments as ReviewComment[]);
       store.setReviews(reviews);
       store.setTimeline(timeline);
