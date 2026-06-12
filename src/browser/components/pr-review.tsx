@@ -8,6 +8,7 @@ import React, {
 } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { diffWords } from "diff";
 import {
   Loader2,
   MessageSquare,
@@ -1457,12 +1458,158 @@ const DiffViewer = memo(function DiffViewer({
         const line = lines[i];
 
         if (line.type === "normal") {
-          // Context line - show on both sides
-          pairs.push({
-            left: line,
-            right: line,
-            lineNum: line.newLineNumber || line.oldLineNumber,
-          });
+          // Check if this is a merged modified line with inline word-diff segments
+          const hasWordDiff = line.content.some((s) => s.type !== "normal");
+          if (hasWordDiff) {
+            // Reconstruct the full old and new text from the segments.
+            // Strip leading whitespace from NORMAL segments when building
+            // old text — diffWords may have absorbed new-text leading
+            // whitespace into NORMAL segments, creating duplicates.
+            const oldSegments = line.content.filter((s) => s.type !== "insert");
+            const fullOldText = oldSegments
+              .map((s, i) => {
+                if (i > 0 && s.type === "normal") {
+                  return s.value.replace(/^\s+/, "");
+                }
+                return s.value;
+              })
+              .join("");
+            const fullNewText = line.content
+              .filter((s) => s.type !== "delete")
+              .map((s) => s.value)
+              .join("");
+
+            // Recover common leading whitespace that diffWords may have
+            // absorbed into an INSERT token (e.g. indentation)
+            const leadingSpace = fullNewText.match(/^(\s*)/)?.[1] || "";
+            const adjustedOld =
+              leadingSpace &&
+              fullOldText.length > 0 &&
+              !fullOldText.startsWith(leadingSpace)
+                ? leadingSpace + fullOldText
+                : fullOldText;
+
+            // Compute word-diff between corrected old and new text
+            const diffTokens = diffWords(adjustedOld, fullNewText);
+
+            // LEFT side: old text with DELETE segments highlighted.
+            // Recover leading whitespace lost to INSERT tokens.
+            const leftRaw = diffTokens
+              .filter((t) => !t.added)
+              .map((t) => t.value)
+              .join("");
+            const rightRaw = diffTokens
+              .filter((t) => !t.removed)
+              .map((t) => t.value)
+              .join("");
+            const missingSpace = rightRaw.match(/^(\s*)/)?.[1] || "";
+            const leftPrefix =
+              missingSpace &&
+              leftRaw.length > 0 &&
+              !leftRaw.startsWith(missingSpace)
+                ? missingSpace
+                : "";
+
+            const leftTokens = diffTokens.filter((t) => !t.added);
+            const leftSegments: Array<{
+              value: string;
+              html: string;
+              type: "delete" | "normal";
+            }> = [];
+            for (let i = 0; i < leftTokens.length; i++) {
+              const t = leftTokens[i];
+              // Strip leading whitespace from NORMAL segments after the first
+              // — diffWords may have absorbed new-text leading whitespace
+              const value =
+                i > 0 && !t.removed ? t.value.replace(/^\s+/, "") : t.value;
+
+              // Split leading whitespace from DELETE segments so the
+              // indentation is not highlighted — only the actual change
+              if (t.removed && value.trim()) {
+                const leadingWs = value.match(/^(\s+)/)?.[1];
+                if (leadingWs) {
+                  leftSegments.push({
+                    value: leadingWs,
+                    html: leadingWs,
+                    type: "normal" as const,
+                  });
+                }
+                leftSegments.push({
+                  value: value.trimStart(),
+                  html: value.trimStart(),
+                  type: "delete" as const,
+                });
+              } else {
+                leftSegments.push({
+                  value,
+                  html: value,
+                  type: "normal" as const,
+                });
+              }
+            }
+            if (leftPrefix) {
+              leftSegments.unshift({
+                value: leftPrefix,
+                html: leftPrefix,
+                type: "normal" as const,
+              });
+            }
+
+            // RIGHT side: new text with INSERT segments highlighted
+            const rightTokens = diffTokens.filter((t) => !t.removed);
+            const rightSegments: Array<{
+              value: string;
+              html: string;
+              type: "insert" | "normal";
+            }> = [];
+            for (let i = 0; i < rightTokens.length; i++) {
+              const t = rightTokens[i];
+              // Split leading whitespace from INSERT segments so the
+              // indentation is not highlighted — only the actual change
+              if (t.added && t.value.trim()) {
+                const leadingWs = t.value.match(/^(\s+)/)?.[1];
+                if (leadingWs) {
+                  rightSegments.push({
+                    value: leadingWs,
+                    html: leadingWs,
+                    type: "normal" as const,
+                  });
+                }
+                rightSegments.push({
+                  value: t.value.trimStart(),
+                  html: t.value.trimStart(),
+                  type: "insert" as const,
+                });
+              } else {
+                rightSegments.push({
+                  value: t.value,
+                  html: t.value,
+                  type: "normal" as const,
+                });
+              }
+            }
+
+            pairs.push({
+              left: {
+                ...line,
+                type: "delete",
+                content: leftSegments,
+              },
+              right: {
+                ...line,
+                type: "insert",
+                content: rightSegments,
+              },
+              lineNum: line.oldLineNumber || line.newLineNumber,
+            });
+          } else {
+            // Context line - show on both sides
+            pairs.push({
+              left: line,
+              right: line,
+              lineNum: line.newLineNumber || line.oldLineNumber,
+            });
+          }
           i++;
         } else if (line.type === "delete") {
           // Collect consecutive deletes
