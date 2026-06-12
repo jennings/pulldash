@@ -1319,6 +1319,38 @@ export class PRReviewStore {
     }
   };
 
+  resetVersionSelectors = async (): Promise<void> => {
+    const { owner, repo, pr } = this.state;
+
+    this.set({
+      selectedHeadSha: null,
+      selectedCommitSha: null,
+      compareToSha: null,
+      compareToCommitSha: null,
+      interdiffEnabled: false,
+      interdiffLoadedDiffs: {},
+      files: this.baseFiles,
+      commits: this.baseCommits,
+      loadedDiffs: {},
+      loadingFiles: new Set(),
+      expandedSkipBlocks: {},
+      expandingSkipBlocks: new Set(),
+      focusedLine: null,
+      focusedLineSide: null,
+      selectionAnchor: null,
+      selectionAnchorSide: null,
+      commentingOnLine: null,
+    });
+
+    // Fetch checks for the latest version
+    this.github
+      .getPRChecks(owner, repo, pr.head.sha)
+      .then((checks) => {
+        this.set({ checks, checksLastUpdated: new Date() });
+      })
+      .catch(() => {});
+  };
+
   // ---------------------------------------------------------------------------
   // Skip Block Expansion Actions
   // ---------------------------------------------------------------------------

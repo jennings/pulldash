@@ -922,6 +922,17 @@ function VersionBar() {
           )}
         </div>
       )}
+      {/* Reset to defaults */}
+      {(selectedHeadSha !== null ||
+        selectedCommitSha !== null ||
+        compareToSha !== null) && (
+        <button
+          onClick={() => store.resetVersionSelectors()}
+          className="w-full text-xs text-muted-foreground hover:text-foreground py-1 px-2 rounded border border-border hover:bg-muted transition-colors"
+        >
+          Reset to defaults
+        </button>
+      )}
     </div>
   );
 }
