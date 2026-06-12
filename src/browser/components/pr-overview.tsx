@@ -1132,6 +1132,19 @@ export const PROverview = memo(function PROverview() {
                     const reviewsById = new Map(reviews.map((r) => [r.id, r]));
                     const usedReviewIds = new Set<number>();
 
+                    // Add PR creation as the first timeline event (version v1)
+                    if (pushVersions?.[0]?.version === 1) {
+                      entries.push({
+                        type: "event" as const,
+                        data: {
+                          id: -1,
+                          event: "opened",
+                          actor: pr.user,
+                          created_at: pr.created_at,
+                        } as TimelineEvent,
+                      });
+                    }
+
                     // Collect consecutive commits to group them
                     let pendingCommits: CommittedEvent[] = [];
                     const flushCommits = () => {
@@ -4807,6 +4820,41 @@ function TimelineItem({
             </span>
           ),
           color: "text-amber-400",
+        };
+      }
+
+      case "opened": {
+        const firstVersion = pushVersions?.[0];
+        return {
+          icon: <GitPullRequest className="w-4 h-4" />,
+          text: (
+            <span>
+              {actor?.login && (
+                <UserHoverCard login={actor.login}>
+                  <span className="font-medium cursor-pointer hover:text-blue-400 hover:underline">
+                    {actor.login}
+                  </span>
+                </UserHoverCard>
+              )}{" "}
+              opened the PR{" "}
+              {firstVersion && (
+                <button
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    await store.setSelectedHeadSha(firstVersion.sha);
+                    const { files } = store.getSnapshot();
+                    if (files.length > 0) {
+                      store.selectFile(files[0].filename);
+                    }
+                  }}
+                  className="text-muted-foreground hover:text-blue-400 hover:underline cursor-pointer transition-colors"
+                >
+                  (v{firstVersion.version})
+                </button>
+              )}
+            </span>
+          ),
+          color: "text-muted-foreground",
         };
       }
 
