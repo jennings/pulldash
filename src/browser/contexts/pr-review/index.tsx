@@ -3035,22 +3035,20 @@ export class PRReviewStore {
         merge_method: mergeMethod,
       });
 
-      // Invalidate timeline cache and refetch
-      this.github.invalidateCache(`pr:${owner}/${repo}/${pr.number}:timeline`);
+      // Invalidate all PR-related caches
+      this.invalidatePRCaches(owner, repo, pr.number);
 
-      // Refetch PR and timeline to get updated state
-      const [updatedPR, updatedTimeline] = await Promise.all([
-        this.github.getPR(owner, repo, pr.number),
-        this.github
-          .getPRTimeline(owner, repo, pr.number)
-          .catch(() => [] as TimelineEvent[]),
-      ]);
-
+      // Optimistically update PR state
       this.set({
-        pr: updatedPR,
-        timeline: updatedTimeline,
+        pr: { ...this.state.pr, merged: true, state: "closed" as const },
         merging: false,
       });
+
+      // Refetch timeline in background (merge creates event)
+      this.github
+        .getPRTimeline(owner, repo, pr.number)
+        .then((timeline) => this.set({ timeline }))
+        .catch(() => {});
 
       return true;
     } catch (e) {

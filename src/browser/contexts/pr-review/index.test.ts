@@ -823,3 +823,52 @@ test("getPRFilesForRange is called with base.sha and compareToSha / headSha for 
   expect(calls).toContainEqual(["def456", "v1sha"]);
   expect(calls).toContainEqual(["def456", "abc123"]);
 });
+
+// ============================================================================
+// mergePR
+// ============================================================================
+
+test("mergePR sets merged=true and state=closed after success", async () => {
+  const github = createMockGitHubStore();
+  const store = new PRReviewStore(github, {
+    pr: createMockPR(),
+    files: [],
+    comments: [],
+    owner: "test",
+    repo: "repo",
+    viewerPermission: "WRITE",
+  });
+
+  const result = await store.mergePR();
+
+  expect(result).toBe(true);
+  const state = store.getSnapshot();
+  expect(state.pr.merged).toBe(true);
+  expect(state.pr.state).toBe("closed");
+  expect(state.merging).toBe(false);
+});
+
+test("mergePR sets mergeError and clears merging on failure", async () => {
+  const github = {
+    ...createMockGitHubStore(),
+    mergePR: async () => {
+      throw new Error("Merge conflict");
+    },
+  } as unknown as GitHubStore;
+  const store = new PRReviewStore(github, {
+    pr: createMockPR(),
+    files: [],
+    comments: [],
+    owner: "test",
+    repo: "repo",
+    viewerPermission: "WRITE",
+  });
+
+  const result = await store.mergePR();
+
+  expect(result).toBe(false);
+  const state = store.getSnapshot();
+  expect(state.merging).toBe(false);
+  expect(state.mergeError).toBe("Merge conflict");
+  expect(state.pr.merged).toBe(false);
+});
