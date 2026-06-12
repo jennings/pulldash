@@ -27,6 +27,7 @@ import {
   type TimelineEvent,
   type ReviewThread,
   type PushVersion,
+  groupCommitsIntoVersions,
 } from "@/browser/contexts/github";
 import { diffService } from "@/browser/lib/diff";
 
@@ -2897,9 +2898,28 @@ export class PRReviewStore {
       let commitVersionHistory: Record<string, PRCommit[]> = {};
       let commitsByVersion: Array<{ version: number; commits: PRCommit[] }> =
         [];
-      if (pushVersionsData.length > 0) {
+
+      // Merge force-push versions with commit-grouped versions (normal pushes)
+      const commitVersions = groupCommitsIntoVersions(commitsData, 2);
+      const seenShas = new Set(pushVersionsData.map((v) => v.sha));
+      for (const cv of commitVersions) {
+        if (!seenShas.has(cv.sha)) {
+          pushVersionsData.push(cv);
+          seenShas.add(cv.sha);
+        }
+      }
+      pushVersionsData.sort(
+        (a, b) =>
+          new Date(a.pushedAt).getTime() - new Date(b.pushedAt).getTime()
+      );
+      const mergedVersions = pushVersionsData.map((v, i) => ({
+        ...v,
+        version: i + 1,
+      }));
+
+      if (mergedVersions.length > 0) {
         commitsByVersion = await Promise.all(
-          pushVersionsData.map(async (pv) => {
+          mergedVersions.map(async (pv) => {
             const commits = await this.github
               .getCommitsForHeadSha(
                 owner,
@@ -2917,9 +2937,9 @@ export class PRReviewStore {
 
       // Fetch files for each push version and compute diff between adjacent pairs
       let versionDiffCounts: Record<string, number> = {};
-      if (pushVersionsData.length > 1) {
+      if (mergedVersions.length > 1) {
         const filesByVersion = await Promise.all(
-          pushVersionsData.map(async (pv) => {
+          mergedVersions.map(async (pv) => {
             const files = await this.github
               .getPRFilesForRange(owner, repo, pr.base.sha, pv.sha)
               .catch(() => [] as PullRequestFile[]);
@@ -2955,7 +2975,7 @@ export class PRReviewStore {
         workflowRunsAwaitingApproval: awaitingApproval,
         conversation: conversationData,
         commits: commitsData,
-        pushVersions: pushVersionsData,
+        pushVersions: mergedVersions,
         commitVersionHistory,
         commitsByVersion,
         versionDiffCounts,

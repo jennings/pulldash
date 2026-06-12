@@ -113,6 +113,7 @@ export const PROverview = memo(function PROverview() {
   const timeline = usePRReviewSelector((s) => s.timeline);
   const commits = usePRReviewSelector((s) => s.commits);
   const pushVersions = usePRReviewSelector((s) => s.pushVersions);
+  const commitsByVersion = usePRReviewSelector((s) => s.commitsByVersion);
   const versionDiffCounts = usePRReviewSelector((s) => s.versionDiffCounts);
   const conversation = usePRReviewSelector((s) => s.conversation);
   const loading = usePRReviewSelector((s) => s.loading);
@@ -1108,7 +1109,12 @@ export const PROverview = memo(function PROverview() {
                         }
                       | { type: "event"; data: TimelineEvent }
                       | { type: "thread"; data: ReviewThread }
-                      | { type: "commits"; data: CommittedEvent[] };
+                      | { type: "commits"; data: CommittedEvent[] }
+                      | {
+                          type: "version_event";
+                          event: TimelineEvent;
+                          commits: PRCommit[];
+                        };
 
                     const entries: TimelineEntry[] = [];
 
@@ -1134,24 +1140,28 @@ export const PROverview = memo(function PROverview() {
 
                     // Add PR creation as the first timeline event (version v1)
                     if (pushVersions?.[0]?.version === 1) {
+                      const v1Commits =
+                        commitsByVersion?.find((v) => v.version === 1)
+                          ?.commits ?? [];
                       entries.push({
-                        type: "event" as const,
-                        data: {
+                        type: "version_event",
+                        event: {
                           id: -1,
                           event: "opened",
                           actor: pr.user,
                           created_at: pr.created_at,
                         } as TimelineEvent,
+                        commits: v1Commits,
                       });
                     }
 
-                    // Collect consecutive commits to group them
+                    // Collect consecutive commits and associate them with
+                    // the next version transition event (force-push or push)
                     let pendingCommits: CommittedEvent[] = [];
+                    let lastFlushedCommits: CommittedEvent[] = [];
                     const flushCommits = () => {
-                      if (pendingCommits.length > 0) {
-                        entries.push({ type: "commits", data: pendingCommits });
-                        pendingCommits = [];
-                      }
+                      lastFlushedCommits = pendingCommits;
+                      pendingCommits = [];
                     };
 
                     // Process timeline in GitHub's order
@@ -1211,12 +1221,102 @@ export const PROverview = memo(function PROverview() {
                       // Skip line-commented (shown inline in reviews)
                       if (eventType === "line-commented") return;
 
-                      // All other events
-                      entries.push({ type: "event", data: event });
+                      // All other events — associate full commit list with
+                      // force-push events from commitsByVersion
+                      const usedCommitShas = new Set<string>();
+                      if (eventType === "head_ref_force_pushed") {
+                        const fpEvent = event as { commit_id?: string };
+                        const toVer = fpEvent.commit_id
+                          ? pushVersions?.find(
+                              (v) => v.sha === fpEvent.commit_id
+                            )
+                          : undefined;
+                        const fullCommits: PRCommit[] | undefined =
+                          toVer &&
+                          commitsByVersion?.find(
+                            (v) => v.version === toVer.version
+                          )?.commits;
+                        if (fullCommits) {
+                          for (const c of fullCommits) {
+                            usedCommitShas.add(c.sha);
+                          }
+                        }
+                        entries.push({
+                          type: "version_event",
+                          event: event as TimelineEvent,
+                          commits: fullCommits ?? [],
+                        });
+                      } else {
+                        entries.push({ type: "event", data: event });
+                      }
                     });
 
                     // Flush any remaining commits
                     flushCommits();
+
+                    // Add synthetic version transition events for normal pushes
+                    // that don't have a corresponding head_ref_force_pushed event.
+                    // Show the new (added) commits for each version transition.
+                    if (pushVersions && pushVersions.length > 1) {
+                      const forcePushedShas = new Set<string>();
+                      for (const event of timeline) {
+                        if (
+                          "event" in event &&
+                          event.event === "head_ref_force_pushed"
+                        ) {
+                          const fp = event as { commit_id?: string };
+                          if (fp.commit_id) {
+                            forcePushedShas.add(fp.commit_id);
+                          }
+                        }
+                      }
+
+                      for (let i = 1; i < pushVersions.length; i++) {
+                        const toVersion = pushVersions[i];
+                        const fromVersion = pushVersions[i - 1];
+                        if (
+                          toVersion &&
+                          fromVersion &&
+                          !forcePushedShas.has(toVersion.sha)
+                        ) {
+                          // Compute the new commits in this version by diffing
+                          // the version's commit list against the previous version
+                          const currCommits =
+                            commitsByVersion?.find(
+                              (v) => v.version === toVersion.version
+                            )?.commits ?? [];
+                          const prevCommits =
+                            commitsByVersion?.find(
+                              (v) => v.version === fromVersion.version
+                            )?.commits ?? [];
+                          const prevShas = new Set(
+                            prevCommits.map((c) => c.sha)
+                          );
+                          const newCommits = currCommits.filter(
+                            (c) => !prevShas.has(c.sha)
+                          );
+
+                          entries.push({
+                            type: "version_event",
+                            event: {
+                              id: -i,
+                              event: "head_ref_normal_pushed",
+                              actor: pr.user,
+                              created_at: toVersion.pushedAt,
+                              commit_id: toVersion.sha,
+                              from_sha: fromVersion.sha,
+                              from_version: fromVersion.version,
+                              to_version: toVersion.version,
+                            } as TimelineEvent & {
+                              from_sha?: string;
+                              from_version?: number;
+                              to_version?: number;
+                            },
+                            commits: newCommits,
+                          });
+                        }
+                      }
+                    }
 
                     // Add any orphaned threads that weren't part of a review
                     orphanedThreads.forEach((thread) => {
@@ -1315,6 +1415,47 @@ export const PROverview = memo(function PROverview() {
                             versionDiffCounts={versionDiffCounts}
                             onNavigateChecks={handleNavigateChecks}
                           />
+                        );
+                      }
+                      if (entry.type === "version_event") {
+                        return (
+                          <div key={`version-${index}`}>
+                            <TimelineItem
+                              event={entry.event}
+                              pr={pr}
+                              pushVersions={pushVersions}
+                              versionDiffCounts={versionDiffCounts}
+                              onNavigateChecks={handleNavigateChecks}
+                            />
+                            {entry.commits.length > 0 && (
+                              <div className="ml-9 pl-4 border-l-2 border-border/30 space-y-1 py-1">
+                                {entry.commits.map((c) => (
+                                  <div
+                                    key={c.sha}
+                                    className="text-xs text-muted-foreground flex items-center gap-2"
+                                  >
+                                    <GitCommit className="w-3 h-3 shrink-0" />
+                                    <a
+                                      href={`https://github.com/${owner}/${repo}/commit/${c.sha}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="truncate hover:text-blue-400"
+                                    >
+                                      {c.commit.message.split("\n")[0]}
+                                    </a>
+                                    <a
+                                      href={`https://github.com/${owner}/${repo}/commit/${c.sha}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="font-mono text-muted-foreground hover:text-blue-400 shrink-0"
+                                    >
+                                      {c.sha.slice(0, 7)}
+                                    </a>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
                         );
                       }
                       if (entry.type === "commits") {
@@ -4820,6 +4961,68 @@ function TimelineItem({
             </span>
           ),
           color: "text-amber-400",
+        };
+      }
+
+      case "head_ref_normal_pushed": {
+        const pushEvent = event as TimelineEvent & {
+          from_sha?: string;
+          from_version?: number;
+          to_version?: number;
+        };
+        const toVersion =
+          pushEvent.to_version !== undefined &&
+          pushVersions?.find((v) => v.version === pushEvent.to_version);
+        const fromVersion =
+          pushEvent.from_version !== undefined &&
+          pushVersions?.find((v) => v.version === pushEvent.from_version);
+        const diffKey =
+          fromVersion &&
+          toVersion &&
+          `${fromVersion.version}-${toVersion.version}`;
+        const diffCount = diffKey ? versionDiffCounts?.[diffKey] : undefined;
+        const diffSummary =
+          diffCount !== undefined
+            ? diffCount === 0
+              ? "no change"
+              : `${diffCount} file${diffCount !== 1 ? "s" : ""} modified`
+            : null;
+        return {
+          icon: <GitBranch className="w-4 h-4" />,
+          text: (
+            <span>
+              {actor?.login && (
+                <UserHoverCard login={actor.login}>
+                  <span className="font-medium cursor-pointer hover:text-blue-400 hover:underline">
+                    {actor.login}
+                  </span>
+                </UserHoverCard>
+              )}{" "}
+              pushed the{" "}
+              <code className="px-1.5 py-0.5 bg-blue-500/20 text-blue-300 rounded text-xs">
+                {pr?.head?.ref || "branch"}
+              </code>{" "}
+              branch{" "}
+              {toVersion && fromVersion && (
+                <button
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    await store.setCompareToSha(fromVersion.sha);
+                    await store.setSelectedHeadSha(toVersion.sha);
+                    const { files } = store.getSnapshot();
+                    if (files.length > 0) {
+                      store.selectFile(files[0].filename);
+                    }
+                  }}
+                  className="text-muted-foreground hover:text-blue-400 hover:underline cursor-pointer transition-colors"
+                >
+                  (v{fromVersion.version} → v{toVersion.version}
+                  {diffSummary !== null ? `, ${diffSummary}` : ""})
+                </button>
+              )}
+            </span>
+          ),
+          color: "text-muted-foreground",
         };
       }
 

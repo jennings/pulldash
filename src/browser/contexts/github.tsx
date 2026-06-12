@@ -111,6 +111,50 @@ export interface PushVersion {
   pushedAt: string;
 }
 
+export function groupCommitsIntoVersions(
+  commits: PRCommit[],
+  maxGapMinutes = 2
+): PushVersion[] {
+  if (commits.length === 0) return [];
+
+  const versions: PushVersion[] = [];
+  let groupStart = 0;
+
+  for (let i = 1; i < commits.length; i++) {
+    const prevDate = new Date(
+      commits[i - 1].commit.committer?.date ??
+        commits[i - 1].commit.author?.date ??
+        ""
+    );
+    const currDate = new Date(
+      commits[i].commit.committer?.date ?? commits[i].commit.author?.date ?? ""
+    );
+    const gapMs = currDate.getTime() - prevDate.getTime();
+
+    if (gapMs > maxGapMinutes * 60 * 1000) {
+      versions.push({
+        version: versions.length + 1,
+        sha: commits[i - 1].sha,
+        pushedAt:
+          commits[i - 1].commit.committer?.date ??
+          commits[i - 1].commit.author?.date ??
+          "",
+      });
+      groupStart = i;
+    }
+  }
+
+  // Last group — includes commits[groupStart..end]
+  const last = commits[commits.length - 1];
+  versions.push({
+    version: versions.length + 1,
+    sha: last.sha,
+    pushedAt: last.commit.committer?.date ?? last.commit.author?.date ?? "",
+  });
+
+  return versions;
+}
+
 export interface CheckStatus {
   checks: "pending" | "success" | "failure" | "none" | "action_required";
   state: "open" | "closed" | "merged" | "draft";
