@@ -4,6 +4,11 @@ import { diffService } from "@/browser/lib/diff";
 import { useGitHub } from "@/browser/contexts/github";
 import { usePRReviewStore, usePRReviewSelector, type ParsedDiff } from ".";
 
+/** Content getter function type for fetching file content */
+type FileContentGetter = (path: string, ref: string) => Promise<string>;
+
+type RawDiffGetter = (baseSha: string, headSha: string) => Promise<string>;
+
 const diffCache = new Map<string, ParsedDiff>();
 const pendingFetches = new Map<
   string,
@@ -16,12 +21,15 @@ function getFullDiffFromCache(
   file: PullRequestFile,
   cacheContext?: string
 ): ParsedDiff | null {
-  if (!file.patch || !file.sha) {
-    return { hunks: [] };
-  }
-  // Only return if we have the full content version with proper syntax highlighting
   const suffix = cacheContext ? `:${cacheContext}` : "";
-  return diffCache.get(`${file.sha}:full${suffix}`) ?? null;
+  const key = `${file.sha}:full${suffix}`;
+  if (diffCache.has(key)) return diffCache.get(key)!;
+  // Files without a patch may still be recoverable — don't short-circuit
+  // by returning an empty diff; let the fetch path try recovery.
+  if (!file.patch || !file.sha) {
+    return null;
+  }
+  return null;
 }
 
 // Abort all pending fetches (used when navigating rapidly)
@@ -32,8 +40,39 @@ function abortAllPendingFetches() {
   }
 }
 
-/** Content getter function type for fetching file content */
-type FileContentGetter = (path: string, ref: string) => Promise<string>;
+/** Extract a file's hunks from a raw unified diff string, or null if not found.
+ * Returns just the hunk content (starting from first @@) — the worker
+ * constructs the diff --git / --- / +++ header itself. */
+function extractFilePatch(
+  rawDiff: string,
+  filename: string,
+  status: string,
+  previousFilename?: string | null
+): string | null {
+  const fileA =
+    status === "added" ? "/dev/null" : `a/${previousFilename || filename}`;
+  const fileB = status === "removed" ? "/dev/null" : `b/${filename}`;
+  const startMarker = `diff --git ${fileA} ${fileB}`;
+
+  let startIdx = rawDiff.indexOf(startMarker);
+  if (startIdx === -1) {
+    // For renames, the diff --git line uses old and new paths
+    const renameMarker = `diff --git a/${previousFilename || filename} b/${filename}`;
+    startIdx = rawDiff.indexOf(renameMarker);
+    if (startIdx === -1) return null;
+  }
+
+  // Find the end of this file's section (next diff --git or end of string)
+  const endIdx = rawDiff.indexOf("\ndiff --git ", startIdx + 1);
+  const section =
+    endIdx === -1 ? rawDiff.slice(startIdx) : rawDiff.slice(startIdx, endIdx);
+
+  // Find the first hunk header (@@ ... @@) — skip everything before it
+  // (diff --git, index, ---/+++ lines — the worker adds these itself)
+  const hunkStart = section.indexOf("@@");
+  if (hunkStart === -1) return null;
+  return section.slice(hunkStart);
+}
 
 async function fetchParsedDiff(
   file: PullRequestFile,
@@ -41,8 +80,28 @@ async function fetchParsedDiff(
   getFileContent?: FileContentGetter,
   baseRef?: string,
   headRef?: string,
-  cacheContext?: string
+  cacheContext?: string,
+  getRawDiff?: RawDiffGetter
 ): Promise<ParsedDiff> {
+  if (!file.patch && getRawDiff && baseRef && headRef) {
+    // File's patch was omitted (too large or binary). Try to recover
+    // from the raw unified diff of the entire base..head range.
+    try {
+      const rawDiff = await getRawDiff(baseRef, headRef);
+      const patch = extractFilePatch(
+        rawDiff,
+        file.filename,
+        file.status,
+        file.previous_filename
+      );
+      if (patch) {
+        file = { ...file, patch };
+      }
+    } catch {
+      // Fall through to empty diff below
+    }
+  }
+
   if (!file.patch || !file.sha) {
     return { hunks: [] };
   }
@@ -207,6 +266,10 @@ export function useDiffLoader() {
     const getFileContent: FileContentGetter = (path, ref) =>
       github.getFileContent(owner, repo, path, ref, prKey);
 
+    // Raw diff getter for recovering patches omitted by the JSON API
+    const getRawDiff: RawDiffGetter = (base, head) =>
+      github.getRawCompareDiff(owner, repo, base, head);
+
     // Fetch immediately with full file content for better highlighting
     fetchParsedDiff(
       file,
@@ -214,7 +277,8 @@ export function useDiffLoader() {
       getFileContent,
       pr.base.sha,
       pr.head.sha,
-      cacheContext
+      cacheContext,
+      getRawDiff
     )
       .then((diff) => {
         if (store.getSnapshot().selectedFile === currentFile) {
@@ -245,7 +309,8 @@ export function useDiffLoader() {
                 getFileContent,
                 pr.base.sha,
                 pr.head.sha,
-                cacheContext
+                cacheContext,
+                getRawDiff
               )
                 .then((pdiff) => store.setLoadedDiff(pfile.filename, pdiff))
                 .catch(() => {})

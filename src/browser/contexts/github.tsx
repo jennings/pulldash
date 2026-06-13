@@ -1264,6 +1264,39 @@ function createGitHubStore() {
     return promise;
   }
 
+  async function getRawCompareDiff(
+    owner: string,
+    repo: string,
+    baseSha: string,
+    headSha: string
+  ): Promise<string> {
+    if (!octokit) throw new Error("Not initialized");
+
+    const cacheKey = `rawdiff:${owner}/${repo}/${baseSha}...${headSha}`;
+
+    const cached = cache.get<string>(cacheKey);
+    if (cached) return cached;
+
+    const pending = cache.getPending<string>(cacheKey);
+    if (pending) return pending;
+
+    const promise = octokit
+      .request("GET /repos/{owner}/{repo}/compare/{basehead}", {
+        owner,
+        repo,
+        basehead: `${baseSha}...${headSha}`,
+        headers: { Accept: "application/vnd.github.diff" },
+      })
+      .then((res) => {
+        const text = res.data as unknown as string;
+        cache.set(cacheKey, text);
+        return text;
+      });
+
+    cache.setPending(cacheKey, promise);
+    return promise;
+  }
+
   async function getPRFilesForRange(
     owner: string,
     repo: string,
@@ -3110,6 +3143,7 @@ function createGitHubStore() {
     getPRFilesForRange,
     getCommitFiles,
     getMergeCommitFiles,
+    getRawCompareDiff,
     getPRComments,
     createPRComment,
     getPRReviews,
