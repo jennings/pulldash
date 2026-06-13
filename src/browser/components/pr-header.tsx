@@ -15,6 +15,7 @@ interface PRHeaderProps {
   pr: PullRequest;
   owner: string;
   repo: string;
+  inMergeQueue?: boolean;
   onToggleSidebar?: () => void;
   rightContent?: ReactNode;
 }
@@ -23,9 +24,12 @@ export const PRHeader = memo(function PRHeader({
   pr,
   owner,
   repo,
+  inMergeQueue = false,
   onToggleSidebar,
   rightContent,
 }: PRHeaderProps) {
+  const showQueued = inMergeQueue && pr.state === "open" && !pr.merged;
+
   const stateIcon = pr.merged ? (
     <GitMerge className="w-3.5 h-3.5" />
   ) : pr.state === "open" ? (
@@ -36,19 +40,25 @@ export const PRHeader = memo(function PRHeader({
 
   const stateLabel = pr.merged
     ? "Merged"
-    : pr.draft
-      ? "Draft"
-      : pr.state === "open"
-        ? "Open"
-        : "Closed";
+    : showQueued
+      ? "Queued"
+      : pr.draft
+        ? "Draft"
+        : pr.state === "open"
+          ? "Open"
+          : "Closed";
 
   const stateBgColor = pr.merged
     ? "bg-purple-600"
-    : pr.state === "open"
-      ? pr.draft
-        ? "bg-gray-600"
-        : "bg-green-600"
-      : "bg-red-600";
+    : showQueued
+      ? null
+      : pr.state === "open"
+        ? pr.draft
+          ? "bg-gray-600"
+          : "bg-green-600"
+        : "bg-red-600";
+
+  const stateBgStyle = showQueued ? { backgroundColor: "#9a6700" } : undefined;
 
   return (
     <header className="border-b border-border px-2 sm:px-4 py-2 flex items-center gap-2 sm:gap-3 shrink-0 bg-card/30">
@@ -69,6 +79,7 @@ export const PRHeader = memo(function PRHeader({
           "inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full text-white shrink-0",
           stateBgColor
         )}
+        style={stateBgStyle}
       >
         {stateIcon}
         <span className="hidden xs:inline">{stateLabel}</span>

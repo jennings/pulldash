@@ -212,11 +212,15 @@ interface PRReviewState {
 
   // Repository merge settings
   repoHasMergeQueue: boolean;
+  // Whether this PR is currently in the merge queue
+  prInMergeQueue: boolean;
 
   // Merge state
   merging: boolean;
   mergeMethod: MergeMethod;
   mergeError: string | null;
+  // Dequeue state
+  dequeueing: boolean;
 
   // PR action states
   closingPR: boolean;
@@ -519,11 +523,13 @@ export class PRReviewStore {
 
       // Repository merge settings
       repoHasMergeQueue: false,
+      prInMergeQueue: false,
 
       // Merge state
       merging: false,
       mergeMethod: "squash",
       mergeError: null,
+      dequeueing: false,
 
       // PR action states
       closingPR: false,
@@ -2921,6 +2927,7 @@ export class PRReviewStore {
           viewerPermission: null,
           viewerCanMergeAsAdmin: false,
           hasMergeQueue: false,
+          isInMergeQueue: false,
         })),
         this.github
           .getPushVersions(owner, repo, pr.number)
@@ -3044,6 +3051,7 @@ export class PRReviewStore {
           reviewThreadsResult.viewerPermission ?? this.state.viewerPermission,
         viewerCanMergeAsAdmin: reviewThreadsResult.viewerCanMergeAsAdmin,
         repoHasMergeQueue: reviewThreadsResult.hasMergeQueue,
+        prInMergeQueue: reviewThreadsResult.isInMergeQueue,
         branchDeleted: deleteCount > restoreCount,
         loading: false,
       });
@@ -3162,6 +3170,45 @@ export class PRReviewStore {
       this.set({
         mergeError: e instanceof Error ? e.message : "Failed to merge",
         merging: false,
+      });
+      return false;
+    }
+  };
+
+  /**
+   * Remove this PR from the repository's merge queue.
+   */
+  dequeuePR = async (): Promise<boolean> => {
+    const { owner, repo, pr } = this.state;
+    const nodeId = (pr as { node_id?: string }).node_id;
+    if (!nodeId) {
+      this.set({ mergeError: "Missing PR node id" });
+      return false;
+    }
+
+    this.set({ dequeueing: true, mergeError: null });
+
+    try {
+      await this.github.dequeuePullRequest(owner, repo, pr.number, nodeId);
+
+      this.invalidatePRCaches(owner, repo, pr.number);
+
+      this.set({
+        prInMergeQueue: false,
+        dequeueing: false,
+      });
+
+      this.github
+        .getPRTimeline(owner, repo, pr.number)
+        .then((timeline) => this.set({ timeline }))
+        .catch(() => {});
+
+      return true;
+    } catch (e) {
+      this.set({
+        mergeError:
+          e instanceof Error ? e.message : "Failed to remove from queue",
+        dequeueing: false,
       });
       return false;
     }

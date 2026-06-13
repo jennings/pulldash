@@ -1486,6 +1486,11 @@ function PRListItem({ pr, onSelect }: PRListItemProps) {
         <GitMerge className="w-4 h-4 mt-0.5 shrink-0 text-purple-500" />
       ) : isClosed ? (
         <GitPullRequest className="w-4 h-4 mt-0.5 shrink-0 text-red-500" />
+      ) : pr.inMergeQueue ? (
+        <GitPullRequest
+          className="w-4 h-4 mt-0.5 shrink-0"
+          style={{ color: "#9a6700" }}
+        />
       ) : (
         <GitPullRequest
           className={cn(

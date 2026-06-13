@@ -342,6 +342,17 @@ function TabStatusIndicator({ status }: { status?: TabStatus }) {
     );
   }
 
+  // Queued PRs always get the merge-queue color regardless of checks/mergeability
+  if (status.inMergeQueue && status.state === "open") {
+    return (
+      <span
+        className="w-2 h-2 rounded-full shrink-0"
+        style={{ backgroundColor: "#9a6700" }}
+        title="In merge queue"
+      />
+    );
+  }
+
   // Determine the color based on state and checks
   let colorClass = "bg-muted-foreground/50"; // default/unknown
   let title = "Unknown";

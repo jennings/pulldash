@@ -20,6 +20,8 @@ export type TabStatus = {
   state: "open" | "closed" | "merged" | "draft";
   // Mergeable
   mergeable: boolean | null;
+  // Whether this PR is currently sitting in the repo's merge queue
+  inMergeQueue?: boolean;
 };
 
 export interface Tab {

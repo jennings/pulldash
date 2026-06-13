@@ -97,6 +97,8 @@ export interface PRSearchResult {
     avatarUrl: string;
     state: "APPROVED" | "CHANGES_REQUESTED";
   }>;
+  // Whether this PR is currently sitting in the repo's merge queue
+  inMergeQueue?: boolean;
 }
 
 export interface WorkflowRunAwaitingApproval {
@@ -182,6 +184,7 @@ export interface PREnrichment {
     avatarUrl: string;
     state: "APPROVED" | "CHANGES_REQUESTED";
   }>;
+  inMergeQueue: boolean;
 }
 
 export interface ReviewThread {
@@ -1683,6 +1686,20 @@ function createGitHubStore() {
     return data;
   }
 
+  async function dequeuePullRequest(
+    owner: string,
+    repo: string,
+    number: number,
+    prNodeId: string
+  ): Promise<void> {
+    if (!batcher) throw new Error("Not initialized");
+    await batcher.query(
+      `mutation ($input: DequeuePullRequestInput!) { dequeuePullRequest(input: $input) { mergeQueueEntry { id } } }`,
+      { input: { id: prNodeId } }
+    );
+    cache.invalidate(`pr:${owner}/${repo}/${number}`);
+  }
+
   async function getPRCommits(owner: string, repo: string, number: number) {
     if (!octokit) throw new Error("Not initialized");
 
@@ -2586,6 +2603,7 @@ function createGitHubStore() {
           changedFiles
           additions
           deletions
+          isInMergeQueue
           reviewDecision
           latestOpinionatedReviews(first: 10) {
             nodes {
@@ -2651,6 +2669,7 @@ function createGitHubStore() {
             changedFiles: number;
             additions: number;
             deletions: number;
+            isInMergeQueue: boolean;
             reviewDecision:
               | "APPROVED"
               | "CHANGES_REQUESTED"
@@ -2798,6 +2817,7 @@ function createGitHubStore() {
           ciChecks,
           reviewDecision: result.reviewDecision,
           latestReviews,
+          inMergeQueue: result.isInMergeQueue,
         });
       }
     });
@@ -2814,6 +2834,7 @@ function createGitHubStore() {
     viewerPermission: string | null;
     viewerCanMergeAsAdmin: boolean;
     hasMergeQueue: boolean;
+    isInMergeQueue: boolean;
   }> {
     if (!batcher) throw new Error("Not initialized");
 
@@ -2852,6 +2873,7 @@ function createGitHubStore() {
         mergeQueue: { id: string } | null;
         pullRequest: {
           viewerCanMergeAsAdmin: boolean;
+          isInMergeQueue: boolean;
           reviewThreads: { nodes: RawReviewThread[] };
         };
       };
@@ -2865,6 +2887,7 @@ function createGitHubStore() {
           }
           pullRequest(number: $number) {
             viewerCanMergeAsAdmin
+            isInMergeQueue
             reviewThreads(first: 100) {
               nodes {
                 id
@@ -2917,6 +2940,7 @@ function createGitHubStore() {
       viewerPermission: data.repository.viewerPermission,
       viewerCanMergeAsAdmin: data.repository.pullRequest.viewerCanMergeAsAdmin,
       hasMergeQueue: data.repository.mergeQueue !== null,
+      isInMergeQueue: data.repository.pullRequest.isInMergeQueue,
     };
   }
 
@@ -3154,6 +3178,7 @@ function createGitHubStore() {
     getWorkflowRuns: getWorkflowRunsForSha,
     approveWorkflowRun,
     mergePR,
+    dequeuePullRequest,
     getPRCommits,
     getCommitsForHeadSha,
     getPRConversation,

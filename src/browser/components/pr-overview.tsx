@@ -124,6 +124,8 @@ export const PROverview = memo(function PROverview() {
   const mergeMethod = usePRReviewSelector((s) => s.mergeMethod);
   const mergeError = usePRReviewSelector((s) => s.mergeError);
   const repoHasMergeQueue = usePRReviewSelector((s) => s.repoHasMergeQueue);
+  const prInMergeQueue = usePRReviewSelector((s) => s.prInMergeQueue);
+  const dequeueing = usePRReviewSelector((s) => s.dequeueing);
 
   // Action loading states from store
   const closingPR = usePRReviewSelector((s) => s.closingPR);
@@ -261,6 +263,10 @@ export const PROverview = memo(function PROverview() {
 
   const handleMerge = useCallback(async () => {
     await store.mergePR();
+  }, [store]);
+
+  const handleDequeue = useCallback(async () => {
+    await store.dequeuePR();
   }, [store]);
 
   const handleApproveWorkflows = useCallback(async () => {
@@ -1553,6 +1559,9 @@ export const PROverview = memo(function PROverview() {
                       mergeError={mergeError}
                       latestReviews={latestReviews}
                       hasMergeQueue={repoHasMergeQueue}
+                      inMergeQueue={prInMergeQueue}
+                      dequeueing={dequeueing}
+                      onDequeue={handleDequeue}
                       onMerge={handleMerge}
                       onSetMergeMethod={store.setMergeMethod}
                       onToggleMergeOptions={() =>
@@ -3190,6 +3199,9 @@ function MergeSection({
   mergeError,
   latestReviews,
   hasMergeQueue,
+  inMergeQueue,
+  dequeueing,
+  onDequeue,
   onMerge,
   onSetMergeMethod,
   onToggleMergeOptions,
@@ -3218,6 +3230,9 @@ function MergeSection({
   mergeError: string | null;
   latestReviews: Review[];
   hasMergeQueue: boolean;
+  inMergeQueue: boolean;
+  dequeueing: boolean;
+  onDequeue: () => void;
   onMerge: () => void;
   onSetMergeMethod: (method: "merge" | "squash" | "rebase") => void;
   onToggleMergeOptions: () => void;
@@ -3720,48 +3735,65 @@ function MergeSection({
             </label>
           )}
 
-          {/* Merge button with dropdown */}
+          {/* Merge button with dropdown (or Remove-from-queue button) */}
           <div className="flex items-center gap-0.5">
-            {/* Main merge button */}
-            <button
-              onClick={onMerge}
-              disabled={merging || (!canMergePR && !bypassRules)}
-              className={cn(
-                "flex items-center justify-center gap-2 px-4 py-2 rounded-l-md text-sm font-medium transition-colors",
-                canMergePR || bypassRules
-                  ? "bg-green-600 text-white hover:bg-green-700"
-                  : "bg-muted text-muted-foreground cursor-not-allowed"
-              )}
-            >
-              {merging ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <>{getMergeButtonText(mergeMethod)}</>
-              )}
-            </button>
-
-            {/* Dropdown button */}
-            <button
-              ref={buttonRef}
-              onClick={handleToggleDropdown}
-              disabled={merging}
-              className={cn(
-                "px-2 py-2 rounded-r-md text-sm font-medium transition-colors border-l border-green-700",
-                canMergePR || bypassRules
-                  ? "bg-green-600 text-white hover:bg-green-700"
-                  : "bg-muted text-muted-foreground cursor-not-allowed"
-              )}
-            >
-              <ChevronDown
-                className={cn(
-                  "w-4 h-4 transition-transform",
-                  showMergeOptions && "rotate-180"
+            {inMergeQueue ? (
+              <button
+                onClick={onDequeue}
+                disabled={dequeueing}
+                className="flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium text-white transition-colors disabled:opacity-50"
+                style={{ backgroundColor: "#9a6700" }}
+              >
+                {dequeueing ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  "Remove from queue"
                 )}
-              />
-            </button>
+              </button>
+            ) : (
+              <>
+                {/* Main merge button */}
+                <button
+                  onClick={onMerge}
+                  disabled={merging || (!canMergePR && !bypassRules)}
+                  className={cn(
+                    "flex items-center justify-center gap-2 px-4 py-2 rounded-l-md text-sm font-medium transition-colors",
+                    canMergePR || bypassRules
+                      ? "bg-green-600 text-white hover:bg-green-700"
+                      : "bg-muted text-muted-foreground cursor-not-allowed"
+                  )}
+                >
+                  {merging ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <>{getMergeButtonText(mergeMethod)}</>
+                  )}
+                </button>
+
+                {/* Dropdown button */}
+                <button
+                  ref={buttonRef}
+                  onClick={handleToggleDropdown}
+                  disabled={merging}
+                  className={cn(
+                    "px-2 py-2 rounded-r-md text-sm font-medium transition-colors border-l border-green-700",
+                    canMergePR || bypassRules
+                      ? "bg-green-600 text-white hover:bg-green-700"
+                      : "bg-muted text-muted-foreground cursor-not-allowed"
+                  )}
+                >
+                  <ChevronDown
+                    className={cn(
+                      "w-4 h-4 transition-transform",
+                      showMergeOptions && "rotate-180"
+                    )}
+                  />
+                </button>
+              </>
+            )}
 
             {/* Dropdown menu */}
-            {showMergeOptions && (
+            {!inMergeQueue && showMergeOptions && (
               <>
                 {/* Backdrop */}
                 <div

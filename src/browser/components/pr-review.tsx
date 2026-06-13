@@ -121,7 +121,8 @@ function useSyncTabStatus(
     draft?: boolean;
     state: string;
     mergeable: boolean | null;
-  } | null
+  } | null,
+  inMergeQueue: boolean
 ) {
   const { status: checkStatus } = usePRChecks(owner, repo, number);
 
@@ -150,8 +151,9 @@ function useSyncTabStatus(
       checks: checkStatus?.checks || "pending",
       state,
       mergeable: prData.mergeable,
+      inMergeQueue,
     });
-  }, [tabId, updateTabStatus, prData, checkStatus]);
+  }, [tabId, updateTabStatus, prData, checkStatus, inMergeQueue]);
 }
 
 // ============================================================================
@@ -194,6 +196,7 @@ interface PRFetchResult {
   files: PullRequestFile[];
   comments: ReviewComment[];
   viewerPermission: string | null;
+  inMergeQueue: boolean;
 }
 
 export function PRReviewContent({
@@ -209,7 +212,14 @@ export function PRReviewContent({
   const [error, setError] = useState<string | null>(null);
 
   // Sync check status with tab (uses data store for auto-refresh)
-  useSyncTabStatus(tabId, owner, repo, number, fetchedData?.pr ?? null);
+  useSyncTabStatus(
+    tabId,
+    owner,
+    repo,
+    number,
+    fetchedData?.pr ?? null,
+    fetchedData?.inMergeQueue ?? false
+  );
 
   useEffect(() => {
     if (!githubReady) return;
@@ -227,6 +237,7 @@ export function PRReviewContent({
             threads: [],
             viewerPermission: null,
             viewerCanMergeAsAdmin: false,
+            isInMergeQueue: false,
           })),
         ]);
 
@@ -235,6 +246,7 @@ export function PRReviewContent({
           files,
           comments: comments as ReviewComment[],
           viewerPermission: reviewThreadsResult.viewerPermission,
+          inMergeQueue: reviewThreadsResult.isInMergeQueue ?? false,
         });
       } catch (e) {
         setError(e instanceof Error ? e.message : "Unknown error");
@@ -391,6 +403,7 @@ function PRReviewLayout() {
   const pr = usePRReviewSelector((s) => s.pr);
   const owner = usePRReviewSelector((s) => s.owner);
   const repo = usePRReviewSelector((s) => s.repo);
+  const prInMergeQueue = usePRReviewSelector((s) => s.prInMergeQueue);
 
   const canWrite = useCanWrite();
 
@@ -400,6 +413,7 @@ function PRReviewLayout() {
         pr={pr}
         owner={owner}
         repo={repo}
+        inMergeQueue={prInMergeQueue}
         onToggleSidebar={() => setMobileSidebarOpen(!mobileSidebarOpen)}
         rightContent={canWrite ? <SubmitReviewDropdown /> : undefined}
       />
