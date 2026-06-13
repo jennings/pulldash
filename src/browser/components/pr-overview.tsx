@@ -1222,8 +1222,8 @@ export const PROverview = memo(function PROverview() {
                       if (eventType === "line-commented") return;
 
                       // All other events — associate full commit list with
-                      // force-push events from commitsByVersion
-                      const usedCommitShas = new Set<string>();
+                      // force-push events (force pushes rewrite history so
+                      // SHA-based diff against the previous version is misleading)
                       if (eventType === "head_ref_force_pushed") {
                         const fpEvent = event as { commit_id?: string };
                         const toVer = fpEvent.commit_id
@@ -1236,11 +1236,6 @@ export const PROverview = memo(function PROverview() {
                           commitsByVersion?.find(
                             (v) => v.version === toVer.version
                           )?.commits;
-                        if (fullCommits) {
-                          for (const c of fullCommits) {
-                            usedCommitShas.add(c.sha);
-                          }
-                        }
                         entries.push({
                           type: "version_event",
                           event: event as TimelineEvent,
@@ -1257,6 +1252,8 @@ export const PROverview = memo(function PROverview() {
                     // Add synthetic version transition events for normal pushes
                     // that don't have a corresponding head_ref_force_pushed event.
                     // Show the new (added) commits for each version transition.
+                    // Insert them at their correct chronological position based on
+                    // pushedAt so they interleave properly with force-push events.
                     if (pushVersions && pushVersions.length > 1) {
                       const forcePushedShas = new Set<string>();
                       for (const event of timeline) {
@@ -1270,6 +1267,28 @@ export const PROverview = memo(function PROverview() {
                           }
                         }
                       }
+
+                      const getEntryTs = (e: TimelineEntry): number => {
+                        const s: string | null | undefined = (() => {
+                          switch (e.type) {
+                            case "comment":
+                              return e.data.created_at;
+                            case "review":
+                              return e.data.submitted_at;
+                            case "event":
+                              return (e.data as { created_at?: string })
+                                .created_at;
+                            case "version_event":
+                              return (e.event as { created_at?: string })
+                                .created_at;
+                            case "commits":
+                              return e.data[0]?.author?.date;
+                            case "thread":
+                              return e.data.comments.nodes[0]?.createdAt;
+                          }
+                        })();
+                        return s ? new Date(s).getTime() : 0;
+                      };
 
                       for (let i = 1; i < pushVersions.length; i++) {
                         const toVersion = pushVersions[i];
@@ -1296,7 +1315,7 @@ export const PROverview = memo(function PROverview() {
                             (c) => !prevShas.has(c.sha)
                           );
 
-                          entries.push({
+                          const synEntry: TimelineEntry = {
                             type: "version_event",
                             event: {
                               id: -i,
@@ -1313,7 +1332,14 @@ export const PROverview = memo(function PROverview() {
                               to_version?: number;
                             },
                             commits: newCommits,
-                          });
+                          };
+
+                          const synTs = new Date(toVersion.pushedAt).getTime();
+                          let insertIdx = entries.findIndex(
+                            (e) => getEntryTs(e) > synTs
+                          );
+                          if (insertIdx === -1) insertIdx = entries.length;
+                          entries.splice(insertIdx, 0, synEntry);
                         }
                       }
                     }
