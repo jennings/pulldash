@@ -2594,13 +2594,13 @@ const DiffLineRow = memo(function DiffLineRow({
 
     // Selection highlighting is now CSS-based via data-selected attribute
     if (isInCommentingRange) {
-      bgColor = "#19273e"; // opaque blue for commenting range
+      bgColor = "var(--diff-comment-range-bg)";
     } else if (line.type === "insert") {
-      bgColor = "#122218"; // opaque green
+      bgColor = "var(--diff-insert-bg)";
     } else if (line.type === "delete") {
-      bgColor = "#261710"; // opaque orange
+      bgColor = "var(--diff-delete-bg)";
     } else if (hasCommentRange) {
-      bgColor = "#1b1810"; // opaque yellow
+      bgColor = "var(--diff-comment-range-active-bg)";
     }
 
     const result: React.CSSProperties = {};
@@ -2809,13 +2809,13 @@ const SplitDiffLineRow = memo(function SplitDiffLineRow({
 
     let bgColor: string | undefined;
     if (isInCommentingRange) {
-      bgColor = "#19273e";
+      bgColor = "var(--diff-comment-range-bg)";
     } else if (isInsert) {
-      bgColor = "#122218";
+      bgColor = "var(--diff-insert-bg)";
     } else if (isDelete) {
-      bgColor = "#261710";
+      bgColor = "var(--diff-delete-bg)";
     } else if (hasCommentRange) {
-      bgColor = "#1b1810";
+      bgColor = "var(--diff-comment-range-active-bg)";
     }
 
     const bgStyle: React.CSSProperties = bgColor

@@ -15,6 +15,8 @@ import {
   Globe,
   ArrowRight,
   Clock,
+  Sun,
+  Moon,
 } from "lucide-react";
 import { BookmarkletDialog, useShowBookmarklet } from "./bookmarklet";
 import {
@@ -37,6 +39,7 @@ import { useCurrentUser } from "../contexts/github";
 import { useOpenPRReviewTab } from "../contexts/tabs";
 import { cn } from "../cn";
 import { isMac } from "../ui/keycap";
+import { getCurrentTheme, toggleTheme } from "../theme";
 
 // ============================================================================
 // Animation Data
@@ -1391,6 +1394,18 @@ export function UserMenuButton({ className }: { className?: string }) {
               <DropdownMenuSeparator />
             </>
           )}
+          <DropdownMenuItem
+            onClick={() => toggleTheme()}
+            className="cursor-pointer"
+          >
+            {getCurrentTheme() === "dark" ? (
+              <Sun className="w-4 h-4" />
+            ) : (
+              <Moon className="w-4 h-4" />
+            )}
+            {getCurrentTheme() === "dark" ? "Light mode" : "Dark mode"}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
           {showBookmarklet && (
             <>
               <DropdownMenuItem

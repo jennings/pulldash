@@ -2935,7 +2935,7 @@ function ReviewThreadBox({
 
       {/* Code context (diff hunk) with syntax highlighting */}
       {diffHunkData && diffHunkData.type === "hunk" && (
-        <div className="bg-[#0d1117] border-b border-border overflow-x-auto">
+        <div className="bg-[var(--code-bg)] border-b border-border overflow-x-auto">
           <table className="w-full text-xs font-mono">
             <tbody>
               {diffHunkData.lines.map((line, i) => (

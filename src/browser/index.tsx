@@ -6,7 +6,11 @@ import { TabProvider } from "./contexts/tabs";
 import { CommandPaletteProvider } from "./components/command-palette";
 import { AppShell } from "./components/app-shell";
 import { WelcomeDialog } from "./components/welcome-dialog";
+import { initTheme } from "./theme";
 import "./index.css";
+
+// Initialize theme before rendering to avoid flash
+initTheme();
 
 createRoot(document.getElementById("app")!).render(
   <AuthProvider>
