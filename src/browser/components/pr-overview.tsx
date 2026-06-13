@@ -1428,32 +1428,11 @@ export const PROverview = memo(function PROverview() {
                               onNavigateChecks={handleNavigateChecks}
                             />
                             {entry.commits.length > 0 && (
-                              <div className="ml-9 pl-4 border-l-2 border-border/30 space-y-1 py-1">
-                                {entry.commits.map((c) => (
-                                  <div
-                                    key={c.sha}
-                                    className="text-xs text-muted-foreground flex items-center gap-2"
-                                  >
-                                    <GitCommit className="w-3 h-3 shrink-0" />
-                                    <a
-                                      href={`https://github.com/${owner}/${repo}/commit/${c.sha}`}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="truncate hover:text-blue-400"
-                                    >
-                                      {c.commit.message.split("\n")[0]}
-                                    </a>
-                                    <a
-                                      href={`https://github.com/${owner}/${repo}/commit/${c.sha}`}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="font-mono text-muted-foreground hover:text-blue-400 shrink-0"
-                                    >
-                                      {c.sha.slice(0, 7)}
-                                    </a>
-                                  </div>
-                                ))}
-                              </div>
+                              <CommitList
+                                commits={entry.commits}
+                                owner={owner}
+                                repo={repo}
+                              />
                             )}
                           </div>
                         );
@@ -4461,6 +4440,78 @@ function CommitGroup({ commits, prCommits, owner, repo }: CommitGroupProps) {
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+function CommitRow({
+  commit,
+  owner,
+  repo,
+}: {
+  commit: PRCommit;
+  owner: string;
+  repo: string;
+}) {
+  return (
+    <div className="text-xs text-muted-foreground flex items-center gap-2">
+      <GitCommit className="w-3 h-3 shrink-0" />
+      <a
+        href={`https://github.com/${owner}/${repo}/commit/${commit.sha}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="truncate hover:text-blue-400"
+      >
+        {commit.commit.message.split("\n")[0]}
+      </a>
+      <a
+        href={`https://github.com/${owner}/${repo}/commit/${commit.sha}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="font-mono text-muted-foreground hover:text-blue-400 shrink-0"
+      >
+        {commit.sha.slice(0, 7)}
+      </a>
+    </div>
+  );
+}
+
+function CommitList({
+  commits,
+  owner,
+  repo,
+}: {
+  commits: PRCommit[];
+  owner: string;
+  repo: string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  if (commits.length === 0) return null;
+  const showEllipsis = !expanded && commits.length > 3;
+
+  return (
+    <div className="ml-9 pl-4 border-l-2 border-border/30 space-y-1 py-1">
+      {showEllipsis ? (
+        <>
+          <CommitRow commit={commits[0]} owner={owner} repo={repo} />
+          <button
+            onClick={() => setExpanded(true)}
+            className="w-full text-left text-xs text-muted-foreground hover:text-blue-400 cursor-pointer pl-5"
+          >
+            {commits.length - 2} more commits...
+          </button>
+          <CommitRow
+            commit={commits[commits.length - 1]}
+            owner={owner}
+            repo={repo}
+          />
+        </>
+      ) : (
+        commits.map((c) => (
+          <CommitRow key={c.sha} commit={c} owner={owner} repo={repo} />
+        ))
+      )}
     </div>
   );
 }
