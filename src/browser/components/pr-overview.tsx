@@ -234,6 +234,20 @@ export const PROverview = memo(function PROverview() {
     [store]
   );
 
+  const handleNavigateCommit = useCallback(
+    async (sha: string, versionSha?: string) => {
+      if (versionSha) {
+        await store.setSelectedHeadSha(versionSha);
+      }
+      await store.setSelectedCommitSha(sha);
+      const { files } = store.getSnapshot();
+      if (files.length > 0) {
+        store.selectFile(files[0].filename);
+      }
+    },
+    [store]
+  );
+
   // Auto-refresh checks every 30 seconds when PR is open
   useEffect(() => {
     if (pr.state !== "open" || pr.merged) return;
@@ -1444,6 +1458,9 @@ export const PROverview = memo(function PROverview() {
                         );
                       }
                       if (entry.type === "version_event") {
+                        const versionSha = (
+                          entry.event as { commit_id?: string }
+                        ).commit_id;
                         return (
                           <div key={`version-${index}`}>
                             <TimelineItem
@@ -1458,6 +1475,8 @@ export const PROverview = memo(function PROverview() {
                                 commits={entry.commits}
                                 owner={owner}
                                 repo={repo}
+                                onNavigate={handleNavigateCommit}
+                                versionSha={versionSha}
                               />
                             )}
                           </div>
@@ -1471,6 +1490,7 @@ export const PROverview = memo(function PROverview() {
                             prCommits={commits}
                             owner={owner}
                             repo={repo}
+                            onNavigate={handleNavigateCommit}
                           />
                         );
                       }
@@ -4370,9 +4390,16 @@ interface CommitGroupProps {
   prCommits: PRCommit[];
   owner: string;
   repo: string;
+  onNavigate?: (sha: string) => void;
 }
 
-function CommitGroup({ commits, prCommits, owner, repo }: CommitGroupProps) {
+function CommitGroup({
+  commits,
+  prCommits,
+  owner,
+  repo,
+  onNavigate,
+}: CommitGroupProps) {
   if (commits.length === 0) return null;
 
   // Create a map from SHA to PRCommit for looking up GitHub usernames
@@ -4444,9 +4471,15 @@ function CommitGroup({ commits, prCommits, owner, repo }: CommitGroupProps) {
           <div className="flex-1 min-w-0 flex items-center gap-2">
             {renderAuthor(commit)}
             <a
-              href={commit.html_url}
-              target="_blank"
-              rel="noopener noreferrer"
+              href={`#commit=${commit.sha}`}
+              onClick={
+                onNavigate
+                  ? (e) => {
+                      e.preventDefault();
+                      onNavigate(commit.sha);
+                    }
+                  : undefined
+              }
               className="flex-1 min-w-0 truncate hover:text-blue-400"
               title={commit.message}
             >
@@ -4474,18 +4507,32 @@ function CommitRow({
   commit,
   owner,
   repo,
+  versionSha,
+  onNavigate,
 }: {
   commit: PRCommit;
   owner: string;
   repo: string;
+  versionSha?: string;
+  onNavigate?: (sha: string, versionSha?: string) => void;
 }) {
   return (
     <div className="text-xs text-muted-foreground flex items-center gap-2">
       <GitCommit className="w-3 h-3 shrink-0" />
       <a
-        href={`https://github.com/${owner}/${repo}/commit/${commit.sha}`}
-        target="_blank"
-        rel="noopener noreferrer"
+        href={
+          versionSha
+            ? `#view=${versionSha}&commit=${commit.sha}`
+            : `#commit=${commit.sha}`
+        }
+        onClick={
+          onNavigate
+            ? (e) => {
+                e.preventDefault();
+                onNavigate(commit.sha, versionSha);
+              }
+            : undefined
+        }
         className="truncate hover:text-blue-400"
       >
         {commit.commit.message.split("\n")[0]}
@@ -4506,10 +4553,14 @@ function CommitList({
   commits,
   owner,
   repo,
+  versionSha,
+  onNavigate,
 }: {
   commits: PRCommit[];
   owner: string;
   repo: string;
+  versionSha?: string;
+  onNavigate?: (sha: string, versionSha?: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
 
@@ -4520,7 +4571,13 @@ function CommitList({
     <div className="ml-9 pl-4 border-l-2 border-border/30 space-y-1 py-1">
       {showEllipsis ? (
         <>
-          <CommitRow commit={commits[0]} owner={owner} repo={repo} />
+          <CommitRow
+            commit={commits[0]}
+            owner={owner}
+            repo={repo}
+            versionSha={versionSha}
+            onNavigate={onNavigate}
+          />
           <button
             onClick={() => setExpanded(true)}
             className="w-full text-left text-xs text-muted-foreground hover:text-blue-400 cursor-pointer pl-5"
@@ -4531,11 +4588,20 @@ function CommitList({
             commit={commits[commits.length - 1]}
             owner={owner}
             repo={repo}
+            versionSha={versionSha}
+            onNavigate={onNavigate}
           />
         </>
       ) : (
         commits.map((c) => (
-          <CommitRow key={c.sha} commit={c} owner={owner} repo={repo} />
+          <CommitRow
+            key={c.sha}
+            commit={c}
+            owner={owner}
+            repo={repo}
+            versionSha={versionSha}
+            onNavigate={onNavigate}
+          />
         ))
       )}
     </div>
