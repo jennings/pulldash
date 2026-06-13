@@ -186,6 +186,11 @@ interface PRReviewState {
   /** The commit SHA currently being reviewed (null = full branch) */
   selectedCommitSha: string | null;
   /**
+   * For merge commits, the parent SHA to diff against (null = first parent).
+   * Uses the comparison API to get the diff against that parent.
+   */
+  selectedParentSha: string | null;
+  /**
    * Push version SHA to compare against (null = "Target", i.e. PR base branch).
    * When non-null and a commit is selected, interdiff mode is active.
    */
@@ -496,6 +501,7 @@ export class PRReviewStore {
       commitsByVersion: [],
       selectedHeadSha: null,
       selectedCommitSha: null,
+      selectedParentSha: null,
       compareToSha: null,
       compareToCommitSha: null,
       interdiffEnabled: false,
@@ -1080,6 +1086,7 @@ export class PRReviewStore {
     // causing stale diffs to be parsed and stored before the correct files arrive.
     const resetBase = {
       selectedCommitSha: sha,
+      selectedParentSha: null,
       compareToCommitSha: null,
       interdiffEnabled: false,
       interdiffLoadedDiffs: {},
@@ -1135,6 +1142,44 @@ export class PRReviewStore {
     if (this.state.compareToSha) {
       await this.autoMatchAndComputeInterdiff(sha);
     }
+  };
+
+  setSelectedParentSha = async (sha: string | null): Promise<void> => {
+    const { owner, repo, selectedCommitSha, compareToSha } = this.state;
+
+    // Parents and push-version comparisons are mutually exclusive
+    const resetCompare = compareToSha
+      ? {
+          compareToSha: null,
+          compareToCommitSha: null,
+          interdiffEnabled: false,
+          interdiffLoadedDiffs: {},
+        }
+      : {};
+
+    if (sha === null || !selectedCommitSha) {
+      this.set({ selectedParentSha: null, loadedDiffs: {}, ...resetCompare });
+      const commitFiles = await this.github
+        .getCommitFiles(
+          owner,
+          repo,
+          selectedCommitSha!,
+          `${owner}/${repo}/${this.state.pr.number}`
+        )
+        .catch(() => [] as PullRequestFile[]);
+      this.set({ files: sortFilesLikeTree(commitFiles) });
+      return;
+    }
+
+    this.set({
+      selectedParentSha: sha,
+      loadedDiffs: {},
+      ...resetCompare,
+    });
+    const mergeFiles = await this.github
+      .getMergeCommitFiles(owner, repo, selectedCommitSha, sha)
+      .catch(() => [] as PullRequestFile[]);
+    this.set({ files: sortFilesLikeTree(mergeFiles) });
   };
 
   private computeInterdiff = async (
@@ -1238,6 +1283,7 @@ export class PRReviewStore {
   setCompareToSha = async (sha: string | null): Promise<void> => {
     this.set({
       compareToSha: sha,
+      selectedParentSha: null,
       compareToCommitSha: null,
       interdiffEnabled: false,
       interdiffLoadedDiffs: {},
@@ -1326,6 +1372,7 @@ export class PRReviewStore {
     this.set({
       selectedHeadSha: null,
       selectedCommitSha: null,
+      selectedParentSha: null,
       compareToSha: null,
       compareToCommitSha: null,
       interdiffEnabled: false,
@@ -2640,6 +2687,7 @@ export class PRReviewStore {
       overviewScrollTarget,
       selectedHeadSha,
       selectedCommitSha,
+      selectedParentSha,
       compareToSha,
       compareToCommitSha,
     } = this.state;
@@ -2654,6 +2702,7 @@ export class PRReviewStore {
     // Version/commit state (omit when at default values)
     if (selectedHeadSha) params.set("view", selectedHeadSha);
     if (selectedCommitSha) params.set("commit", selectedCommitSha);
+    if (selectedParentSha) params.set("parent", selectedParentSha);
     if (compareToSha) params.set("compare", compareToSha);
     if (compareToCommitSha) params.set("ccommit", compareToCommitSha);
 
@@ -2709,6 +2758,7 @@ export class PRReviewStore {
     const params = new URLSearchParams(hashStr);
     const viewParam = params.get("view");
     const commitParam = params.get("commit");
+    const parentParam = params.get("parent");
     const compareParam = params.get("compare");
     const ccommitParam = params.get("ccommit");
     const file = params.get("file");
@@ -2742,6 +2792,11 @@ export class PRReviewStore {
     //    commit via heuristics if compareToSha is set).
     if (commitParam !== this.state.selectedCommitSha) {
       await this.setSelectedCommitSha(commitParam);
+    }
+
+    // 3b. For merge commits, apply parent selection after commit is loaded.
+    if (parentParam !== this.state.selectedParentSha) {
+      await this.setSelectedParentSha(parentParam);
     }
 
     // 4. If an explicit compare-to commit is in the hash, override the

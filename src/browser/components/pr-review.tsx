@@ -653,6 +653,7 @@ function VersionBar() {
   const compareToCommitSha = usePRReviewSelector((s) => s.compareToCommitSha);
   const selectedHeadSha = usePRReviewSelector((s) => s.selectedHeadSha);
   const selectedCommitSha = usePRReviewSelector((s) => s.selectedCommitSha);
+  const selectedParentSha = usePRReviewSelector((s) => s.selectedParentSha);
 
   if (commits.length === 0) return null;
 
@@ -664,23 +665,25 @@ function VersionBar() {
       ? `v${viewingVersion.version} (${getTimeAgo(new Date(viewingVersion.pushedAt))})`
       : `v?`;
 
+  const selectedCommit = selectedCommitSha
+    ? commits.find((c) => c.sha === selectedCommitSha)
+    : null;
+
   const compareToVersion = compareToSha
     ? pushVersions.find((v) => v.sha === compareToSha)
     : null;
-  const compareToLabel = compareToVersion
-    ? `v${compareToVersion.version} (${getTimeAgo(new Date(compareToVersion.pushedAt))})`
-    : compareToSha
-      ? "v?"
-      : "Target";
+  const compareToLabel = selectedParentSha
+    ? `Parent #${(selectedCommit?.parents ?? []).findIndex((p) => p.sha === selectedParentSha) + 1}`
+    : compareToVersion
+      ? `v${compareToVersion.version} (${getTimeAgo(new Date(compareToVersion.pushedAt))})`
+      : compareToSha
+        ? "v?"
+        : "Target";
 
   const compareToVersionCommits = compareToVersion
     ? (commitsByVersion.find((v) => v.version === compareToVersion.version)
         ?.commits ?? [])
     : [];
-
-  const selectedCommit = selectedCommitSha
-    ? commits.find((c) => c.sha === selectedCommitSha)
-    : null;
   const compareToCommit = compareToCommitSha
     ? compareToVersionCommits.find((c) => c.sha === compareToCommitSha)
     : null;
@@ -830,12 +833,42 @@ function VersionBar() {
                 Compare to
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
+              {selectedCommit &&
+                selectedCommit.parents &&
+                selectedCommit.parents.length > 1 &&
+                selectedCommit.parents.map((p, i) => (
+                  <DropdownMenuItem
+                    key={p.sha}
+                    onClick={() => store.setSelectedParentSha(p.sha)}
+                    className="text-xs flex items-center justify-between gap-2"
+                  >
+                    <span className="truncate">
+                      Parent #{i + 1}{" "}
+                      <span className="font-mono text-muted-foreground">
+                        {p.sha.slice(0, 7)}
+                      </span>
+                    </span>
+                    {i === 0 && !selectedParentSha && (
+                      <span className="text-[10px] text-muted-foreground shrink-0">
+                        (default)
+                      </span>
+                    )}
+                    {selectedParentSha === p.sha && (
+                      <Check className="w-3 h-3 ml-2 shrink-0" />
+                    )}
+                  </DropdownMenuItem>
+                ))}
+              {selectedCommit &&
+                selectedCommit.parents &&
+                selectedCommit.parents.length > 1 && <DropdownMenuSeparator />}
               <DropdownMenuItem
                 onClick={() => store.setCompareToSha(null)}
                 className="text-xs flex items-center justify-between"
               >
                 <span>Target</span>
-                {!compareToSha && <Check className="w-3 h-3 ml-2 shrink-0" />}
+                {!compareToSha && !selectedParentSha && (
+                  <Check className="w-3 h-3 ml-2 shrink-0" />
+                )}
               </DropdownMenuItem>
               {[...pushVersions]
                 .reverse()
@@ -925,7 +958,8 @@ function VersionBar() {
       {/* Reset to defaults */}
       {(selectedHeadSha !== null ||
         selectedCommitSha !== null ||
-        compareToSha !== null) && (
+        compareToSha !== null ||
+        selectedParentSha !== null) && (
         <button
           onClick={() => store.resetVersionSelectors()}
           className="w-full text-xs text-muted-foreground hover:text-foreground py-1 px-2 rounded border border-border hover:bg-muted transition-colors"
