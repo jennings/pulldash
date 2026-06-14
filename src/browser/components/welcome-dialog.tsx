@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { useState, useCallback, useEffect } from "react";
 import {
   Github,
   Copy,
@@ -12,8 +12,6 @@ import {
   RefreshCw,
   CheckCircle2,
   XCircle,
-  Globe,
-  ArrowRight,
   Clock,
   Sun,
   Moon,
@@ -36,7 +34,6 @@ import {
 import { Button } from "../ui/button";
 import { useAuth } from "../contexts/auth";
 import { useCurrentUser } from "../contexts/github";
-import { useOpenPRReviewTab } from "../contexts/tabs";
 import { cn } from "../cn";
 import { isMac } from "../ui/keycap";
 import { getCurrentTheme, toggleTheme } from "../theme";
@@ -982,52 +979,15 @@ function PRReviewAnimation() {
 // Welcome Dialog - Handles unauthenticated state
 // ============================================================================
 
-// Featured PRs from popular open source projects for read-only browsing
-// These are real, substantial PRs that showcase the review experience
-const FEATURED_PRS = [
-  {
-    owner: "ghostty-org",
-    repo: "ghostty",
-    number: 9803,
-    title: "terminal/tmux: a lot more control mode parsing, functionality",
-    files: 5,
-    additions: 1563,
-    deletions: 448,
-  },
-  {
-    owner: "oven-sh",
-    repo: "bun",
-    number: 25168,
-    title: "feat(url): implement URLPattern API",
-    files: 38,
-    additions: 7339,
-    deletions: 2,
-  },
-  {
-    owner: "facebook",
-    repo: "react",
-    number: 35277,
-    title: "Patch FlightReplyServer with fixes from ReactFlightClient",
-    files: 9,
-    additions: 712,
-    deletions: 278,
-  },
-];
-
 export function WelcomeDialog() {
   const {
     isAuthenticated,
-    isAnonymous,
     isLoading,
     isRateLimited,
     deviceAuth,
     startDeviceAuth,
     cancelDeviceAuth,
-    enableAnonymousMode,
-    showWelcomeDialog,
-    setShowWelcomeDialog,
   } = useAuth();
-  const openPRReviewTab = useOpenPRReviewTab();
 
   const [copied, setCopied] = useState(false);
 
@@ -1056,27 +1016,11 @@ export function WelcomeDialog() {
     openGitHub();
   }, [deviceAuth.userCode, openGitHub]);
 
-  // Open a featured PR
-  const handleOpenFeaturedPR = useCallback(
-    (pr: (typeof FEATURED_PRS)[0]) => {
-      enableAnonymousMode();
-      setShowWelcomeDialog(false);
-      openPRReviewTab(pr.owner, pr.repo, pr.number);
-    },
-    [enableAnonymousMode, setShowWelcomeDialog, openPRReviewTab]
-  );
-
-  // Handle close dialog
   const handleClose = useCallback(() => {
-    setShowWelcomeDialog(false);
     cancelDeviceAuth();
-  }, [setShowWelcomeDialog, cancelDeviceAuth]);
+  }, [cancelDeviceAuth]);
 
-  // Show if: not authenticated and not anonymous, OR explicitly requested via showWelcomeDialog (only when not authenticated), OR rate limited
-  const shouldShow =
-    (!isAuthenticated && !isAnonymous) ||
-    (showWelcomeDialog && !isAuthenticated) ||
-    isRateLimited;
+  const shouldShow = !isAuthenticated || isRateLimited;
 
   if (!shouldShow) {
     return null;
@@ -1086,226 +1030,146 @@ export function WelcomeDialog() {
   const hasCode = !!deviceAuth.userCode;
   const hasError = deviceAuth.status === "error";
 
-  // Show close button when user is anonymous and explicitly opened the dialog (but not if rate limited)
-  const showCloseButton = isAnonymous && showWelcomeDialog && !isRateLimited;
-
-  // Disable sample PRs when rate limited and not authenticated
-  const samplePRsDisabled = isRateLimited && !isAuthenticated;
-
   return (
     <Dialog open={true} onOpenChange={(open) => !open && handleClose()}>
       <DialogContent
-        showCloseButton={showCloseButton}
-        className="sm:max-w-3xl p-0 gap-0 bg-background border-border overflow-hidden"
+        showCloseButton={false}
+        className="sm:max-w-md p-0 gap-0 bg-background border-border overflow-hidden"
       >
         <DialogTitle className="sr-only">Welcome to Pulldash</DialogTitle>
         <DialogDescription className="sr-only">
-          Sign in with GitHub to access your pull requests, or browse sample PRs
-          anonymously.
+          Sign in with GitHub to access your pull requests.
         </DialogDescription>
-        <div className="flex">
-          {/* Left Side - Sign In */}
-          <div className="flex-1 p-6 border-r border-border">
-            {/* Header */}
-            <div className="flex items-center gap-3 mb-6">
-              <img src={"/logo.svg"} alt="Pulldash" className="w-10 h-10" />
-              <div>
-                <h2 className="text-lg font-semibold text-foreground">
-                  Pulldash
-                </h2>
-                <p className="text-sm text-muted-foreground">Fast PR reviews</p>
-              </div>
+        <div className="p-6">
+          {/* Header */}
+          <div className="flex items-center gap-3 mb-6">
+            <img src={"/logo.svg"} alt="Pulldash" className="w-10 h-10" />
+            <div>
+              <h2 className="text-lg font-semibold text-foreground">
+                Pulldash
+              </h2>
+              <p className="text-sm text-muted-foreground">Fast PR reviews</p>
             </div>
+          </div>
 
-            {/* Rate Limit State - Authenticated Users */}
-            {isRateLimited && isAuthenticated && (
-              <div className="flex items-start gap-3 p-3 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-400 mb-4">
-                <Clock className="w-4 h-4 shrink-0 mt-0.5" />
-                <div className="text-sm">
-                  <p className="font-medium">Rate limit reached</p>
-                  <p className="opacity-80 mt-0.5">
-                    GitHub API rate limit exceeded. This should resolve
-                    automatically in a few minutes.
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* Rate Limit State - Anonymous Users */}
-            {isRateLimited && !isAuthenticated && (
-              <div className="flex items-start gap-3 p-3 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-400 mb-4">
-                <Clock className="w-4 h-4 shrink-0 mt-0.5" />
-                <div className="text-sm">
-                  <p className="font-medium">Rate limit reached</p>
-                  <p className="opacity-80 mt-0.5">
-                    Anonymous users are limited to 60 requests per hour. Sign in
-                    with GitHub for 5,000 requests per hour.
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* Error State */}
-            {hasError && (
-              <div className="flex items-start gap-3 p-3 rounded-md bg-destructive/10 border border-destructive/20 text-destructive mb-4">
-                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                <div className="text-sm">
-                  <p className="font-medium">Authentication failed</p>
-                  <p className="opacity-80 mt-0.5">{deviceAuth.error}</p>
-                </div>
-              </div>
-            )}
-
-            {/* Device Code Flow */}
-            {hasCode ? (
-              <div className="space-y-4">
-                <div className="text-center py-4">
-                  <p className="text-sm text-muted-foreground mb-3">
-                    Enter this code on GitHub
-                  </p>
-                  <button
-                    onClick={copyCode}
-                    className={cn(
-                      "group inline-flex items-center gap-3 px-5 py-3 rounded-md transition-all",
-                      "bg-card border border-border hover:border-foreground/20"
-                    )}
-                  >
-                    <span className="font-mono text-2xl font-bold tracking-[0.25em] text-foreground">
-                      {deviceAuth.userCode}
-                    </span>
-                    <span className="p-1 rounded bg-muted group-hover:bg-muted/80 transition-colors">
-                      {copied ? (
-                        <Check className="w-4 h-4 text-green-500" />
-                      ) : (
-                        <Copy className="w-4 h-4 text-muted-foreground" />
-                      )}
-                    </span>
-                  </button>
-                  <p className="text-xs text-muted-foreground mt-2">
-                    {copied ? "Copied!" : "Click to copy"}
-                  </p>
-                </div>
-
-                <Button onClick={copyAndOpen} className="w-full h-10 gap-2">
-                  <ExternalLink className="w-4 h-4" />
-                  {copied ? "Open GitHub" : "Copy & Open GitHub"}
-                </Button>
-
-                <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground pt-2">
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>Waiting for authorization...</span>
-                </div>
-
-                <Button
-                  onClick={cancelDeviceAuth}
-                  variant="ghost"
-                  className="w-full h-9 text-muted-foreground hover:text-foreground"
-                >
-                  Cancel
-                </Button>
-              </div>
-            ) : (
-              /* Sign In State */
-              <div className="space-y-4">
-                <Button
-                  onClick={startDeviceAuth}
-                  disabled={isPending}
-                  className="w-full h-10 gap-2"
-                >
-                  {isPending ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Connecting...
-                    </>
-                  ) : (
-                    <>
-                      <Github className="w-4 h-4" />
-                      Sign in with GitHub
-                    </>
-                  )}
-                </Button>
-
-                <PATAuthSection />
-
-                <p className="text-xs text-center text-muted-foreground">
-                  All GitHub API calls are made directly from your device.
-                  Pulldash does not store your GitHub token.
+          {/* Rate Limit State */}
+          {isRateLimited && isAuthenticated && (
+            <div className="flex items-start gap-3 p-3 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-400 mb-4">
+              <Clock className="w-4 h-4 shrink-0 mt-0.5" />
+              <div className="text-sm">
+                <p className="font-medium">Rate limit reached</p>
+                <p className="opacity-80 mt-0.5">
+                  GitHub API rate limit exceeded. This should resolve
+                  automatically in a few minutes.
                 </p>
-
-                {/* Animation preview */}
-                <div className="pt-4">
-                  <PRReviewAnimation />
-                </div>
-
-                {/* GitHub repo link */}
-                <a
-                  href={__REPO_URL__}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors pt-2"
-                >
-                  <ExternalLink className="w-3 h-3" />
-                  View on GitHub
-                </a>
               </div>
-            )}
-          </div>
-
-          {/* Right Side - Try Without Signing In */}
-          <div className="w-[320px] p-6 bg-card/30">
-            <div className="mb-4">
-              <h3 className="font-semibold text-sm flex items-center gap-2">
-                <Globe className="w-4 h-4 text-muted-foreground" />
-                Try without signing in
-              </h3>
-              <p className="text-xs text-muted-foreground mt-1">
-                Explore real PRs from popular open source projects
-              </p>
             </div>
+          )}
 
-            <div
-              className={cn(
-                "space-y-2",
-                samplePRsDisabled && "opacity-50 pointer-events-none"
-              )}
-            >
-              {FEATURED_PRS.map((pr) => (
+          {/* Error State */}
+          {hasError && (
+            <div className="flex items-start gap-3 p-3 rounded-md bg-destructive/10 border border-destructive/20 text-destructive mb-4">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              <div className="text-sm">
+                <p className="font-medium">Authentication failed</p>
+                <p className="opacity-80 mt-0.5">{deviceAuth.error}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Device Code Flow */}
+          {hasCode ? (
+            <div className="space-y-4">
+              <div className="text-center py-4">
+                <p className="text-sm text-muted-foreground mb-3">
+                  Enter this code on GitHub
+                </p>
                 <button
-                  key={`${pr.owner}/${pr.repo}/${pr.number}`}
-                  onClick={() => handleOpenFeaturedPR(pr)}
-                  disabled={samplePRsDisabled}
+                  onClick={copyCode}
                   className={cn(
-                    "w-full flex items-start gap-2.5 p-3 rounded-lg border border-border/50",
-                    "bg-background/50 hover:bg-background hover:border-border transition-all text-left",
-                    "group",
-                    samplePRsDisabled && "cursor-not-allowed"
+                    "group inline-flex items-center gap-3 px-5 py-3 rounded-md transition-all",
+                    "bg-card border border-border hover:border-foreground/20"
                   )}
                 >
-                  <GitPullRequest className="w-4 h-4 mt-0.5 text-green-500 shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <div className="font-mono text-[11px] text-muted-foreground">
-                      {pr.owner}/{pr.repo}
-                    </div>
-                    <div className="text-sm font-medium text-foreground truncate mt-0.5 group-hover:text-blue-400 transition-colors">
-                      {pr.title}
-                    </div>
-                    <div className="flex items-center gap-2 mt-1.5 text-[11px] text-muted-foreground">
-                      <span>{pr.files} files</span>
-                      <span className="text-green-500">+{pr.additions}</span>
-                      <span className="text-red-500">−{pr.deletions}</span>
-                    </div>
-                  </div>
-                  <ArrowRight className="w-3.5 h-3.5 text-muted-foreground/50 group-hover:text-muted-foreground transition-colors mt-1" />
+                  <span className="font-mono text-2xl font-bold tracking-[0.25em] text-foreground">
+                    {deviceAuth.userCode}
+                  </span>
+                  <span className="p-1 rounded bg-muted group-hover:bg-muted/80 transition-colors">
+                    {copied ? (
+                      <Check className="w-4 h-4 text-green-500" />
+                    ) : (
+                      <Copy className="w-4 h-4 text-muted-foreground" />
+                    )}
+                  </span>
                 </button>
-              ))}
-            </div>
+                <p className="text-xs text-muted-foreground mt-2">
+                  {copied ? "Copied!" : "Click to copy"}
+                </p>
+              </div>
 
-            <p className="text-[11px] text-muted-foreground/70 mt-4 text-center">
-              {samplePRsDisabled
-                ? "Sign in to continue browsing"
-                : "Read-only access to public repositories"}
-            </p>
-          </div>
+              <Button onClick={copyAndOpen} className="w-full h-10 gap-2">
+                <ExternalLink className="w-4 h-4" />
+                {copied ? "Open GitHub" : "Copy & Open GitHub"}
+              </Button>
+
+              <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground pt-2">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span>Waiting for authorization...</span>
+              </div>
+
+              <Button
+                onClick={cancelDeviceAuth}
+                variant="ghost"
+                className="w-full h-9 text-muted-foreground hover:text-foreground"
+              >
+                Cancel
+              </Button>
+            </div>
+          ) : (
+            /* Sign In State */
+            <div className="space-y-4">
+              <Button
+                onClick={startDeviceAuth}
+                disabled={isPending}
+                className="w-full h-10 gap-2"
+              >
+                {isPending ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Connecting...
+                  </>
+                ) : (
+                  <>
+                    <Github className="w-4 h-4" />
+                    Sign in with GitHub
+                  </>
+                )}
+              </Button>
+
+              <PATAuthSection />
+
+              <p className="text-xs text-center text-muted-foreground">
+                All GitHub API calls are made directly from your device.
+                Pulldash does not store your GitHub token.
+              </p>
+
+              {/* Animation preview */}
+              <div className="pt-4">
+                <PRReviewAnimation />
+              </div>
+
+              {/* GitHub repo link */}
+              <a
+                href={__REPO_URL__}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors pt-2"
+              >
+                <ExternalLink className="w-3 h-3" />
+                View on GitHub
+              </a>
+            </div>
+          )}
         </div>
       </DialogContent>
     </Dialog>
@@ -1313,39 +1177,14 @@ export function WelcomeDialog() {
 }
 
 // ============================================================================
-// User Menu Button - Shows logout option when authenticated, or sign-in for anonymous
+// User Menu Button - Shows logout option when authenticated
 // ============================================================================
 
 export function UserMenuButton({ className }: { className?: string }) {
-  const { isAuthenticated, isAnonymous, logout, setShowWelcomeDialog } =
-    useAuth();
+  const { isAuthenticated, logout } = useAuth();
   const currentUser = useCurrentUser()?.login ?? null;
   const showBookmarklet = useShowBookmarklet();
   const [bookmarkletOpen, setBookmarkletOpen] = useState(false);
-
-  // Anonymous mode - show read-only indicator with sign-in option
-  if (isAnonymous && !isAuthenticated) {
-    return (
-      <>
-        <button
-          onClick={() => setShowWelcomeDialog(true)}
-          className={cn(
-            "flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium transition-colors",
-            "bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 border border-amber-500/30",
-            className
-          )}
-          title="Sign in with GitHub"
-        >
-          <Eye className="w-3 h-3" />
-          <span>Read-only</span>
-        </button>
-        <BookmarkletDialog
-          open={bookmarkletOpen}
-          onOpenChange={setBookmarkletOpen}
-        />
-      </>
-    );
-  }
 
   if (!isAuthenticated) {
     return null;

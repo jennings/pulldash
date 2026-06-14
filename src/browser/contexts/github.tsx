@@ -616,16 +616,6 @@ function createGitHubStore() {
     fetchCurrentUser();
   }
 
-  function initializeAnonymous() {
-    // Create an unauthenticated Octokit instance for public repo access
-    // GitHub allows 60 requests/hour for unauthenticated requests
-    octokit = new Octokit();
-    wrapOctokitWithHooks(octokit);
-    batcher = new GraphQLBatcher(octokit);
-
-    setState({ ready: true, error: null, currentUser: null });
-  }
-
   function reset() {
     octokit = null;
     batcher = null;
@@ -3148,7 +3138,6 @@ function createGitHubStore() {
     getState,
     subscribe,
     initialize,
-    initializeAnonymous,
     reset,
     setOnUnauthorized,
     setOnRateLimited,
@@ -3243,8 +3232,7 @@ const GitHubContext = createContext<GitHubStore | null>(null);
 // ============================================================================
 
 export function GitHubProvider({ children }: { children: ReactNode }) {
-  const { token, isAuthenticated, isAnonymous, logout, setRateLimited } =
-    useAuth();
+  const { token, isAuthenticated, logout, setRateLimited } = useAuth();
   const storeRef = useRef<GitHubStore | null>(null);
 
   if (!storeRef.current) {
@@ -3263,17 +3251,13 @@ export function GitHubProvider({ children }: { children: ReactNode }) {
     store.setOnRateLimited(() => setRateLimited(true));
   }, [store, setRateLimited]);
 
-  // Initialize/reset when token or anonymous mode changes
   useEffect(() => {
     if (isAuthenticated && token) {
       store.initialize(token);
-    } else if (isAnonymous) {
-      // Initialize in anonymous mode (no token, limited to public repos)
-      store.initializeAnonymous();
     } else {
       store.reset();
     }
-  }, [store, token, isAuthenticated, isAnonymous]);
+  }, [store, token, isAuthenticated]);
 
   // Auto-refresh PR list every 60 seconds
   useEffect(() => {

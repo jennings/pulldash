@@ -52,9 +52,6 @@ interface AuthState {
   isLoading: boolean;
   token: string | null;
   deviceAuth: DeviceAuthState;
-  // Anonymous mode - user can browse public repos without auth
-  isAnonymous: boolean;
-  // Rate limit state
   isRateLimited: boolean;
 }
 
@@ -63,14 +60,7 @@ interface AuthContextValue extends AuthState {
   cancelDeviceAuth: () => void;
   loginWithPAT: (token: string) => Promise<void>;
   logout: () => void;
-  // Enable anonymous browsing mode
-  enableAnonymousMode: () => void;
-  // Check if user can write (authenticated, not anonymous)
   canWrite: boolean;
-  // Show the welcome/auth dialog (for re-authenticating from anonymous mode)
-  showWelcomeDialog: boolean;
-  setShowWelcomeDialog: (show: boolean) => void;
-  // Set rate limit state (called by GitHub context when rate limited)
   setRateLimited: (limited: boolean) => void;
 }
 
@@ -134,33 +124,9 @@ function clearStoredToken(): void {
 // Provider
 // ============================================================================
 
-// Storage key for anonymous mode preference
-const ANONYMOUS_MODE_KEY = "pulldash_anonymous_mode";
-
-function getStoredAnonymousMode(): boolean {
-  try {
-    return localStorage.getItem(ANONYMOUS_MODE_KEY) === "true";
-  } catch {
-    return false;
-  }
-}
-
-function setStoredAnonymousMode(enabled: boolean): void {
-  try {
-    if (enabled) {
-      localStorage.setItem(ANONYMOUS_MODE_KEY, "true");
-    } else {
-      localStorage.removeItem(ANONYMOUS_MODE_KEY);
-    }
-  } catch {
-    // Ignore
-  }
-}
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>(() => {
     const token = getStoredToken();
-    const isAnonymous = !token && getStoredAnonymousMode();
     return {
       isAuthenticated: !!token,
       isLoading: false,
@@ -171,7 +137,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         verificationUri: null,
         error: null,
       },
-      isAnonymous,
       isRateLimited: false,
     };
   });
@@ -180,20 +145,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [abortController, setAbortController] =
     useState<AbortController | null>(null);
 
-  // Track whether to show the welcome dialog (for re-authenticating from anonymous mode)
-  const [showWelcomeDialog, setShowWelcomeDialog] = useState(false);
-
-  // Set rate limit state
-  const setRateLimited = useCallback(
-    (limited: boolean) => {
-      setState((prev) => ({ ...prev, isRateLimited: limited }));
-      // If rate limited and anonymous, force show the welcome dialog
-      if (limited && !state.isAuthenticated) {
-        setShowWelcomeDialog(true);
-      }
-    },
-    [state.isAuthenticated]
-  );
+  const setRateLimited = useCallback((limited: boolean) => {
+    setState((prev) => ({ ...prev, isRateLimited: limited }));
+  }, []);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -300,9 +254,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
 
           if (tokenData.access_token) {
-            // Success! Store the token and disable anonymous mode
             storeToken(tokenData.access_token);
-            setStoredAnonymousMode(false);
             setState({
               isAuthenticated: true,
               isLoading: false,
@@ -313,7 +265,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 verificationUri: null,
                 error: null,
               },
-              isAnonymous: false,
               isRateLimited: false,
             });
             return;
@@ -413,9 +364,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       );
     }
 
-    // Store token (same mechanism as device flow)
     storeToken(trimmedToken);
-    setStoredAnonymousMode(false);
     setState({
       isAuthenticated: true,
       isLoading: false,
@@ -426,7 +375,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         verificationUri: null,
         error: null,
       },
-      isAnonymous: false,
       isRateLimited: false,
     });
 
@@ -435,7 +383,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(() => {
     clearStoredToken();
-    setStoredAnonymousMode(false);
     setState({
       isAuthenticated: false,
       isLoading: false,
@@ -446,17 +393,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         verificationUri: null,
         error: null,
       },
-      isAnonymous: false,
       isRateLimited: false,
     });
-  }, []);
-
-  const enableAnonymousMode = useCallback(() => {
-    setStoredAnonymousMode(true);
-    setState((prev) => ({
-      ...prev,
-      isAnonymous: true,
-    }));
   }, []);
 
   const value: AuthContextValue = {
@@ -465,10 +403,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     cancelDeviceAuth,
     loginWithPAT,
     logout,
-    enableAnonymousMode,
-    canWrite: state.isAuthenticated && !state.isAnonymous,
-    showWelcomeDialog,
-    setShowWelcomeDialog,
+    canWrite: state.isAuthenticated,
     setRateLimited,
   };
 
@@ -495,11 +430,6 @@ export function useToken(): string | null {
 export function useIsAuthenticated(): boolean {
   const { isAuthenticated } = useAuth();
   return isAuthenticated;
-}
-
-export function useIsAnonymous(): boolean {
-  const { isAnonymous } = useAuth();
-  return isAnonymous;
 }
 
 export function useCanWrite(): boolean {
