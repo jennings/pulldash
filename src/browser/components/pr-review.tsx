@@ -3028,6 +3028,7 @@ const InlineCommentForm = memo(function InlineCommentForm({
   const currentUser = useCurrentUser();
   const { startDeviceAuth } = useAuth();
   const { addPendingComment } = useCommentActions();
+  const parsedDiff = useCurrentDiff();
 
   const draftKey = `${line}:${startLine ?? ""}`;
   const [text, setText] = useState(
@@ -3084,6 +3085,29 @@ const InlineCommentForm = memo(function InlineCommentForm({
     },
     [handleSubmit, handleCancel]
   );
+
+  const handleSuggestChange = useCallback(() => {
+    if (!parsedDiff) return;
+    const start = startLine ?? line;
+    const end = line;
+    const lines: string[] = [];
+    for (const hunk of parsedDiff.hunks) {
+      if (hunk.type !== "hunk") continue;
+      for (const diffLine of hunk.lines) {
+        if (
+          diffLine.newLineNumber &&
+          diffLine.newLineNumber >= start &&
+          diffLine.newLineNumber <= end
+        ) {
+          const raw = diffLine.content.map((s) => s.value).join("");
+          lines.push(raw);
+        }
+      }
+    }
+    if (lines.length === 0) return;
+    const suggestion = "```suggestion\n" + lines.join("\n") + "\n```\n\n";
+    setText((prev) => suggestion + prev);
+  }, [parsedDiff, line, startLine]);
 
   const lineLabel = startLine ? `lines ${startLine}-${line}` : `line ${line}`;
 
@@ -3159,6 +3183,24 @@ const InlineCommentForm = memo(function InlineCommentForm({
           placeholder="Leave a comment..."
           minHeight="100px"
           autoFocus
+          extraToolbarActions={
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={handleSuggestChange}
+                  disabled={!parsedDiff}
+                  title="Suggest a code change using GitHub suggestion syntax"
+                  className="p-1.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  <span className="text-sm font-medium leading-none">±</span>
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="text-xs">
+                Suggest change
+              </TooltipContent>
+            </Tooltip>
+          }
         />
       </div>
 

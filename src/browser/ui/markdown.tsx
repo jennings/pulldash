@@ -850,7 +850,10 @@ export const MarkdownEditor = memo(function MarkdownEditor({
   maxHeight = "50vh",
   autoFocus = false,
   disabled = false,
-}: MarkdownEditorProps) {
+  extraToolbarActions,
+}: MarkdownEditorProps & {
+  extraToolbarActions?: React.ReactNode;
+}) {
   const [activeTab, setActiveTab] = useState<"write" | "preview">("write");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const anchorRef = useRef<HTMLSpanElement>(null);
@@ -1443,6 +1446,7 @@ export const MarkdownEditor = memo(function MarkdownEditor({
                 Insert emoji
               </TooltipContent>
             </Tooltip>
+            {extraToolbarActions}
 
             {/* Emoji picker dropdown */}
             {showEmojiPicker && (
