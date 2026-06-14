@@ -40,6 +40,7 @@ import {
   UserPlus,
   UserMinus,
   RefreshCw,
+  Reply,
 } from "lucide-react";
 import { Skeleton } from "../ui/skeleton";
 import { Checkbox } from "../ui/checkbox";
@@ -817,6 +818,18 @@ export const PROverview = memo(function PROverview() {
     [github, owner, repo, pr.number, store]
   );
 
+  const handleQuoteConversationComment = useCallback((body: string) => {
+    const commentBoxEl = document.getElementById("conversation-comment-box");
+    const quoted =
+      body
+        .split("\n")
+        .map((line) => `> ${line}`)
+        .join("\n") + "\n\n";
+    setCommentText(quoted);
+    commentBoxEl?.scrollIntoView({ behavior: "smooth" });
+    setTimeout(() => commentBoxEl?.querySelector("textarea")?.focus(), 100);
+  }, []);
+
   const handleResolveThread = useCallback(
     async (threadId: string) => {
       try {
@@ -1392,6 +1405,11 @@ export const PROverview = memo(function PROverview() {
                             }
                             currentUser={currentUser}
                             isFocused={focusedOverviewItemId === commentId}
+                            onQuote={
+                              canWrite
+                                ? handleQuoteConversationComment
+                                : undefined
+                            }
                           />
                         );
                       }
@@ -1756,7 +1774,7 @@ export const PROverview = memo(function PROverview() {
 
                 {/* Add a comment - only show when user can write (comments allowed even without push) */}
                 {canWrite ? (
-                  <div className="flex gap-3">
+                  <div id="conversation-comment-box" className="flex gap-3">
                     {/* Avatar */}
                     {currentUser && (
                       <img
@@ -2451,8 +2469,7 @@ function CommentBox({
   onRemoveReaction,
   currentUser,
   isFocused,
-  onReply,
-  isReplying,
+  onQuote,
 }: {
   id?: string;
   user: { login: string; avatar_url: string } | null;
@@ -2466,23 +2483,8 @@ function CommentBox({
   onRemoveReaction?: (reactionId: number) => void;
   currentUser?: string | null;
   isFocused?: boolean;
-  onReply?: (body: string) => Promise<void>;
-  isReplying?: boolean;
+  onQuote?: (body: string) => void;
 }) {
-  const [replyText, setReplyText] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-
-  const handleSubmitReply = async () => {
-    if (!onReply || submitting || !replyText.trim()) return;
-    setSubmitting(true);
-    try {
-      await onReply(replyText.trim());
-      setReplyText("");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
   if (!user) return null;
 
   return (
@@ -2541,16 +2543,25 @@ function CommentBox({
         )}
       </div>
       {/* Reactions */}
-      {(reactions || onAddReaction) && (
-        <div className="px-4 py-2 border-t border-border bg-card">
+      {reactions || onAddReaction || onQuote ? (
+        <div className="px-4 py-2 border-t border-border bg-card flex items-center gap-1">
           <EmojiReactions
             reactions={reactions || []}
             onAddReaction={onAddReaction}
             onRemoveReaction={onRemoveReaction}
             currentUser={currentUser}
           />
+          {onQuote && (
+            <button
+              onClick={() => onQuote(body ?? "")}
+              title="Quote reply"
+              className="ml-auto text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <Reply className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -2888,6 +2899,16 @@ function ReviewThreadBox({
     }
   };
 
+  const handleQuoteReply = useCallback((body: string) => {
+    const quoted =
+      body
+        .split("\n")
+        .map((line) => `> ${line}`)
+        .join("\n") + "\n\n";
+    setReplyText(quoted);
+    setShowReplyBox(true);
+  }, []);
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       e.preventDefault();
@@ -3014,7 +3035,7 @@ function ReviewThreadBox({
               <Markdown html={comment.bodyHTML}>{comment.body}</Markdown>
             </div>
             {/* Emoji reactions */}
-            <div className="mt-3">
+            <div className="mt-3 flex items-center gap-1">
               <EmojiReactions
                 reactions={reactions?.[comment.databaseId] || []}
                 onAddReaction={
@@ -3030,6 +3051,15 @@ function ReviewThreadBox({
                 }
                 currentUser={currentUser}
               />
+              {canWrite && (
+                <button
+                  onClick={() => handleQuoteReply(comment.body)}
+                  title="Quote reply"
+                  className="ml-auto text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <Reply className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
           </div>
         ))}
