@@ -205,6 +205,11 @@ interface PRReviewState {
   versionCompareNoChangeFiles: string[];
   /** File diff count between adjacent version pairs, e.g. "5-6": 3 */
   versionDiffCounts: Record<string, number>;
+  /** Rebase info between adjacent version pairs, keyed like "5-6" */
+  versionRebaseInfo: Record<
+    string,
+    { rebased: boolean; fromBase: string; toBase: string }
+  >;
 
   // Loading states
   loading: boolean;
@@ -512,6 +517,7 @@ export class PRReviewStore {
       interdiffLoadedDiffs: {},
       versionCompareNoChangeFiles: [],
       versionDiffCounts: {},
+      versionRebaseInfo: {},
       checks: null,
       checksLastUpdated: null,
       workflowRunsAwaitingApproval: [],
@@ -3029,6 +3035,26 @@ export class PRReviewStore {
         }
       }
 
+      // Detect rebases by comparing the parent of the root commit between
+      // adjacent versions. If the base SHA changed, the branch was rebased.
+      const versionRebaseInfo: Record<
+        string,
+        { rebased: boolean; fromBase: string; toBase: string }
+      > = {};
+      for (let i = 1; i < commitsByVersion.length; i++) {
+        const prevRoot = commitsByVersion[i - 1].commits[0];
+        const currRoot = commitsByVersion[i].commits[0];
+        const prevParent = prevRoot?.parents?.[0]?.sha;
+        const currParent = currRoot?.parents?.[0]?.sha;
+        versionRebaseInfo[
+          `${commitsByVersion[i - 1].version}-${commitsByVersion[i].version}`
+        ] = {
+          rebased: prevParent !== currParent && !!prevParent && !!currParent,
+          fromBase: prevParent ?? "",
+          toBase: currParent ?? "",
+        };
+      }
+
       this.baseCommits = commitsData;
       this.set({
         reviews: reviewsData,
@@ -3041,6 +3067,7 @@ export class PRReviewStore {
         commitVersionHistory,
         commitsByVersion,
         versionDiffCounts,
+        versionRebaseInfo,
         timeline: timelineData,
         reviewThreads: reviewThreadsResult.threads,
         comments: this.enrichCommentsFromThreads(

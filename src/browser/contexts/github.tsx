@@ -111,6 +111,9 @@ export interface PushVersion {
   version: number;
   sha: string;
   pushedAt: string;
+  /** For versions created by a force push, the SHA of the branch HEAD before
+   *  the force push (from HeadRefForcePushedEvent.beforeCommit). */
+  beforeSha?: string;
 }
 
 export function groupCommitsIntoVersions(
@@ -2555,6 +2558,7 @@ function createGitHubStore() {
               version: versions.length + 1,
               sha: event.afterCommit.oid,
               pushedAt: event.createdAt,
+              beforeSha: event.beforeCommit?.oid,
             });
           }
         }

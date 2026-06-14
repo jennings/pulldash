@@ -115,6 +115,7 @@ export const PROverview = memo(function PROverview() {
   const pushVersions = usePRReviewSelector((s) => s.pushVersions);
   const commitsByVersion = usePRReviewSelector((s) => s.commitsByVersion);
   const versionDiffCounts = usePRReviewSelector((s) => s.versionDiffCounts);
+  const versionRebaseInfo = usePRReviewSelector((s) => s.versionRebaseInfo);
   const conversation = usePRReviewSelector((s) => s.conversation);
   const loading = usePRReviewSelector((s) => s.loading);
   const branchDeleted = usePRReviewSelector((s) => s.branchDeleted);
@@ -1446,6 +1447,7 @@ export const PROverview = memo(function PROverview() {
                             pr={pr}
                             pushVersions={pushVersions}
                             versionDiffCounts={versionDiffCounts}
+                            versionRebaseInfo={versionRebaseInfo}
                             onNavigateChecks={handleNavigateChecks}
                           />
                         );
@@ -1461,6 +1463,7 @@ export const PROverview = memo(function PROverview() {
                               pr={pr}
                               pushVersions={pushVersions}
                               versionDiffCounts={versionDiffCounts}
+                              versionRebaseInfo={versionRebaseInfo}
                               onNavigateChecks={handleNavigateChecks}
                             />
                             {entry.commits.length > 0 && (
@@ -4674,6 +4677,10 @@ interface TimelineItemProps {
   pr?: PullRequest;
   pushVersions?: PushVersion[];
   versionDiffCounts?: Record<string, number>;
+  versionRebaseInfo?: Record<
+    string,
+    { rebased: boolean; fromBase: string; toBase: string }
+  >;
   onNavigateChecks?: (sha: string) => void;
 }
 
@@ -4682,6 +4689,7 @@ function TimelineItem({
   pr,
   pushVersions,
   versionDiffCounts,
+  versionRebaseInfo,
   onNavigateChecks,
 }: TimelineItemProps) {
   const store = usePRReviewStore();
@@ -5074,7 +5082,25 @@ function TimelineItem({
                   </span>
                 </UserHoverCard>
               )}{" "}
-              force-pushed the{" "}
+              force-pushed
+              {diffKey &&
+                versionRebaseInfo?.[diffKey]?.rebased &&
+                forcePush.commit_id && (
+                  <span className="font-medium">
+                    {" "}
+                    (rebased onto{" "}
+                    <a
+                      href={commitUrl!}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-1 py-0.5 bg-muted rounded text-xs font-mono hover:text-blue-400 hover:underline"
+                    >
+                      {forcePush.commit_id.slice(0, 7)}
+                    </a>
+                    )
+                  </span>
+                )}{" "}
+              the{" "}
               <code className="px-1.5 py-0.5 bg-blue-500/20 text-blue-300 rounded text-xs">
                 {pr?.head?.ref || "branch"}
               </code>{" "}
@@ -5097,28 +5123,10 @@ function TimelineItem({
                 </button>
               )}
               {forcePush.commit_id && (
-                <>
-                  {" "}
-                  to{" "}
-                  {commitUrl ? (
-                    <a
-                      href={commitUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="px-1.5 py-0.5 bg-muted rounded text-xs font-mono hover:text-blue-400 hover:underline"
-                    >
-                      {forcePush.commit_id.slice(0, 7)}
-                    </a>
-                  ) : (
-                    <code className="px-1.5 py-0.5 bg-muted rounded text-xs font-mono">
-                      {forcePush.commit_id.slice(0, 7)}
-                    </code>
-                  )}
-                  <ChecksIcon
-                    sha={forcePush.commit_id}
-                    onNavigate={onNavigateChecks!}
-                  />
-                </>
+                <ChecksIcon
+                  sha={forcePush.commit_id}
+                  onNavigate={onNavigateChecks!}
+                />
               )}
             </span>
           ),
