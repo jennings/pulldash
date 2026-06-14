@@ -116,6 +116,18 @@ export function useKeyboardNavigation() {
             store.navigateToNextUnviewedFile();
           });
           break;
+        case "[":
+          e.preventDefault();
+          startTransition(() => {
+            store.navigateToPrevCommit();
+          });
+          break;
+        case "]":
+          e.preventDefault();
+          startTransition(() => {
+            store.navigateToNextCommit();
+          });
+          break;
         case "v":
           e.preventDefault();
           if (state.selectedFiles.size > 0) {

@@ -816,6 +816,38 @@ export class PRReviewStore {
     }
   };
 
+  navigateToPrevCommit = async () => {
+    const { commits, selectedCommitSha } = this.state;
+    if (commits.length === 0) return;
+    const currentIdx = selectedCommitSha
+      ? commits.findIndex((c) => c.sha === selectedCommitSha)
+      : commits.length;
+    const newIdx = Math.max(currentIdx - 1, 0);
+    if (newIdx !== currentIdx) {
+      await this.setSelectedCommitSha(commits[newIdx].sha);
+      const { files, selectedFile } = this.state;
+      if (selectedFile && !files.some((f) => f.filename === selectedFile)) {
+        this.selectFile(files[0]?.filename ?? "");
+      }
+    }
+  };
+
+  navigateToNextCommit = async () => {
+    const { commits, selectedCommitSha } = this.state;
+    if (commits.length === 0) return;
+    const currentIdx = selectedCommitSha
+      ? commits.findIndex((c) => c.sha === selectedCommitSha)
+      : -1;
+    const newIdx = Math.min(currentIdx + 1, commits.length - 1);
+    if (newIdx !== currentIdx) {
+      await this.setSelectedCommitSha(commits[newIdx].sha);
+      const { files, selectedFile } = this.state;
+      if (selectedFile && !files.some((f) => f.filename === selectedFile)) {
+        this.selectFile(files[0]?.filename ?? "");
+      }
+    }
+  };
+
   navigateToNextUnviewedFile = () => {
     const { files, selectedFile, viewedFiles } = this.state;
     const currentIdx = selectedFile

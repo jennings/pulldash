@@ -786,7 +786,37 @@ function VersionBar() {
 
       {/* ── Commit ── */}
       <div>
-        <div className={sectionLabel}>Commit</div>
+        <div className="flex items-center justify-between">
+          <div className={sectionLabel}>Commit</div>
+          {selectedCommitSha && (
+            <div className="flex items-center gap-0.5">
+              <button
+                onClick={() => store.navigateToPrevCommit()}
+                className="flex items-center gap-0.5 px-1.5 py-0.5 text-xs rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+                title="Previous commit ([)"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+                <kbd className="hidden sm:inline-block px-1 py-0.5 bg-muted/60 rounded text-[9px] font-mono">
+                  [
+                </kbd>
+              </button>
+              <span className="text-xs tabular-nums text-muted-foreground min-w-[3ch] text-center">
+                {commits.findIndex((c) => c.sha === selectedCommitSha) + 1}/
+                {commits.length}
+              </span>
+              <button
+                onClick={() => store.navigateToNextCommit()}
+                className="flex items-center gap-0.5 px-1.5 py-0.5 text-xs rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+                title="Next commit (])"
+              >
+                <kbd className="hidden sm:inline-block px-1 py-0.5 bg-muted/60 rounded text-[9px] font-mono">
+                  ]
+                </kbd>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+        </div>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button className={triggerBtn}>
