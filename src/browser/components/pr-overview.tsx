@@ -1272,8 +1272,10 @@ export const PROverview = memo(function PROverview() {
                     // Add synthetic version transition events for normal pushes
                     // that don't have a corresponding head_ref_force_pushed event.
                     // Show the new (added) commits for each version transition.
-                    // Insert them at their correct chronological position based on
-                    // pushedAt so they interleave properly with force-push events.
+                    // Insert them by matching their commit SHAs against the
+                    // consecutive CommitGroup entries already in the timeline,
+                    // so synthetic entries land at the correct position relative
+                    // to GitHub's own event ordering.
                     if (pushVersions && pushVersions.length > 1) {
                       const forcePushedShas = new Set<string>();
                       for (const event of timeline) {
@@ -1287,28 +1289,6 @@ export const PROverview = memo(function PROverview() {
                           }
                         }
                       }
-
-                      const getEntryTs = (e: TimelineEntry): number => {
-                        const s: string | null | undefined = (() => {
-                          switch (e.type) {
-                            case "comment":
-                              return e.data.created_at;
-                            case "review":
-                              return e.data.submitted_at;
-                            case "event":
-                              return (e.data as { created_at?: string })
-                                .created_at;
-                            case "version_event":
-                              return (e.event as { created_at?: string })
-                                .created_at;
-                            case "commits":
-                              return e.data[0]?.author?.date;
-                            case "thread":
-                              return e.data.comments.nodes[0]?.createdAt;
-                          }
-                        })();
-                        return s ? new Date(s).getTime() : 0;
-                      };
 
                       for (let i = 1; i < pushVersions.length; i++) {
                         const toVersion = pushVersions[i];
@@ -1354,11 +1334,18 @@ export const PROverview = memo(function PROverview() {
                             commits: newCommits,
                           };
 
-                          const synTs = new Date(toVersion.pushedAt).getTime();
+                          // Insert after the preceding force-push version_event
+                          // in the entries array, matching by SHA.
+                          const fromVersionSha = fromVersion.sha;
                           let insertIdx = entries.findIndex(
-                            (e) => getEntryTs(e) > synTs
+                            (e) =>
+                              e.type === "version_event" &&
+                              "commit_id" in e.event &&
+                              (e.event as { commit_id?: string }).commit_id ===
+                                fromVersionSha
                           );
-                          if (insertIdx === -1) insertIdx = entries.length;
+                          if (insertIdx !== -1) insertIdx++;
+                          else insertIdx = entries.length;
                           entries.splice(insertIdx, 0, synEntry);
                         }
                       }
