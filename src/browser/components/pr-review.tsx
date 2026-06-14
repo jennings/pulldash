@@ -2504,7 +2504,7 @@ const DiffLineRow = memo(function DiffLineRow({
         result.push({
           ...seg,
           value: seg.value.trimStart(),
-          html: seg.value.trimStart(),
+          html: seg.html.replace(/^\s+/, ""),
         });
         hasRealContent = true;
       } else if (seg.type === "normal") {
@@ -2516,7 +2516,7 @@ const DiffLineRow = memo(function DiffLineRow({
         result.push({
           ...seg,
           value: stripped,
-          html: stripped,
+          html: hasRealContent ? seg.html.replace(/^\s+/, "") : seg.html,
         });
         if (seg.value.trim()) {
           hasRealContent = true;
