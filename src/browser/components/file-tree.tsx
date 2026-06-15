@@ -15,6 +15,7 @@ import {
   EyeOff,
   GitBranch,
   FolderCheck,
+  Info,
 } from "lucide-react";
 import { cn } from "../cn";
 import {
@@ -104,6 +105,8 @@ function buildTree(files: PullRequestFile[]): TreeNode[] {
           : undefined,
       }))
       .sort((a, b) => {
+        if (a.path === ":commit") return -1;
+        if (b.path === ":commit") return 1;
         if (a.type !== b.type) return a.type === "folder" ? -1 : 1;
         return a.name.localeCompare(b.name);
       });
@@ -113,6 +116,9 @@ function buildTree(files: PullRequestFile[]): TreeNode[] {
 }
 
 function getFileIcon(file: PullRequestFile) {
+  if (file.filename === ":commit") {
+    return <Info className="w-4 h-4 text-blue-500" />;
+  }
   switch (file.status) {
     case "added":
       return <FilePlus className="w-4 h-4 text-green-500" />;
@@ -429,7 +435,9 @@ export function FileTree({
                     style={{ paddingLeft: `${depth * 12 + 8}px` }}
                   >
                     {node.file && getFileIcon(node.file)}
-                    <span className="truncate flex-1">{node.name}</span>
+                    <span className="truncate flex-1">
+                      {node.path === ":commit" ? "Commit metadata" : node.name}
+                    </span>
                     <div className="flex items-center gap-1 shrink-0">
                       {pendingCount > 0 && (
                         <span className="flex items-center gap-0.5 text-xs text-yellow-500 bg-yellow-500/20 px-1.5 py-0.5 rounded">

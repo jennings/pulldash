@@ -2861,7 +2861,9 @@ export class PRReviewStore {
 
     // Check if file exists in the now-current file list
     const fileExists = this.state.files.some((f) => f.filename === file);
-    if (!fileExists) return false;
+    const isCommitInfo =
+      file === ":commit" && this.state.selectedCommitSha !== null;
+    if (!fileExists && !isCommitInfo) return false;
 
     if (this.state.selectedFile !== file) {
       this.selectFile(file);

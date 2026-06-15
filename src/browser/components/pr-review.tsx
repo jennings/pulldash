@@ -474,6 +474,20 @@ const FilePanel = memo(function FilePanel({
   const versionCompareNoChangeFiles = usePRReviewSelector(
     (s) => s.versionCompareNoChangeFiles
   );
+  const selectedCommitSha = usePRReviewSelector((s) => s.selectedCommitSha);
+
+  const displayFiles = useMemo(() => {
+    if (!selectedCommitSha) return files;
+    const commitFile: PullRequestFile = {
+      filename: ":commit",
+      sha: null,
+      status: "modified",
+      additions: 0,
+      deletions: 0,
+      changes: 0,
+    } as PullRequestFile;
+    return [commitFile, ...files];
+  }, [files, selectedCommitSha]);
 
   const noChangeFiles = useMemo(() => {
     const result = new Set<string>();
@@ -597,7 +611,7 @@ const FilePanel = memo(function FilePanel({
       <div className="border-t border-border/50" />
 
       <FileTree
-        files={files}
+        files={displayFiles}
         selectedFile={selectedFile}
         selectedFiles={selectedFiles}
         viewedFiles={viewedFiles}
@@ -1034,14 +1048,28 @@ const DiffPanel = memo(function DiffPanel() {
   );
   const pushVersions = usePRReviewSelector((s) => s.pushVersions);
   const selectedHeadSha = usePRReviewSelector((s) => s.selectedHeadSha);
+  const selectedCommitSha = usePRReviewSelector((s) => s.selectedCommitSha);
 
   const currentFile = useCurrentFile();
   const parsedDiff = useCurrentDiff();
   const isLoading = useIsCurrentFileLoading();
   const conversationsCount = useConversationsSidebarCount();
 
+  const displayFiles = useMemo(() => {
+    if (!selectedCommitSha) return files;
+    const commitFile: PullRequestFile = {
+      filename: ":commit",
+      sha: null,
+      status: "modified",
+      additions: 0,
+      deletions: 0,
+      changes: 0,
+    } as PullRequestFile;
+    return [commitFile, ...files];
+  }, [files, selectedCommitSha]);
+
   const currentIndex = selectedFile
-    ? files.findIndex((f) => f.filename === selectedFile)
+    ? displayFiles.findIndex((f) => f.filename === selectedFile)
     : -1;
 
   // Show overview panel
@@ -1068,7 +1096,7 @@ const DiffPanel = memo(function DiffPanel() {
                 isViewed={viewedFiles.has(currentFile.filename)}
                 onToggleViewed={() => store.toggleViewed(currentFile.filename)}
                 currentIndex={currentIndex}
-                totalFiles={files.length}
+                totalFiles={displayFiles.length}
                 onPrevFile={() => store.navigateToPrevUnviewedFile()}
                 onNextFile={() => store.navigateToNextUnviewedFile()}
                 diffViewMode={diffViewMode}

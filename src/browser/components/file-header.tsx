@@ -77,7 +77,7 @@ export const FileHeader = memo(function FileHeader({
       <div className="flex items-center gap-3 min-w-0 flex-1">
         <FileCode className="w-4 h-4 text-muted-foreground shrink-0" />
         <span className="font-mono text-sm font-medium truncate">
-          {file.filename}
+          {file.filename === ":commit" ? "Commit metadata" : file.filename}
         </span>
         {fileStatusBadge}
         <span className="text-xs text-muted-foreground shrink-0">
