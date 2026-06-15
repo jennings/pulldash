@@ -1228,6 +1228,44 @@ function createGitHubStore() {
     return promise;
   }
 
+  async function getSingleCommit(
+    owner: string,
+    repo: string,
+    ref: string,
+    prKey?: string
+  ): Promise<PRCommit> {
+    if (!octokit) throw new Error("Not initialized");
+
+    const cacheKey = `commit:${owner}/${repo}:${ref}`;
+
+    const cached = cache.get<PRCommit>(cacheKey);
+    if (cached) return cached;
+
+    if (prKey) {
+      const persistent = await PersistentCache.get<PRCommit>(cacheKey);
+      if (persistent) {
+        cache.set(cacheKey, persistent);
+        return persistent;
+      }
+    }
+
+    const promise = octokit
+      .request("GET /repos/{owner}/{repo}/commits/{ref}", {
+        owner,
+        repo,
+        ref,
+      })
+      .then((res) => {
+        const data = res.data as PRCommit;
+        cache.set(cacheKey, data);
+        if (prKey) PersistentCache.put(cacheKey, data, prKey);
+        return data;
+      });
+
+    cache.setPending(cacheKey, promise);
+    return promise;
+  }
+
   async function getMergeCommitFiles(
     owner: string,
     repo: string,
@@ -3159,6 +3197,7 @@ function createGitHubStore() {
     getPRFiles,
     getPRFilesForRange,
     getCommitFiles,
+    getSingleCommit,
     getMergeCommitFiles,
     getRawCompareDiff,
     getPRComments,

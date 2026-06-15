@@ -194,6 +194,8 @@ interface PRReviewState {
    * Uses the comparison API to get the diff against that parent.
    */
   selectedParentSha: string | null;
+  /** Parent commit titles (first line of commit message) keyed by SHA */
+  parentCommitMessages: Record<string, string>;
   /**
    * Push version SHA to compare against (null = "Target", i.e. PR base branch).
    * When non-null and a commit is selected, interdiff mode is active.
@@ -565,6 +567,7 @@ export class PRReviewStore {
       selectedHeadSha: null,
       selectedCommitSha: null,
       selectedParentSha: null,
+      parentCommitMessages: {},
       compareToSha: null,
       compareToCommitSha: null,
       interdiffEnabled: false,
@@ -1160,6 +1163,7 @@ export class PRReviewStore {
       this.set({
         selectedHeadSha: null,
         selectedCommitSha: null,
+        parentCommitMessages: {},
         files: this.baseFiles,
         commits: this.baseCommits,
         loadedDiffs: {},
@@ -1232,6 +1236,7 @@ export class PRReviewStore {
     const resetBase = {
       selectedCommitSha: sha,
       selectedParentSha: null,
+      parentCommitMessages: {},
       compareToCommitSha: null,
       interdiffEnabled: false,
       interdiffLoadedDiffs: {},
@@ -1287,7 +1292,50 @@ export class PRReviewStore {
     if (this.state.compareToSha) {
       await this.autoMatchAndComputeInterdiff(sha);
     }
+
+    // Fire-and-forget: load parent commit titles for merge commits
+    this.loadParentCommitMessages(sha);
   };
+
+  private async loadParentCommitMessages(sha: string) {
+    const { owner, repo, pr } = this.state;
+    const prKey = `${owner}/${repo}/${pr.number}`;
+
+    // Fetch the commit directly (may not be in state.commits for merge commits)
+    let commit: PRCommit;
+    try {
+      commit = await this.github.getSingleCommit(owner, repo, sha, prKey);
+    } catch {
+      return;
+    }
+    if (!commit.parents || commit.parents.length <= 1) return;
+
+    const messages: Record<string, string> = {};
+    const results = await Promise.allSettled(
+      commit.parents.map(async (p) => {
+        const data = await this.github.getSingleCommit(
+          owner,
+          repo,
+          p.sha,
+          prKey
+        );
+        return { sha: p.sha, title: data.commit.message.split("\n")[0] };
+      })
+    );
+    for (const r of results) {
+      if (r.status === "fulfilled") {
+        messages[r.value.sha] = r.value.title;
+      }
+    }
+    if (Object.keys(messages).length > 0) {
+      this.set({
+        parentCommitMessages: {
+          ...this.state.parentCommitMessages,
+          ...messages,
+        },
+      });
+    }
+  }
 
   setSelectedParentSha = async (sha: string | null): Promise<void> => {
     const { owner, repo, selectedCommitSha, compareToSha } = this.state;
@@ -1518,6 +1566,7 @@ export class PRReviewStore {
       selectedHeadSha: null,
       selectedCommitSha: null,
       selectedParentSha: null,
+      parentCommitMessages: {},
       compareToSha: null,
       compareToCommitSha: null,
       interdiffEnabled: false,

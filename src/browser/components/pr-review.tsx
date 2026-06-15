@@ -687,6 +687,9 @@ function VersionBar() {
   const selectedHeadSha = usePRReviewSelector((s) => s.selectedHeadSha);
   const selectedCommitSha = usePRReviewSelector((s) => s.selectedCommitSha);
   const selectedParentSha = usePRReviewSelector((s) => s.selectedParentSha);
+  const parentCommitMessages = usePRReviewSelector(
+    (s) => s.parentCommitMessages
+  );
 
   if (commits.length === 0) return null;
 
@@ -750,7 +753,7 @@ function VersionBar() {
                 <ChevronDown className="w-3 h-3 shrink-0" />
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-48">
+            <DropdownMenuContent align="start" className="min-w-48">
               <DropdownMenuLabel className="text-xs">
                 Viewing version
               </DropdownMenuLabel>
@@ -847,7 +850,7 @@ function VersionBar() {
               <ChevronDown className="w-3 h-3 shrink-0" />
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-72">
+          <DropdownMenuContent align="start" className="min-w-72">
             <DropdownMenuLabel className="text-xs">Commit</DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuItem
@@ -891,7 +894,7 @@ function VersionBar() {
                 <ChevronDown className="w-3 h-3 shrink-0" />
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-48">
+            <DropdownMenuContent align="start" className="min-w-48">
               <DropdownMenuLabel className="text-xs">
                 Compare to
               </DropdownMenuLabel>
@@ -903,14 +906,21 @@ function VersionBar() {
                   <DropdownMenuItem
                     key={p.sha}
                     onClick={() => store.setSelectedParentSha(p.sha)}
-                    className="text-xs flex items-center justify-between gap-2"
+                    className="text-xs flex items-center gap-2"
                   >
-                    <span className="truncate">
-                      Parent #{i + 1}{" "}
-                      <span className="font-mono text-muted-foreground">
-                        {p.sha.slice(0, 7)}
+                    <div className="flex flex-col">
+                      <span className="truncate">
+                        Parent #{i + 1}{" "}
+                        <span className="font-mono text-muted-foreground">
+                          {p.sha.slice(0, 7)}
+                        </span>
                       </span>
-                    </span>
+                      {parentCommitMessages[p.sha] && (
+                        <span className="text-muted-foreground/70">
+                          {parentCommitMessages[p.sha]}
+                        </span>
+                      )}
+                    </div>
                     {i === 0 && !selectedParentSha && (
                       <span className="text-[10px] text-muted-foreground shrink-0">
                         (default)
