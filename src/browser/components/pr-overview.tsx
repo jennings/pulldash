@@ -1156,6 +1156,32 @@ export const PROverview = memo(function PROverview() {
                           commits: PRCommit[];
                         };
 
+                    /** Extract a reliable timestamp from a TimelineEntry, or
+                     *  null if none is available. Uses GitHub API timestamps
+                     *  (created_at / submitted_at / createdAt) rather than
+                     *  commit author dates, which are unreliable after rebase. */
+                    function entryTimestamp(e: TimelineEntry): number | null {
+                      if (e.type === "review") {
+                        const t = e.data.submitted_at;
+                        return t ? new Date(t).getTime() : null;
+                      }
+                      if (e.type === "version_event") {
+                        const t = (e.event as { created_at?: string })
+                          .created_at;
+                        return t ? new Date(t).getTime() : null;
+                      }
+                      if (e.type === "comment" || e.type === "event") {
+                        const t = (e.data as { created_at?: string })
+                          .created_at;
+                        return t ? new Date(t).getTime() : null;
+                      }
+                      if (e.type === "thread") {
+                        const t = e.data.comments.nodes[0]?.createdAt;
+                        return t ? new Date(t).getTime() : null;
+                      }
+                      return null;
+                    }
+
                     const entries: TimelineEntry[] = [];
 
                     // Build lookup maps for enriched data
@@ -1190,6 +1216,7 @@ export const PROverview = memo(function PROverview() {
                           event: "opened",
                           actor: pr.user,
                           created_at: pr.created_at,
+                          commit_id: pushVersions[0]?.sha,
                         } as TimelineEvent,
                         commits: v1Commits,
                       });
@@ -1354,18 +1381,45 @@ export const PROverview = memo(function PROverview() {
                             commits: newCommits,
                           };
 
-                          // Insert after the preceding force-push version_event
-                          // in the entries array, matching by SHA.
+                          // Find the matching version_event by SHA, then walk
+                          // forward. Insert before the next version_event, or
+                          // before the first entry whose created_at timestamp
+                          // is after toVersion.pushedAt. This puts the
+                          // synthetic entry after all entries that belong to
+                          // the current version while preserving SHA anchoring
+                          // for version boundaries.
                           const fromVersionSha = fromVersion.sha;
-                          let insertIdx = entries.findIndex(
+                          const pushTime = new Date(
+                            toVersion.pushedAt
+                          ).getTime();
+                          const matchIdx = entries.findIndex(
                             (e) =>
                               e.type === "version_event" &&
                               "commit_id" in e.event &&
                               (e.event as { commit_id?: string }).commit_id ===
                                 fromVersionSha
                           );
-                          if (insertIdx !== -1) insertIdx++;
-                          else insertIdx = entries.length;
+                          let insertIdx = entries.length;
+                          if (matchIdx !== -1) {
+                            for (
+                              let j = matchIdx + 1;
+                              j < entries.length;
+                              j++
+                            ) {
+                              const e = entries[j];
+                              // Version boundary — insert before it
+                              if (e.type === "version_event") {
+                                insertIdx = j;
+                                break;
+                              }
+                              // Entry with a timestamp after the push — insert before it
+                              const t = entryTimestamp(e);
+                              if (t && t > pushTime) {
+                                insertIdx = j;
+                                break;
+                              }
+                            }
+                          }
                           entries.splice(insertIdx, 0, synEntry);
                         }
                       }
