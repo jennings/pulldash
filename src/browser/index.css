@@ -106,6 +106,7 @@
   --radius: 0.625rem;
   --selection-bg: #19273e;
   --diff-insert-bg: #122218;
+  --diff-insert-fg: #4ade80;
   --diff-delete-bg: #261710;
   --diff-comment-range-bg: #19273e;
   --diff-comment-range-active-bg: #1b1810;
@@ -155,6 +156,7 @@
 
 .light {
   --diff-insert-bg: #e6ffec;
+  --diff-insert-fg: #15803d;
   --diff-delete-bg: #ffebe9;
   --diff-comment-range-bg: #dbeafe;
   --diff-comment-range-active-bg: #fff8c5;
