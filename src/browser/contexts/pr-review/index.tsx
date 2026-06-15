@@ -849,8 +849,13 @@ export class PRReviewStore {
     if (newIdx !== currentIdx) {
       await this.setSelectedCommitSha(commits[newIdx].sha);
       const { files, selectedFile } = this.state;
-      if (selectedFile && !files.some((f) => f.filename === selectedFile)) {
-        this.selectFile(files[0]?.filename ?? "");
+      const fileExists =
+        files.some((f) => f.filename === selectedFile) ||
+        selectedFile === ":commit";
+      if (selectedFile && !fileExists) {
+        this.selectFile(
+          this.state.selectedCommitSha ? ":commit" : (files[0]?.filename ?? "")
+        );
       }
     }
   };
@@ -865,8 +870,13 @@ export class PRReviewStore {
     if (newIdx !== currentIdx) {
       await this.setSelectedCommitSha(commits[newIdx].sha);
       const { files, selectedFile } = this.state;
-      if (selectedFile && !files.some((f) => f.filename === selectedFile)) {
-        this.selectFile(files[0]?.filename ?? "");
+      const fileExists =
+        files.some((f) => f.filename === selectedFile) ||
+        selectedFile === ":commit";
+      if (selectedFile && !fileExists) {
+        this.selectFile(
+          this.state.selectedCommitSha ? ":commit" : (files[0]?.filename ?? "")
+        );
       }
     }
   };
