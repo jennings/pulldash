@@ -31,18 +31,23 @@ export function useReviewActions() {
         await github.submitPendingReview(reviewNodeId, event, state.reviewBody);
       } else if (state.pendingComments.length > 0) {
         // Fallback: create a new review with all comments via REST
+        // Redirect :commit metadata comments to the first real file
+        const firstFile = state.files[0]?.filename;
         newReview = await github.createPRReview(owner, repo, pr.number, {
           commit_id: pr.head.sha,
           event,
           body: state.reviewBody,
           comments: state.pendingComments.map(
-            ({ path, line, body, side, start_line }) => ({
-              path,
-              line,
-              body,
-              side: side as "LEFT" | "RIGHT",
-              start_line,
-            })
+            ({ path, line, body, side, start_line }) => {
+              const isMetadata = path === ":commit" && firstFile;
+              return {
+                path: isMetadata ? firstFile : path,
+                line: isMetadata ? 1 : line,
+                body,
+                side: side as "LEFT" | "RIGHT",
+                start_line: isMetadata ? undefined : start_line,
+              };
+            }
           ),
         });
       } else {

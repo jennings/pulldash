@@ -14,6 +14,10 @@ import type {
   PendingReviewComment,
 } from "@/api/types";
 import {
+  COMMIT_METADATA_MARKER,
+  parseCommitMetadataMarker,
+} from "@/shared/commit-metadata";
+import {
   MentionSuggestionsProvider,
   type MentionUser,
 } from "@/browser/ui/markdown";
@@ -375,11 +379,11 @@ function setStoredDiffViewMode(mode: DiffViewMode): void {
 
 const CHANGE_ID_RE = /^Change-Id:\s*(I[0-9a-f]{40})\s*$/m;
 
-function parseChangeId(message: string): string | null {
+export function parseChangeId(message: string): string | null {
   return CHANGE_ID_RE.exec(message)?.[1] ?? null;
 }
 
-function firstLine(message: string): string {
+export function firstLine(message: string): string {
   return message.split("\n")[0].trim();
 }
 
@@ -387,7 +391,7 @@ function firstLine(message: string): string {
  * Find the best matching commit in `candidates` for the given `commit`.
  * Tries Change-Id exact match first, then subject-line exact match.
  */
-function findMatchingCommit(
+export function findMatchingCommit(
   commit: PRCommit,
   candidates: PRCommit[]
 ): PRCommit | null {
@@ -406,6 +410,56 @@ function findMatchingCommit(
     if (match) return match;
   }
   return null;
+}
+
+/** Collect all commits across all versions into a single deduplicated list. */
+function allCommits(
+  commits: PRCommit[],
+  commitsByVersion: Array<{ version: number; commits: PRCommit[] }>
+): PRCommit[] {
+  const seen = new Set<string>();
+  const result: PRCommit[] = [];
+  for (const c of commits) {
+    if (!seen.has(c.sha)) {
+      seen.add(c.sha);
+      result.push(c);
+    }
+  }
+  for (const vc of commitsByVersion) {
+    for (const c of vc.commits) {
+      if (!seen.has(c.sha)) {
+        seen.add(c.sha);
+        result.push(c);
+      }
+    }
+  }
+  return result;
+}
+
+/** Given a short SHA, return all equivalent short SHAs across push versions
+ *  (matched by Change-Id then subject). */
+export function equivalentShortShas(
+  sha: string,
+  commits: PRCommit[],
+  commitsByVersion: Array<{ version: number; commits: PRCommit[] }>,
+  commitVersionHistory: Record<string, PRCommit[]>
+): string[] {
+  const all = allCommits(commits, commitsByVersion);
+  const commit = all.find((c) => c.sha.startsWith(sha));
+  if (!commit) return [sha.slice(0, 7)];
+
+  const changeId = parseChangeId(commit.commit.message);
+  if (changeId && commitVersionHistory[changeId]) {
+    return commitVersionHistory[changeId].map((c) => c.sha.slice(0, 7));
+  }
+
+  const subject = firstLine(commit.commit.message);
+  if (subject) {
+    const matches = all.filter((c) => firstLine(c.commit.message) === subject);
+    if (matches.length > 0) return matches.map((c) => c.sha.slice(0, 7));
+  }
+
+  return [sha.slice(0, 7)];
 }
 
 /**
@@ -585,6 +639,12 @@ export class PRReviewStore {
       submittingReview: false,
       currentUser: null,
     };
+
+    // Rewrite metadata comment paths so they route to :commit
+    const rewritten = this.rewriteMetadataPaths(this.state.comments);
+    if (rewritten !== this.state.comments) {
+      this.state.comments = rewritten;
+    }
   }
 
   setCurrentUser = (username: string) => {
@@ -2536,9 +2596,30 @@ export class PRReviewStore {
     return changed ? enriched : comments;
   }
 
+  /** Rewrite comment paths to :commit for any comment carrying the metadata marker.
+   *  Also patches the line number to the original metadata line (from the marker)
+   *  so the comment appears at the right position on :commit. */
+  private rewriteMetadataPaths(comments: ReviewComment[]): ReviewComment[] {
+    let changed = false;
+    const result = comments.map((c) => {
+      if (c.body?.includes(COMMIT_METADATA_MARKER)) {
+        changed = true;
+        const info = parseCommitMetadataMarker(c.body);
+        return {
+          ...c,
+          path: ":commit" as string,
+          line: info?.line ?? c.line,
+        };
+      }
+      return c;
+    });
+    return changed ? result : comments;
+  }
+
   setComments = (comments: ReviewComment[]) => {
+    const rewritten = this.rewriteMetadataPaths(comments);
     const enriched = this.enrichCommentsFromThreads(
-      comments,
+      rewritten,
       this.state.reviewThreads
     );
     this.set({ comments: enriched });
@@ -3131,6 +3212,9 @@ export class PRReviewStore {
       }
 
       this.baseCommits = commitsData;
+      const rewrittenThreads = this.rewriteThreadPaths(
+        reviewThreadsResult.threads
+      );
       this.set({
         reviews: reviewsData,
         checks: checksData,
@@ -3144,10 +3228,10 @@ export class PRReviewStore {
         versionDiffCounts,
         versionRebaseInfo,
         timeline: timelineData,
-        reviewThreads: reviewThreadsResult.threads,
+        reviewThreads: rewrittenThreads,
         comments: this.enrichCommentsFromThreads(
           this.state.comments,
-          reviewThreadsResult.threads
+          rewrittenThreads
         ),
         viewerPermission:
           reviewThreadsResult.viewerPermission ?? this.state.viewerPermission,
@@ -3599,12 +3683,37 @@ export class PRReviewStore {
     this.set({ conversation: [...this.state.conversation, comment] });
   };
 
+  /** Rewrite metadata paths in ReviewThread comments (GraphQL data).
+   *  These are separate from ReviewComment (REST) and also need path rewriting. */
+  private rewriteThreadPaths(threads: ReviewThread[]): ReviewThread[] {
+    let changed = false;
+    const result = threads.map((t) => {
+      const newNodes = t.comments.nodes.map((c) => {
+        if (c.body?.includes(COMMIT_METADATA_MARKER)) {
+          changed = true;
+          const info = parseCommitMetadataMarker(c.body);
+          return {
+            ...c,
+            path: ":commit",
+            line: info?.line ?? c.line,
+          };
+        }
+        return c;
+      });
+      return changed
+        ? { ...t, comments: { ...t.comments, nodes: newNodes } }
+        : t;
+    });
+    return changed ? result : threads;
+  }
+
   setReviewThreads = (threads: ReviewThread[]) => {
+    const rewritten = this.rewriteThreadPaths(threads);
     const enrichedComments = this.enrichCommentsFromThreads(
       this.state.comments,
-      threads
+      rewritten
     );
-    this.set({ reviewThreads: threads, comments: enrichedComments });
+    this.set({ reviewThreads: rewritten, comments: enrichedComments });
   };
 
   updateReviewThread = (

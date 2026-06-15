@@ -85,7 +85,36 @@ function fieldHtml(field: CommitField): string {
   return `<span style="color:var(--muted-foreground);font-weight:500">${escapeHtml(field.label)}:</span> ${valueHtml}`;
 }
 
-function buildMetadataLines(commit: PRCommit): MetadataLine[] {
+export function getCommitFieldLabel(line: number, commit: PRCommit): string {
+  const fields = getCommitFields(commit);
+  const messageLines = commit.commit.message.split("\n");
+
+  // Field lines (before the separator)
+  let current = 1;
+  for (const f of fields) {
+    if (line === current) return f.label;
+    current++;
+  }
+
+  // First separator
+  current++;
+
+  // Message lines
+  for (let i = 0; i < messageLines.length; i++) {
+    if (line === current) return i === 0 ? "Subject" : "Description";
+    current++;
+  }
+
+  // Stats separator and stats
+  if (commit.stats) {
+    current++; // separator
+    if (line === current) return "Stats";
+  }
+
+  return `Line ${line}`;
+}
+
+export function buildMetadataLines(commit: PRCommit): MetadataLine[] {
   const lines: MetadataLine[] = [];
   const fields = getCommitFields(commit);
 

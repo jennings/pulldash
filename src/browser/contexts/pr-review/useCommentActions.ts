@@ -5,6 +5,8 @@ import {
   usePRReviewSelector,
   type LocalPendingComment,
 } from ".";
+import { getCommitFieldLabel } from "./useCurrentDiff";
+import { COMMIT_METADATA_MARKER } from "@/shared/commit-metadata";
 
 export function useCommentActions() {
   const store = usePRReviewStore();
@@ -21,26 +23,53 @@ export function useCommentActions() {
     const state = store.getSnapshot();
     if (!state.selectedFile) return;
 
+    // For :commit synthetic file, prefix the body with a marker so we
+    // can route the comment back on reload. The local pending comment
+    // stays on ":commit" with the original line; only the GitHub sync
+    // redirects to the first real file at line 1.
+    let githubPath = state.selectedFile;
+    let githubLine = line;
+    let finalBody = body;
+    let githubStartLine: number | undefined = startLine;
+
+    if (state.selectedFile === ":commit" && state.files.length > 0) {
+      const sha = state.selectedCommitSha?.slice(0, 7) ?? "";
+      githubPath = state.files[0].filename;
+      githubLine = 1;
+      githubStartLine = undefined;
+      const commit = state.commits.find(
+        (c) => c.sha === state.selectedCommitSha
+      );
+      const label = commit ? getCommitFieldLabel(line, commit) : `line ${line}`;
+      const marker = `<!-- pulldash:commit-metadata sha=${sha} line=${line} label=${label} -->`;
+      finalBody =
+        `_This comment was made on the commit metadata for commit ${sha}, on the ${label} line._\n\n` +
+        `${marker}\n\n` +
+        body;
+    }
+
     // Create a local comment first for immediate UI feedback
+    // Local path/line stay on ":commit" so it appears at the right place
     const localId = `pending-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const newComment: LocalPendingComment = {
       id: localId,
       path: state.selectedFile,
       line,
       start_line: startLine,
-      body,
+      body: finalBody,
       side: "RIGHT",
     };
 
     store.addPendingComment(newComment);
 
     // Sync to GitHub via GraphQL - this creates/adds to the pending review
+    // For :commit comments, the GitHub comment goes to the first real file
     try {
       const result = await github.addPendingComment(owner, repo, pr.number, {
-        path: state.selectedFile,
-        line,
-        body,
-        startLine,
+        path: githubPath,
+        line: githubLine,
+        body: finalBody,
+        startLine: githubStartLine,
       });
       // Update the local comment with GitHub IDs
       store.updatePendingCommentWithGitHubIds(

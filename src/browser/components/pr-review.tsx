@@ -90,6 +90,11 @@ import {
   type DiffViewMode,
 } from "../contexts/pr-review";
 import {
+  stripCommitMetadataPrefix,
+  COMMIT_METADATA_MARKER,
+  parseCommitMetadataMarker,
+} from "../../shared/commit-metadata";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -3774,7 +3779,11 @@ const CommentItem = memo(function CommentItem({
           ) : (
             <>
               <div className="mt-1 text-sm text-foreground/90">
-                <Markdown html={comment.body_html}>{comment.body}</Markdown>
+                {comment.body?.includes(COMMIT_METADATA_MARKER) ? (
+                  <Markdown>{stripCommitMetadataPrefix(comment.body)}</Markdown>
+                ) : (
+                  <Markdown html={comment.body_html}>{comment.body}</Markdown>
+                )}
               </div>
 
               {/* Reactions */}
@@ -4061,7 +4070,9 @@ const PendingCommentItem = memo(function PendingCommentItem({
   const store = usePRReviewStore();
   const { removePendingComment, updatePendingComment } = useCommentActions();
   const currentUser = usePRReviewSelector((s) => s.currentUser);
-  const [editText, setEditText] = useState(comment.body);
+  const [editText, setEditText] = useState(
+    stripCommitMetadataPrefix(comment.body)
+  );
   const [saving, setSaving] = useState(false);
   const commentRef = useRef<HTMLDivElement>(null);
 
@@ -4178,7 +4189,7 @@ const PendingCommentItem = memo(function PendingCommentItem({
             ) : (
               <>
                 <div className="mt-1 text-sm text-foreground/90">
-                  <Markdown>{comment.body}</Markdown>
+                  <Markdown>{stripCommitMetadataPrefix(comment.body)}</Markdown>
                 </div>
                 <div className="flex items-center gap-3 mt-2">
                   <button
@@ -4275,12 +4286,17 @@ const SubmitReviewDropdown = memo(function SubmitReviewDropdown() {
     viewerPermission === "WRITE";
 
   // Group pending comments by file
+  // Metadata comments (on :commit) are always grouped under ":commit"
+  // regardless of the stored path, to handle both new and old pending comments.
   const commentsByFile = useMemo(() => {
     const grouped = new Map<string, LocalPendingComment[]>();
     for (const comment of pendingComments) {
-      const existing = grouped.get(comment.path) || [];
+      const filePath = comment.body?.includes(COMMIT_METADATA_MARKER)
+        ? ":commit"
+        : comment.path;
+      const existing = grouped.get(filePath) || [];
       existing.push(comment);
-      grouped.set(comment.path, existing);
+      grouped.set(filePath, existing);
     }
     return grouped;
   }, [pendingComments]);
@@ -4319,7 +4335,10 @@ const SubmitReviewDropdown = memo(function SubmitReviewDropdown() {
 
   const handleJumpToComment = useCallback(
     (comment: LocalPendingComment) => {
-      store.selectFile(comment.path);
+      const filePath = comment.body?.includes(COMMIT_METADATA_MARKER)
+        ? ":commit"
+        : comment.path;
+      store.selectFile(filePath);
       // Small delay to let the file load, then focus the pending comment
       setTimeout(() => {
         store.setFocusedPendingCommentId(comment.id);
@@ -4393,7 +4412,10 @@ const SubmitReviewDropdown = memo(function SubmitReviewDropdown() {
             <div className="max-h-[200px] overflow-y-auto space-y-1 themed-scrollbar">
               {Array.from(commentsByFile.entries()).map(
                 ([filePath, comments]) => {
-                  const fileName = filePath.split("/").pop() || filePath;
+                  const fileName =
+                    filePath === ":commit"
+                      ? "Commit metadata"
+                      : filePath.split("/").pop() || filePath;
                   const isExpanded = expandedFile === filePath;
 
                   return (
@@ -4434,14 +4456,17 @@ const SubmitReviewDropdown = memo(function SubmitReviewDropdown() {
                               className="w-full flex items-start gap-2 px-3 py-2 text-xs hover:bg-muted/50 transition-colors text-left border-b border-border/30 last:border-b-0"
                             >
                               <span className="font-mono text-muted-foreground shrink-0">
-                                L
-                                {comment.start_line
-                                  ? `${comment.start_line}-`
-                                  : ""}
-                                {comment.line}
+                                {comment.body?.includes(COMMIT_METADATA_MARKER)
+                                  ? (() => {
+                                      const info = parseCommitMetadataMarker(
+                                        comment.body ?? ""
+                                      );
+                                      return `L${info ? info.line : comment.line}`;
+                                    })()
+                                  : `L${comment.start_line ? `${comment.start_line}-` : ""}${comment.line}`}
                               </span>
                               <span className="text-foreground/80 line-clamp-2 flex-1">
-                                {comment.body}
+                                {stripCommitMetadataPrefix(comment.body)}
                               </span>
                             </button>
                           ))}

@@ -75,6 +75,12 @@ import {
   type PushVersion,
 } from "../contexts/github";
 import { useCanWrite } from "../contexts/auth";
+import {
+  COMMIT_METADATA_MARKER,
+  stripCommitMetadataPrefix,
+  parseCommitMetadataMarker,
+} from "../../shared/commit-metadata";
+import { buildMetadataLines } from "../contexts/pr-review/useCurrentDiff";
 
 // ============================================================================
 // Types
@@ -2805,6 +2811,23 @@ function ReviewThreadBox({
   const firstComment = comments[0];
   const filePath = firstComment?.path;
   const diffHunk = firstComment?.diffHunk;
+  const isMetadataComment = comments.some((c) =>
+    c.body?.includes(COMMIT_METADATA_MARKER)
+  );
+  const store = usePRReviewStore();
+  const metadataContext = useMemo(() => {
+    if (!isMetadataComment) return null;
+    const info = parseCommitMetadataMarker(firstComment?.body ?? "");
+    if (!info) return null;
+    const commits = store.getSnapshot().commits;
+    const commit = commits.find((c) => c.sha.startsWith(info.sha));
+    if (!commit) return null;
+    const lines = buildMetadataLines(commit);
+    const commentIdx = info.line - 1;
+    const start = Math.max(0, commentIdx - 4);
+    const end = Math.min(lines.length - 1, commentIdx);
+    return lines.slice(start, end + 1);
+  }, [isMetadataComment, firstComment?.body, store]);
   // Auto-focus reply box when triggered via keyboard
   useEffect(() => {
     if (autoFocusReply && canWrite) {
@@ -2932,14 +2955,20 @@ function ReviewThreadBox({
     >
       {/* File header */}
       <div className="flex items-center gap-2 px-3 py-2 bg-card border-b border-border text-sm">
-        <a
-          href={`https://github.com/${owner}/${repo}/blob/HEAD/${filePath}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="font-mono text-muted-foreground hover:text-blue-400 hover:underline"
-        >
-          {filePath}
-        </a>
+        {isMetadataComment ? (
+          <span className="font-mono text-muted-foreground">
+            Commit metadata
+          </span>
+        ) : (
+          <a
+            href={`https://github.com/${owner}/${repo}/blob/HEAD/${filePath}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-mono text-muted-foreground hover:text-blue-400 hover:underline"
+          >
+            {filePath}
+          </a>
+        )}
         {thread.isResolved && (
           <button
             onClick={() => setShowResolved(false)}
@@ -2953,8 +2982,37 @@ function ReviewThreadBox({
         )}
       </div>
 
+      {/* Commit metadata context */}
+      {isMetadataComment && metadataContext && (
+        <div className="bg-[var(--code-bg)] border-b border-border overflow-x-auto">
+          <table className="w-full text-xs font-mono">
+            <tbody>
+              {metadataContext.map((ml, i) => {
+                const info = parseCommitMetadataMarker(
+                  firstComment?.body ?? ""
+                );
+                const lineNum =
+                  (info?.line ?? 0) - metadataContext.length + 1 + i;
+                return (
+                  <tr key={i}>
+                    <td className="w-10 text-right px-2 py-0.5 text-muted-foreground select-none border-r border-border/50" />
+                    <td className="w-10 text-right px-2 py-0.5 text-muted-foreground select-none border-r border-border/50">
+                      {lineNum}
+                    </td>
+                    <td
+                      className="px-2 py-0.5 whitespace-pre"
+                      dangerouslySetInnerHTML={{ __html: ml.html }}
+                    />
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       {/* Code context (diff hunk) with syntax highlighting */}
-      {diffHunkData && diffHunkData.type === "hunk" && (
+      {diffHunkData && diffHunkData.type === "hunk" && !isMetadataComment && (
         <div className="bg-[var(--code-bg)] border-b border-border overflow-x-auto">
           <table className="w-full text-xs font-mono">
             <tbody>
@@ -3032,7 +3090,11 @@ function ReviewThreadBox({
               </span>
             </div>
             <div className="mt-2">
-              <Markdown html={comment.bodyHTML}>{comment.body}</Markdown>
+              {isMetadataComment ? (
+                <Markdown>{stripCommitMetadataPrefix(comment.body)}</Markdown>
+              ) : (
+                <Markdown html={comment.bodyHTML}>{comment.body}</Markdown>
+              )}
             </div>
             {/* Emoji reactions */}
             <div className="mt-3 flex items-center gap-1">
@@ -3053,7 +3115,13 @@ function ReviewThreadBox({
               />
               {canWrite && (
                 <button
-                  onClick={() => handleQuoteReply(comment.body)}
+                  onClick={() =>
+                    handleQuoteReply(
+                      isMetadataComment
+                        ? stripCommitMetadataPrefix(comment.body)
+                        : comment.body
+                    )
+                  }
                   title="Quote reply"
                   className="ml-auto text-muted-foreground hover:text-foreground transition-colors"
                 >
