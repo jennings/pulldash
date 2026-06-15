@@ -3683,6 +3683,10 @@ export class PRReviewStore {
     this.set({ conversation: [...this.state.conversation, comment] });
   };
 
+  addTimelineEvent = (event: TimelineEvent) => {
+    this.set({ timeline: [...this.state.timeline, event] });
+  };
+
   /** Rewrite metadata paths in ReviewThread comments (GraphQL data).
    *  These are separate from ReviewComment (REST) and also need path rewriting. */
   private rewriteThreadPaths(threads: ReviewThread[]): ReviewThread[] {

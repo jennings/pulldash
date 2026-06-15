@@ -293,6 +293,21 @@ export const PROverview = memo(function PROverview() {
         commentText
       );
       store.addConversationComment(newComment);
+      store.addTimelineEvent({
+        event: "commented",
+        id: newComment.id,
+        node_id: newComment.node_id,
+        url: newComment.url,
+        body: newComment.body,
+        body_html: newComment.body_html,
+        html_url: newComment.html_url,
+        user: newComment.user!,
+        created_at: newComment.created_at,
+        updated_at: newComment.updated_at,
+        issue_url: newComment.issue_url,
+        author_association: newComment.author_association,
+        actor: newComment.user!,
+      } as TimelineEvent);
       setCommentText("");
     } catch (error) {
       console.error("Failed to add comment:", error);
