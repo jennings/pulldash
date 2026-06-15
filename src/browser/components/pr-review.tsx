@@ -2375,9 +2375,9 @@ const DiffViewer = memo(function DiffViewer({
                 return (
                   <div
                     key={virtualRow.key}
-                    className="absolute top-0 left-0 w-full"
+                    className="absolute left-0 w-full"
                     style={{
-                      transform: `translateY(${virtualRow.start}px)`,
+                      top: `${virtualRow.start}px`,
                     }}
                     data-index={virtualRow.index}
                     ref={virtualizer.measureElement}
