@@ -36,7 +36,7 @@ import { useAuth } from "../contexts/auth";
 import { useCurrentUser } from "../contexts/github";
 import { cn } from "../cn";
 import { isMac } from "../ui/keycap";
-import { getCurrentTheme, toggleTheme } from "../theme";
+import { useTheme } from "../contexts/theme";
 
 // ============================================================================
 // Animation Data
@@ -1183,6 +1183,7 @@ export function WelcomeDialog() {
 export function UserMenuButton({ className }: { className?: string }) {
   const { isAuthenticated, logout } = useAuth();
   const currentUser = useCurrentUser()?.login ?? null;
+  const ctx = useTheme();
   const showBookmarklet = useShowBookmarklet();
   const [bookmarkletOpen, setBookmarkletOpen] = useState(false);
 
@@ -1234,15 +1235,15 @@ export function UserMenuButton({ className }: { className?: string }) {
             </>
           )}
           <DropdownMenuItem
-            onClick={() => toggleTheme()}
+            onClick={() => ctx.toggleTheme()}
             className="cursor-pointer"
           >
-            {getCurrentTheme() === "dark" ? (
+            {ctx.theme === "dark" ? (
               <Sun className="w-4 h-4" />
             ) : (
               <Moon className="w-4 h-4" />
             )}
-            {getCurrentTheme() === "dark" ? "Light mode" : "Dark mode"}
+            {ctx.theme === "dark" ? "Light mode" : "Dark mode"}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           {showBookmarklet && (
