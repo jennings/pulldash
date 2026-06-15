@@ -832,6 +832,11 @@ export const PROverview = memo(function PROverview() {
         // Refresh threads to show new comment
         const result = await github.getReviewThreads(owner, repo, pr.number);
         store.setReviewThreads(result.threads);
+        // Refresh timeline in background (reply may create a timeline event)
+        github
+          .getPRTimeline(owner, repo, pr.number)
+          .then((timeline) => store.setTimeline(timeline))
+          .catch(() => {});
       } catch (error) {
         console.error("Failed to reply to thread:", error);
       }
