@@ -35,7 +35,11 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from "../ui/pagination";
-import { useOpenPRReviewTab } from "../contexts/tabs";
+import {
+  useOpenPRReviewTab,
+  useTabContext,
+  type TabStatus,
+} from "../contexts/tabs";
 import {
   useGitHubStore,
   useGitHubReady,
@@ -367,6 +371,56 @@ export function Home() {
   const prs = prList.items;
   const loadingPrs = prList.loading;
   const totalCount = prList.totalCount;
+
+  // Seed the open/queued/merged dot for PR tabs that don't yet have a status,
+  // using the home list's enrichment so we don't pay an extra request per tab.
+  // pr-review's useSyncTabStatus is authoritative once the user activates a
+  // tab — we deliberately don't overwrite an existing status here, since
+  // search enrichment is staler than usePRChecks and lacks `mergeable`.
+  const { tabs, updateTabStatus } = useTabContext();
+  useEffect(() => {
+    if (prs.length === 0) return;
+
+    const prByKey = new Map<string, PRSearchResult>();
+    for (const pr of prs) {
+      const repoInfo = extractRepoFromUrl(pr.repository_url ?? "");
+      if (!repoInfo) continue;
+      const key = `${repoInfo.owner.toLowerCase()}/${repoInfo.repo.toLowerCase()}/${pr.number}`;
+      prByKey.set(key, pr);
+    }
+
+    for (const tab of tabs) {
+      if (
+        tab.type !== "pr-review" ||
+        !tab.owner ||
+        !tab.repo ||
+        tab.number === undefined ||
+        tab.status !== undefined
+      ) {
+        continue;
+      }
+      const key = `${tab.owner.toLowerCase()}/${tab.repo.toLowerCase()}/${tab.number}`;
+      const pr = prByKey.get(key);
+      if (!pr) continue;
+
+      const isMerged = pr.pull_request?.merged_at != null;
+      const isClosed = !isMerged && pr.state === "closed";
+      const state: TabStatus["state"] = isMerged
+        ? "merged"
+        : isClosed
+          ? "closed"
+          : pr.draft
+            ? "draft"
+            : "open";
+
+      updateTabStatus(tab.id, {
+        state,
+        checks: pr.ciStatus ?? "none",
+        mergeable: null,
+        inMergeQueue: pr.inMergeQueue ?? false,
+      });
+    }
+  }, [prs, tabs, updateTabStatus]);
 
   // Search repositories with debounce
   useEffect(() => {
