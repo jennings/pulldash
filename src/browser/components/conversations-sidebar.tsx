@@ -5,9 +5,16 @@ import {
   usePRReviewSelector,
   usePRReviewStore,
   getTimeAgo,
+  equivalentShortShas,
 } from "../contexts/pr-review";
 import type { LocalPendingComment } from "../contexts/pr-review";
 import type { ReviewThread } from "../contexts/github";
+import {
+  getCommentDisplayPath,
+  stripCommitMetadataPrefix,
+  parseCommitMetadataMarker,
+  isMetadataComment,
+} from "../../shared/commit-metadata";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -115,8 +122,41 @@ export const ConversationsSidebar = memo(function ConversationsSidebar() {
   const filtersActive =
     filters.showResolved || !filters.showOutdated || !filters.showPending;
 
+  /** Resolve a potentially short SHA from a metadata marker to a full SHA,
+   *  searching across all push versions if the commit was amended. */
+  function resolveSha(sha: string): string {
+    if (sha.length >= 40) return sha;
+    const state = store.getSnapshot();
+
+    // Fast path: look in current commits
+    const current = state.commits.find((c) => c.sha.startsWith(sha));
+    if (current) return current.sha;
+
+    // Slow path: search across all versions (commit may have been amended)
+    const equivalents = equivalentShortShas(
+      sha,
+      state.commits,
+      state.commitsByVersion,
+      state.commitVersionHistory
+    );
+    for (const eqSha of equivalents) {
+      const match = state.commits.find((c) => c.sha.startsWith(eqSha));
+      if (match) return match.sha;
+    }
+
+    return sha;
+  }
+
   const handleClickThread = useCallback(
-    (firstCommentId: number, path: string) => {
+    async (firstCommentId: number, path: string, body: string) => {
+      if (isMetadataComment(body)) {
+        const info = parseCommitMetadataMarker(body);
+        if (info) {
+          await store.setSelectedCommitSha(resolveSha(info.sha));
+        }
+      } else if (store.getSnapshot().selectedCommitSha) {
+        await store.setSelectedCommitSha(null);
+      }
       store.selectFile(path);
       store.setConversationScrollTarget(firstCommentId);
     },
@@ -124,7 +164,15 @@ export const ConversationsSidebar = memo(function ConversationsSidebar() {
   );
 
   const handleClickPending = useCallback(
-    (pending: LocalPendingComment) => {
+    async (pending: LocalPendingComment) => {
+      if (isMetadataComment(pending.body)) {
+        const info = parseCommitMetadataMarker(pending.body);
+        if (info) {
+          await store.setSelectedCommitSha(resolveSha(info.sha));
+        }
+      } else if (store.getSnapshot().selectedCommitSha) {
+        await store.setSelectedCommitSha(null);
+      }
       store.selectFile(pending.path);
       setTimeout(() => store.setFocusedPendingCommentId(pending.id), 100);
     },
@@ -214,10 +262,13 @@ export const ConversationsSidebar = memo(function ConversationsSidebar() {
 
                 const author = firstComment.author;
                 const replyCount = thread.comments.nodes.length - 1;
+                const displayBody = stripCommitMetadataPrefix(
+                  firstComment.body
+                );
                 const truncatedBody =
-                  firstComment.body.length > 200
-                    ? firstComment.body.slice(0, 200) + "…"
-                    : firstComment.body;
+                  displayBody.length > 200
+                    ? displayBody.slice(0, 200) + "…"
+                    : displayBody;
                 const createdAt = new Date(firstComment.createdAt);
                 const latestUpdatedAt = thread.comments.nodes.reduce(
                   (latest, c) => {
@@ -253,7 +304,8 @@ export const ConversationsSidebar = memo(function ConversationsSidebar() {
                     onClick={() =>
                       handleClickThread(
                         firstComment.databaseId,
-                        firstComment.path
+                        firstComment.path,
+                        firstComment.body
                       )
                     }
                   >
@@ -296,7 +348,7 @@ export const ConversationsSidebar = memo(function ConversationsSidebar() {
 
                     {/* File path */}
                     <p className="text-xs text-muted-foreground font-mono truncate mb-1.5">
-                      {firstComment.path}
+                      {getCommentDisplayPath(firstComment)}
                     </p>
 
                     {/* First comment body */}
@@ -338,10 +390,13 @@ export const ConversationsSidebar = memo(function ConversationsSidebar() {
 
               // kind === "pending"
               const { pending } = item;
+              const pendingDisplayBody = stripCommitMetadataPrefix(
+                pending.body
+              );
               const truncatedBody =
-                pending.body.length > 200
-                  ? pending.body.slice(0, 200) + "…"
-                  : pending.body;
+                pendingDisplayBody.length > 200
+                  ? pendingDisplayBody.slice(0, 200) + "…"
+                  : pendingDisplayBody;
 
               return (
                 <li
@@ -368,7 +423,7 @@ export const ConversationsSidebar = memo(function ConversationsSidebar() {
 
                   {/* File path */}
                   <p className="text-xs text-muted-foreground font-mono truncate mb-1.5">
-                    {pending.path}
+                    {getCommentDisplayPath(pending)}
                   </p>
 
                   {/* Comment body */}

@@ -14,7 +14,7 @@ import type {
   PendingReviewComment,
 } from "@/api/types";
 import {
-  COMMIT_METADATA_MARKER,
+  isMetadataComment,
   parseCommitMetadataMarker,
 } from "@/shared/commit-metadata";
 import {
@@ -2602,7 +2602,7 @@ export class PRReviewStore {
   private rewriteMetadataPaths(comments: ReviewComment[]): ReviewComment[] {
     let changed = false;
     const result = comments.map((c) => {
-      if (c.body?.includes(COMMIT_METADATA_MARKER)) {
+      if (isMetadataComment(c.body)) {
         changed = true;
         const info = parseCommitMetadataMarker(c.body);
         return {
@@ -3689,7 +3689,7 @@ export class PRReviewStore {
     let changed = false;
     const result = threads.map((t) => {
       const newNodes = t.comments.nodes.map((c) => {
-        if (c.body?.includes(COMMIT_METADATA_MARKER)) {
+        if (isMetadataComment(c.body)) {
           changed = true;
           const info = parseCommitMetadataMarker(c.body);
           return {

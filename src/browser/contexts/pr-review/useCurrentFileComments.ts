@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import type { ReviewComment } from "@/api/types";
 import { usePRReviewSelector, equivalentShortShas } from ".";
 import {
-  COMMIT_METADATA_MARKER,
+  isMetadataComment,
   parseCommitMetadataMarker,
 } from "@/shared/commit-metadata";
 
@@ -34,7 +34,7 @@ export function useCurrentFileComments(): ReviewComment[] {
     if (selectedFile === ":commit") {
       return comments.filter((c) => {
         if (c.path !== ":commit") return false;
-        if (!c.body?.includes(COMMIT_METADATA_MARKER)) return false;
+        if (!isMetadataComment(c.body)) return false;
         if (!validShas) return false;
         const info = parseCommitMetadataMarker(c.body);
         return !!info && validShas.has(info.sha);

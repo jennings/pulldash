@@ -5,7 +5,7 @@ import {
   type LocalPendingComment,
 } from ".";
 import {
-  COMMIT_METADATA_MARKER,
+  isMetadataComment,
   parseCommitMetadataMarker,
 } from "@/shared/commit-metadata";
 
@@ -37,7 +37,7 @@ export function useCurrentFilePendingComments(): LocalPendingComment[] {
     if (selectedFile === ":commit") {
       return pendingComments.filter((c) => {
         if (c.path !== ":commit") return false;
-        if (!c.body?.includes(COMMIT_METADATA_MARKER)) return false;
+        if (!isMetadataComment(c.body)) return false;
         if (!validShas) return false;
         const info = parseCommitMetadataMarker(c.body);
         return !!info && validShas.has(info.sha);

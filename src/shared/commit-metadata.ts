@@ -24,6 +24,17 @@ export function parseCommitMetadataMarker(
 const PREFIX_LINE_RE =
   /^This comment was made on the commit metadata for commit /;
 
+export function isMetadataComment(body?: string | null): boolean {
+  return !!body?.includes(COMMIT_METADATA_MARKER);
+}
+
+export function getCommentDisplayPath(comment: {
+  path: string;
+  body?: string | null;
+}): string {
+  return isMetadataComment(comment.body) ? "Commit metadata" : comment.path;
+}
+
 /** Strip the commit metadata prefix and marker from a body string.
  *  Returns the original body unchanged if it's not a metadata comment. */
 export function stripCommitMetadataPrefix(body: string): string {

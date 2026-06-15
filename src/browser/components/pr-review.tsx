@@ -91,7 +91,7 @@ import {
 } from "../contexts/pr-review";
 import {
   stripCommitMetadataPrefix,
-  COMMIT_METADATA_MARKER,
+  isMetadataComment,
   parseCommitMetadataMarker,
 } from "../../shared/commit-metadata";
 import {
@@ -3779,7 +3779,7 @@ const CommentItem = memo(function CommentItem({
           ) : (
             <>
               <div className="mt-1 text-sm text-foreground/90">
-                {comment.body?.includes(COMMIT_METADATA_MARKER) ? (
+                {isMetadataComment(comment.body) ? (
                   <Markdown>{stripCommitMetadataPrefix(comment.body)}</Markdown>
                 ) : (
                   <Markdown html={comment.body_html}>{comment.body}</Markdown>
@@ -4291,7 +4291,7 @@ const SubmitReviewDropdown = memo(function SubmitReviewDropdown() {
   const commentsByFile = useMemo(() => {
     const grouped = new Map<string, LocalPendingComment[]>();
     for (const comment of pendingComments) {
-      const filePath = comment.body?.includes(COMMIT_METADATA_MARKER)
+      const filePath = isMetadataComment(comment.body)
         ? ":commit"
         : comment.path;
       const existing = grouped.get(filePath) || [];
@@ -4335,7 +4335,7 @@ const SubmitReviewDropdown = memo(function SubmitReviewDropdown() {
 
   const handleJumpToComment = useCallback(
     (comment: LocalPendingComment) => {
-      const filePath = comment.body?.includes(COMMIT_METADATA_MARKER)
+      const filePath = isMetadataComment(comment.body)
         ? ":commit"
         : comment.path;
       store.selectFile(filePath);
@@ -4456,7 +4456,7 @@ const SubmitReviewDropdown = memo(function SubmitReviewDropdown() {
                               className="w-full flex items-start gap-2 px-3 py-2 text-xs hover:bg-muted/50 transition-colors text-left border-b border-border/30 last:border-b-0"
                             >
                               <span className="font-mono text-muted-foreground shrink-0">
-                                {comment.body?.includes(COMMIT_METADATA_MARKER)
+                                {isMetadataComment(comment.body)
                                   ? (() => {
                                       const info = parseCommitMetadataMarker(
                                         comment.body ?? ""

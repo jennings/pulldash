@@ -76,7 +76,7 @@ import {
 } from "../contexts/github";
 import { useCanWrite } from "../contexts/auth";
 import {
-  COMMIT_METADATA_MARKER,
+  isMetadataComment as isSingleCommentMetadata,
   stripCommitMetadataPrefix,
   parseCommitMetadataMarker,
 } from "../../shared/commit-metadata";
@@ -2866,7 +2866,7 @@ function ReviewThreadBox({
   const filePath = firstComment?.path;
   const diffHunk = firstComment?.diffHunk;
   const isMetadataComment = comments.some((c) =>
-    c.body?.includes(COMMIT_METADATA_MARKER)
+    isSingleCommentMetadata(c.body)
   );
   const store = usePRReviewStore();
   const metadataContext = useMemo(() => {

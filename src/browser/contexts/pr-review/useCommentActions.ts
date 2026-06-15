@@ -6,7 +6,6 @@ import {
   type LocalPendingComment,
 } from ".";
 import { getCommitFieldLabel } from "./useCurrentDiff";
-import { COMMIT_METADATA_MARKER } from "@/shared/commit-metadata";
 
 export function useCommentActions() {
   const store = usePRReviewStore();
@@ -33,17 +32,16 @@ export function useCommentActions() {
     let githubStartLine: number | undefined = startLine;
 
     if (state.selectedFile === ":commit" && state.files.length > 0) {
-      const sha = state.selectedCommitSha?.slice(0, 7) ?? "";
+      const fullSha = state.selectedCommitSha ?? "";
+      const shortSha = fullSha.slice(0, 7);
       githubPath = state.files[0].filename;
       githubLine = 1;
       githubStartLine = undefined;
-      const commit = state.commits.find(
-        (c) => c.sha === state.selectedCommitSha
-      );
+      const commit = state.commits.find((c) => c.sha === fullSha);
       const label = commit ? getCommitFieldLabel(line, commit) : `line ${line}`;
-      const marker = `<!-- pulldash:commit-metadata sha=${sha} line=${line} label=${label} -->`;
+      const marker = `<!-- pulldash:commit-metadata sha=${fullSha} line=${line} label=${label} -->`;
       finalBody =
-        `_This comment was made on the commit metadata for commit ${sha}, on the ${label} line._\n\n` +
+        `_This comment was made on the commit metadata for commit ${shortSha}, on the ${label} line._\n\n` +
         `${marker}\n\n` +
         body;
     }
