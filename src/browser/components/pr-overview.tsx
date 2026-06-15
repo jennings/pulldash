@@ -2873,8 +2873,12 @@ function ReviewThreadBox({
     if (!isMetadataComment) return null;
     const info = parseCommitMetadataMarker(firstComment?.body ?? "");
     if (!info) return null;
-    const commits = store.getSnapshot().commits;
-    const commit = commits.find((c) => c.sha.startsWith(info.sha));
+    const state = store.getSnapshot();
+    const commit =
+      state.commits.find((c) => c.sha.startsWith(info.sha)) ??
+      state.commitsByVersion
+        .flatMap((v) => v.commits)
+        .find((c) => c.sha.startsWith(info.sha));
     if (!commit) return null;
     const lines = buildMetadataLines(commit);
     const commentIdx = info.line - 1;
