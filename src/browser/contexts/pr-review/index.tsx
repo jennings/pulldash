@@ -800,19 +800,42 @@ export class PRReviewStore {
 
   private lastSelectedFile: string | null = null;
 
+  private isNoChangeFile = (filename: string): boolean => {
+    const {
+      interdiffEnabled,
+      interdiffLoadedDiffs,
+      versionCompareNoChangeFiles,
+    } = this.state;
+    if (!interdiffEnabled) return false;
+    if (versionCompareNoChangeFiles.includes(filename)) return true;
+    return interdiffLoadedDiffs[filename]?.hunks.length === 0;
+  };
+
   navigateToFile = (direction: "next" | "prev") => {
     const { files, selectedFile } = this.state;
     const currentIdx = selectedFile
       ? files.findIndex((f) => f.filename === selectedFile)
-      : -1;
+      : direction === "next"
+        ? -1
+        : files.length;
 
-    const newIdx =
-      direction === "next"
-        ? Math.min(currentIdx + 1, files.length - 1)
-        : Math.max(currentIdx - 1, 0);
-
-    if (newIdx !== currentIdx && files[newIdx]) {
-      this.selectFile(files[newIdx].filename);
+    if (direction === "next") {
+      for (let i = currentIdx + 1; i < files.length; i++) {
+        if (!this.isNoChangeFile(files[i].filename)) {
+          this.selectFile(files[i].filename);
+          return;
+        }
+      }
+      if (currentIdx >= 0) this.selectFile(files[currentIdx].filename);
+    } else {
+      for (let i = currentIdx - 1; i >= 0; i--) {
+        if (!this.isNoChangeFile(files[i].filename)) {
+          this.selectFile(files[i].filename);
+          return;
+        }
+      }
+      if (currentIdx < files.length)
+        this.selectFile(files[currentIdx].filename);
     }
   };
 
@@ -857,8 +880,12 @@ export class PRReviewStore {
     // Search forward then wrap
     for (let i = 0; i < files.length; i++) {
       const idx = (currentIdx + 1 + i) % files.length;
-      if (!viewedFiles.has(files[idx].filename)) {
-        this.selectFile(files[idx].filename);
+      const file = files[idx];
+      if (
+        !viewedFiles.has(file.filename) &&
+        !this.isNoChangeFile(file.filename)
+      ) {
+        this.selectFile(file.filename);
         return;
       }
     }
@@ -873,8 +900,12 @@ export class PRReviewStore {
     // Search backward then wrap
     for (let i = 0; i < files.length; i++) {
       const idx = (currentIdx - 1 - i + files.length) % files.length;
-      if (!viewedFiles.has(files[idx].filename)) {
-        this.selectFile(files[idx].filename);
+      const file = files[idx];
+      if (
+        !viewedFiles.has(file.filename) &&
+        !this.isNoChangeFile(file.filename)
+      ) {
+        this.selectFile(file.filename);
         return;
       }
     }
