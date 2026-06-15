@@ -1323,6 +1323,10 @@ const KeybindsBar = memo(function KeybindsBar() {
                 <Keycap keyName="g" size="xs" /> goto line
               </span>
               <span className="flex items-center gap-1.5 text-muted-foreground">
+                <Keycap keyName="[" size="xs" />
+                <Keycap keyName="]" size="xs" /> prev/next commit
+              </span>
+              <span className="flex items-center gap-1.5 text-muted-foreground">
                 <Keycap keyName="j" size="xs" />
                 <Keycap keyName="k" size="xs" /> prev/next file
               </span>
