@@ -349,7 +349,10 @@ const insertSkipBlocks = (hunks: Hunk[]): (Hunk | SkipBlock)[] => {
       result.push({
         count: distanceToLastHunk,
         type: "skip",
-        content: context ?? hunk.content,
+        content:
+          context && context.length >= 5
+            ? context
+            : `${distanceToLastHunk} lines hidden`,
       });
     }
     lastHunkLine = Math.max(hunk.oldStart + hunk.oldLines, lastHunkLine);

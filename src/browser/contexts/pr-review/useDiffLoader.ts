@@ -233,7 +233,7 @@ export function useDiffLoader() {
     const currentFile = selectedFile;
     // Commit-specific views use a distinct cache context so they don't collide
     // with full-branch diffs that share the same blob SHA.
-    const cacheContext = selectedCommitSha ?? undefined;
+    let cacheContext = selectedCommitSha ?? undefined;
 
     // Check cache synchronously - only use if we have full content version
     const cached = getFullDiffFromCache(file, cacheContext);
@@ -270,13 +270,41 @@ export function useDiffLoader() {
     const getRawDiff: RawDiffGetter = (base, head) =>
       github.getRawCompareDiff(owner, repo, base, head);
 
+    // Determine correct base/head refs for the current view.
+    // When viewing a specific commit, use its parent as the base so file
+    // content fetching and raw diff recovery operate on the right range.
+    let baseRef = pr.base.sha;
+    let headRef = pr.head.sha;
+    if (selectedCommitSha) {
+      const state = store.getSnapshot();
+      const all = [...state.commits];
+      const seen = new Set(all.map((c) => c.sha));
+      for (const vc of state.commitsByVersion) {
+        for (const c of vc.commits) {
+          if (!seen.has(c.sha)) {
+            seen.add(c.sha);
+            all.push(c);
+          }
+        }
+      }
+      const commit = all.find((c) => c.sha === selectedCommitSha);
+      if (commit?.parents?.[0]?.sha) {
+        baseRef = commit.parents[0].sha;
+        headRef = selectedCommitSha;
+        // Include the parent SHA in the cache context so the diff for
+        // this commit vs its parent doesn't collide with the same commit
+        // vs a different parent.
+        cacheContext = `${selectedCommitSha}:parent:${commit.parents[0].sha}`;
+      }
+    }
+
     // Fetch immediately with full file content for better highlighting
     fetchParsedDiff(
       file,
       undefined,
       getFileContent,
-      pr.base.sha,
-      pr.head.sha,
+      baseRef,
+      headRef,
       cacheContext,
       getRawDiff
     )
@@ -307,8 +335,8 @@ export function useDiffLoader() {
                 pfile,
                 undefined,
                 getFileContent,
-                pr.base.sha,
-                pr.head.sha,
+                baseRef,
+                headRef,
                 cacheContext,
                 getRawDiff
               )

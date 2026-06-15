@@ -462,7 +462,10 @@ const insertSkipBlocks = (hunks: Hunk[]): (Hunk | SkipBlock)[] => {
       result.push({
         count: distanceToLastHunk,
         type: "skip",
-        content: context ?? hunk.content,
+        content:
+          context && context.length >= 5
+            ? context
+            : `${distanceToLastHunk} lines hidden`,
       });
     }
     lastHunkLine = Math.max(hunk.oldStart + hunk.oldLines, lastHunkLine);
@@ -508,15 +511,6 @@ ${patch}`;
     ? guessLang(previousFilename)
     : language;
 
-  // Pre-highlight full files if content is provided
-  // This ensures proper highlighting for multi-line constructs (strings, comments, etc.)
-  const oldHighlightedLines = oldContent
-    ? highlightFileByLines(oldContent, prevLanguage)
-    : null;
-  const newHighlightedLines = newContent
-    ? highlightFileByLines(newContent, language)
-    : null;
-
   const rawHunks = insertSkipBlocks(
     file.hunks.map((hunk) => parseHunk(hunk, opts))
   );
@@ -555,37 +549,13 @@ ${patch}`;
           content: line.content.map((seg) => {
             let html: string;
 
-            // Try to use pre-highlighted content for better context
+            // Always highlight from the patch text. The full file content
+            // at the given line number may differ (e.g. when the patch is
+            // from a per-commit view but the file content was fetched from
+            // a different ref), so pre-highlighted content cannot be trusted.
             if (singleSegmentIsNormal) {
-              // Use pre-highlighted line if available
-              if (
-                line.type === "delete" &&
-                oldHighlightedLines &&
-                oldNum !== undefined
-              ) {
-                html =
-                  oldHighlightedLines[oldNum - 1] ??
-                  highlight(seg.value, prevLanguage);
-              } else if (
-                line.type === "insert" &&
-                newHighlightedLines &&
-                newNum !== undefined
-              ) {
-                html =
-                  newHighlightedLines[newNum - 1] ??
-                  highlight(seg.value, language);
-              } else if (
-                line.type === "normal" &&
-                newHighlightedLines &&
-                newNum !== undefined
-              ) {
-                // For normal lines, prefer new file highlighting (same content in both)
-                html =
-                  newHighlightedLines[newNum - 1] ??
-                  highlight(seg.value, language);
-              } else {
-                html = highlight(seg.value, language);
-              }
+              const segLang = line.type === "delete" ? prevLanguage : language;
+              html = highlight(seg.value, segLang);
             } else {
               // Multiple segments (inline diff) - highlight each segment individually
               // This is acceptable since inline diffs are usually small
