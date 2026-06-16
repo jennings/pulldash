@@ -34,6 +34,7 @@ import {
 import { Button } from "../ui/button";
 import { useAuth } from "../contexts/auth";
 import { useCurrentUser } from "../contexts/github";
+import { GITHUB_CLIENT_ID } from "../contexts/auth";
 import { cn } from "../cn";
 import { isMac } from "../ui/keycap";
 import { useTheme } from "../contexts/theme";
@@ -178,9 +179,13 @@ const reviewFiles = [
 // PAT Authentication Section
 // ============================================================================
 
-function PATAuthSection() {
+function PATAuthSection({
+  defaultVisible = false,
+}: {
+  defaultVisible?: boolean;
+}) {
   const { loginWithPAT } = useAuth();
-  const [showPATInput, setShowPATInput] = useState(false);
+  const [showPATInput, setShowPATInput] = useState(defaultVisible);
   const [patToken, setPatToken] = useState("");
   const [patError, setPatError] = useState<string | null>(null);
   const [isValidatingPAT, setIsValidatingPAT] = useState(false);
@@ -1128,25 +1133,27 @@ export function WelcomeDialog() {
           ) : (
             /* Sign In State */
             <div className="space-y-4">
-              <Button
-                onClick={startDeviceAuth}
-                disabled={isPending}
-                className="w-full h-10 gap-2"
-              >
-                {isPending ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Connecting...
-                  </>
-                ) : (
-                  <>
-                    <Github className="w-4 h-4" />
-                    Sign in with GitHub
-                  </>
-                )}
-              </Button>
+              {GITHUB_CLIENT_ID !== "FIXME" && (
+                <Button
+                  onClick={startDeviceAuth}
+                  disabled={isPending}
+                  className="w-full h-10 gap-2"
+                >
+                  {isPending ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Connecting...
+                    </>
+                  ) : (
+                    <>
+                      <Github className="w-4 h-4" />
+                      Sign in with GitHub
+                    </>
+                  )}
+                </Button>
+              )}
 
-              <PATAuthSection />
+              <PATAuthSection defaultVisible={GITHUB_CLIENT_ID === "FIXME"} />
 
               <p className="text-xs text-center text-muted-foreground">
                 All GitHub API calls are made directly from your device.

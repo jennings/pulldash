@@ -14,7 +14,10 @@ import {
 // OAuth App Client ID - enables simple user authentication like GitHub CLI.
 // Users just authorize and get access to their repos based on scopes.
 // No app installation required on repos/orgs.
-export const GITHUB_CLIENT_ID = "FIXME";
+// Set via build-time define (__GITHUB_CLIENT_ID__) from src/auth.config.ts.
+// Falls back to "FIXME" when the define is absent (e.g., in tests).
+export const GITHUB_CLIENT_ID =
+  typeof __GITHUB_CLIENT_ID__ !== "undefined" ? __GITHUB_CLIENT_ID__ : "FIXME";
 
 // Storage keys
 const TOKEN_STORAGE_KEY = "pulldash_github_token";
