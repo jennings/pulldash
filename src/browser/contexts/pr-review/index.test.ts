@@ -1,7 +1,7 @@
 import { test, expect, beforeEach, mock } from "bun:test";
 import type { PullRequest, PullRequestFile, ReviewComment } from "@/api/types";
 import { PRReviewStore, sortFilesLikeTree } from "./index";
-import type { GitHubStore } from "@/browser/contexts/github";
+import type { GitHubStore, ReviewThread } from "@/browser/contexts/github";
 
 // Mock diffService so interdiff calls resolve without real WebWorkers
 mock.module("@/browser/lib/diff", () => ({
@@ -50,6 +50,9 @@ function createMockGitHubStore(): GitHubStore {
     markReadyForReview: async () => {},
     approveWorkflowRun: async () => {},
     updateBranch: async () => {},
+    getCommitFiles: async () => [],
+    getMergeCommitFiles: async () => [],
+    getPRFilesForRange: async () => [],
   } as unknown as GitHubStore;
 }
 
@@ -125,6 +128,19 @@ function createStore(overrides?: {
 beforeEach(() => {
   storage.clear();
 });
+
+// Helper: run a test that expects console.error to be called (suppresses noise)
+function suppressConsoleError(fn: () => Promise<void>): () => Promise<void> {
+  return async () => {
+    const orig = console.error;
+    console.error = () => {};
+    try {
+      await fn();
+    } finally {
+      console.error = orig;
+    }
+  };
+}
 
 // ============================================================================
 // sortFilesLikeTree
@@ -871,4 +887,527 @@ test("mergePR sets mergeError and clears merging on failure", async () => {
   expect(state.merging).toBe(false);
   expect(state.mergeError).toBe("Merge conflict");
   expect(state.pr.merged).toBe(false);
+});
+
+// ============================================================================
+// Conversation / Timeline events
+// ============================================================================
+
+test("addConversationComment appends to conversation array", () => {
+  const store = createStore();
+  expect(store.getSnapshot().conversation).toHaveLength(0);
+
+  const comment = { id: 1, body: "test comment" } as any;
+  store.addConversationComment(comment);
+
+  expect(store.getSnapshot().conversation).toHaveLength(1);
+  expect(store.getSnapshot().conversation[0].id).toBe(1);
+});
+
+test("addConversationComment appends multiple comments", () => {
+  const store = createStore();
+  store.addConversationComment({ id: 1 } as any);
+  store.addConversationComment({ id: 2 } as any);
+
+  expect(store.getSnapshot().conversation).toHaveLength(2);
+});
+
+test("addTimelineEvent appends to timeline array", () => {
+  const store = createStore();
+  expect(store.getSnapshot().timeline).toHaveLength(0);
+
+  store.addTimelineEvent({ event: "commented", id: 1 } as any);
+
+  expect(store.getSnapshot().timeline).toHaveLength(1);
+  expect(store.getSnapshot().timeline[0]).toEqual({
+    event: "commented",
+    id: 1,
+  });
+});
+
+test("addTimelineEvent appends multiple events", () => {
+  const store = createStore();
+  store.addTimelineEvent({ event: "commented", id: 1 } as any);
+  store.addTimelineEvent({ event: "reviewed", id: 2 } as any);
+
+  expect(store.getSnapshot().timeline).toHaveLength(2);
+});
+
+test("setTimeline replaces timeline array", () => {
+  const store = createStore();
+  store.addTimelineEvent({ event: "commented", id: 1 } as any);
+
+  store.setTimeline([{ event: "closed" } as any]);
+
+  expect(store.getSnapshot().timeline).toHaveLength(1);
+  expect(store.getSnapshot().timeline[0].event).toBe("closed");
+});
+
+test("setConversation replaces conversation array", () => {
+  const store = createStore();
+  store.addConversationComment({ id: 1 } as any);
+
+  store.setConversation([{ id: 2 } as any]);
+
+  expect(store.getSnapshot().conversation).toHaveLength(1);
+  expect(store.getSnapshot().conversation[0].id).toBe(2);
+});
+
+// ============================================================================
+// Review Threads
+// ============================================================================
+
+test("setReviewThreads sets threads and rewrites metadata paths", () => {
+  const store = createStore();
+  const thread: ReviewThread = {
+    id: "thread-1",
+    isResolved: false,
+    isOutdated: false,
+    resolvedBy: null,
+    pullRequestReview: null,
+    comments: {
+      nodes: [
+        {
+          id: "c1",
+          databaseId: 1,
+          body: "<!-- pulldash:commit-metadata sha=abc line=5 label=Author -->",
+          path: "some/file.ts",
+          line: 10,
+          originalLine: null,
+          startLine: null,
+          diffHunk: "",
+          author: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          replyTo: null,
+        },
+      ],
+    },
+  } as ReviewThread;
+
+  store.setReviewThreads([thread]);
+
+  const state = store.getSnapshot();
+  expect(state.reviewThreads).toHaveLength(1);
+  // Metadata comment path should be rewritten to ":commit"
+  expect(state.reviewThreads[0].comments.nodes[0].path).toBe(":commit");
+});
+
+test("updateReviewThread applies updater to matching thread", () => {
+  const store = createStore();
+  const thread = {
+    id: "thread-1",
+    isResolved: false,
+    isOutdated: false,
+    resolvedBy: null,
+    pullRequestReview: null,
+    comments: { nodes: [] },
+  } as unknown as ReviewThread;
+  store.setReviewThreads([thread]);
+
+  store.updateReviewThread("thread-1", (t) => ({ ...t, isResolved: true }));
+
+  expect(store.getSnapshot().reviewThreads[0].isResolved).toBe(true);
+});
+
+test("updateReviewThread does not affect non-matching threads", () => {
+  const store = createStore();
+  const t1 = {
+    id: "thread-1",
+    isResolved: false,
+    isOutdated: false,
+    resolvedBy: null,
+    pullRequestReview: null,
+    comments: { nodes: [] },
+  } as unknown as ReviewThread;
+  const t2 = {
+    id: "thread-2",
+    isResolved: false,
+    isOutdated: false,
+    resolvedBy: null,
+    pullRequestReview: null,
+    comments: { nodes: [] },
+  } as unknown as ReviewThread;
+  store.setReviewThreads([t1, t2]);
+
+  store.updateReviewThread("thread-1", (t) => ({ ...t, isResolved: true }));
+
+  expect(store.getSnapshot().reviewThreads[0].isResolved).toBe(true);
+  expect(store.getSnapshot().reviewThreads[1].isResolved).toBe(false);
+});
+
+// ============================================================================
+// Skip blocks
+// ============================================================================
+
+test("getSkipBlockKey returns a stable key", () => {
+  const store = createStore();
+  expect(store.getSkipBlockKey("file.ts", 0)).toBe("file.ts:0");
+  expect(store.getSkipBlockKey("file.ts", 5)).toBe("file.ts:5");
+});
+
+test("setSkipBlockExpanding sets the expanding map", () => {
+  const store = createStore();
+  const key = store.getSkipBlockKey("file.ts", 0);
+
+  store.setSkipBlockExpanding(key, true);
+  expect(store.getSnapshot().expandingSkipBlocks.has(key)).toBe(true);
+
+  store.setSkipBlockExpanding(key, false);
+  expect(store.getSnapshot().expandingSkipBlocks.has(key)).toBe(false);
+});
+
+test("isSkipBlockExpanding returns correct state", () => {
+  const store = createStore();
+  expect(store.isSkipBlockExpanding("file.ts", 0)).toBe(false);
+
+  store.setSkipBlockExpanding(store.getSkipBlockKey("file.ts", 0), true);
+  expect(store.isSkipBlockExpanding("file.ts", 0)).toBe(true);
+});
+
+test("setExpandedSkipBlock stores expanded lines", () => {
+  const store = createStore();
+  const key = store.getSkipBlockKey("file.ts", 0);
+  const lines: any[] = [{ type: "normal" }];
+
+  store.setExpandedSkipBlock(key, lines);
+
+  expect(store.getSnapshot().expandedSkipBlocks[key]).toBe(lines);
+});
+
+test("isSkipBlockExpanded returns true after expanding", () => {
+  const store = createStore();
+  expect(store.isSkipBlockExpanded("file.ts", 0)).toBe(false);
+
+  store.setExpandedSkipBlock(store.getSkipBlockKey("file.ts", 0), [
+    { type: "normal" },
+  ] as any);
+
+  expect(store.isSkipBlockExpanded("file.ts", 0)).toBe(true);
+});
+
+// ============================================================================
+// Comment Drafts
+// ============================================================================
+
+test("setCommentDraft stores draft text", () => {
+  const store = createStore();
+  store.setCommentDraft("line-10", "my draft");
+
+  expect(store.getSnapshot().commentDrafts["line-10"]).toBe("my draft");
+});
+
+test("setCommentDraft overwrites existing draft", () => {
+  const store = createStore();
+  store.setCommentDraft("line-10", "old");
+  store.setCommentDraft("line-10", "new");
+
+  expect(store.getSnapshot().commentDrafts["line-10"]).toBe("new");
+});
+
+test("clearCommentDraft removes draft text", () => {
+  const store = createStore();
+  store.setCommentDraft("line-10", "my draft");
+  store.clearCommentDraft("line-10");
+
+  expect(store.getSnapshot().commentDrafts["line-10"]).toBeUndefined();
+});
+
+test("clearCommentDraft does nothing for non-existent key", () => {
+  const store = createStore();
+  store.clearCommentDraft("non-existent");
+
+  expect(store.getSnapshot().commentDrafts).toEqual({});
+});
+
+// ============================================================================
+// PR Actions (close, reopen, draft, branch)
+// ============================================================================
+
+test("closePR sets state to closed and refetches timeline", async () => {
+  const store = createStore();
+  expect(store.getSnapshot().pr.state).toBe("open");
+
+  const result = await store.closePR();
+
+  expect(result).toBe(true);
+  expect(store.getSnapshot().pr.state).toBe("closed");
+  expect(store.getSnapshot().pr.merged).toBe(false);
+  expect(store.getSnapshot().closingPR).toBe(false);
+});
+
+test(
+  "closePR returns false on failure",
+  suppressConsoleError(async () => {
+    const github = {
+      ...createMockGitHubStore(),
+      closePR: async () => {
+        throw new Error("API error");
+      },
+    } as unknown as GitHubStore;
+    const store = new PRReviewStore(github, {
+      pr: createMockPR(),
+      files: [],
+      comments: [],
+      owner: "test",
+      repo: "repo",
+      viewerPermission: "WRITE",
+    });
+
+    const result = await store.closePR();
+
+    expect(result).toBe(false);
+    expect(store.getSnapshot().closingPR).toBe(false);
+  })
+);
+
+test("reopenPR sets state to open", async () => {
+  const pr = createMockPR({ state: "closed" });
+  const store = createStore({ files: [createMockFile("a.ts")] });
+  // Override the PR to closed
+  (store as any).set({ pr });
+
+  const result = await store.reopenPR();
+
+  expect(result).toBe(true);
+  expect(store.getSnapshot().pr.state).toBe("open");
+});
+
+test(
+  "reopenPR returns false on failure",
+  suppressConsoleError(async () => {
+    const github = {
+      ...createMockGitHubStore(),
+      reopenPR: async () => {
+        throw new Error("API error");
+      },
+    } as unknown as GitHubStore;
+    const store = new PRReviewStore(github, {
+      pr: createMockPR({ state: "closed" }),
+      files: [],
+      comments: [],
+      owner: "test",
+      repo: "repo",
+      viewerPermission: "WRITE",
+    });
+
+    const result = await store.reopenPR();
+
+    expect(result).toBe(false);
+  })
+);
+
+test("convertToDraft sets draft flag", async () => {
+  const store = createStore();
+
+  const result = await store.convertToDraft();
+
+  expect(result).toBe(true);
+  expect(store.getSnapshot().pr.draft).toBe(true);
+});
+
+test(
+  "convertToDraft returns false on failure",
+  suppressConsoleError(async () => {
+    const github = {
+      ...createMockGitHubStore(),
+      convertToDraft: async () => {
+        throw new Error("API error");
+      },
+    } as unknown as GitHubStore;
+    const store = new PRReviewStore(github, {
+      pr: createMockPR(),
+      files: [],
+      comments: [],
+      owner: "test",
+      repo: "repo",
+      viewerPermission: "WRITE",
+    });
+
+    const result = await store.convertToDraft();
+
+    expect(result).toBe(false);
+  })
+);
+
+test("markReadyForReview clears draft flag", async () => {
+  const store = createStore({ files: [createMockFile("a.ts")] });
+  (store as any).set({ pr: createMockPR({ draft: true }) });
+
+  const result = await store.markReadyForReview();
+
+  expect(result).toBe(true);
+  expect(store.getSnapshot().pr.draft).toBe(false);
+});
+
+test("updateBranch returns true on success and updates PR", async () => {
+  const store = createStore();
+
+  const result = await store.updateBranch();
+
+  expect(result).toBe(true);
+});
+
+test(
+  "updateBranch returns false on failure",
+  suppressConsoleError(async () => {
+    const github = {
+      ...createMockGitHubStore(),
+      updateBranch: async () => {
+        throw new Error("API error");
+      },
+    } as unknown as GitHubStore;
+    const store = new PRReviewStore(github, {
+      pr: createMockPR(),
+      files: [],
+      comments: [],
+      owner: "test",
+      repo: "repo",
+      viewerPermission: "WRITE",
+    });
+
+    const result = await store.updateBranch();
+
+    expect(result).toBe(false);
+  })
+);
+
+test("deleteBranch returns true on success", async () => {
+  const store = createStore();
+
+  const result = await store.deleteBranch();
+
+  expect(result).toBe(true);
+  expect(store.getSnapshot().branchDeleted).toBe(true);
+});
+
+test(
+  "deleteBranch returns false on failure",
+  suppressConsoleError(async () => {
+    const github = {
+      ...createMockGitHubStore(),
+      deleteBranch: async () => {
+        throw new Error("API error");
+      },
+    } as unknown as GitHubStore;
+    const store = new PRReviewStore(github, {
+      pr: createMockPR(),
+      files: [],
+      comments: [],
+      owner: "test",
+      repo: "repo",
+      viewerPermission: "WRITE",
+    });
+
+    const result = await store.deleteBranch();
+
+    expect(result).toBe(false);
+  })
+);
+
+test("restoreBranch returns true on success and clears branchDeleted", async () => {
+  const store = createStore();
+  (store as any).set({ branchDeleted: true });
+
+  const result = await store.restoreBranch();
+
+  expect(result).toBe(true);
+  expect(store.getSnapshot().branchDeleted).toBe(false);
+});
+
+test("approveWorkflows clears awaiting workflows and refreshes checks", async () => {
+  const store = createStore();
+
+  const result = await store.approveWorkflows();
+
+  expect(result).toBe(true);
+});
+
+test(
+  "approveWorkflows returns false on failure",
+  suppressConsoleError(async () => {
+    const github = {
+      ...createMockGitHubStore(),
+      approveWorkflowRun: async () => {
+        throw new Error("API error");
+      },
+    } as unknown as GitHubStore;
+    const store = new PRReviewStore(github, {
+      pr: createMockPR(),
+      files: [],
+      comments: [],
+      owner: "test",
+      repo: "repo",
+      viewerPermission: "WRITE",
+    });
+    // Set a workflow run awaiting approval so approveWorkflowRun is called
+    (store as any).set({
+      workflowRunsAwaitingApproval: [
+        { id: 1, name: "CI", html_url: "https://example.com" },
+      ],
+    });
+
+    const result = await store.approveWorkflows();
+
+    expect(result).toBe(false);
+  })
+);
+
+// ============================================================================
+// Version / Commit selectors
+// ============================================================================
+
+test("setCompareToCommitSha enables interdiff when both commits are set", async () => {
+  const store = createStore();
+  // setSelectedCommitSha and setCompareToSha must be set first
+  await store.setCompareToSha(null); // no-op, just to have compareToSha null
+
+  await store.setCompareToCommitSha("somesha");
+
+  const state = store.getSnapshot();
+  expect(state.compareToCommitSha).toBe("somesha");
+  // Without selectedCommitSha, interdiff is not enabled
+  expect(state.interdiffEnabled).toBe(false);
+});
+
+test("resetVersionSelectors resets all version/commit/compare state", async () => {
+  const store = createStore();
+  await store.setCompareToSha("comparesha");
+  store.selectFile("src/index.ts");
+
+  await store.resetVersionSelectors();
+
+  const state = store.getSnapshot();
+  expect(state.selectedHeadSha).toBeNull();
+  expect(state.selectedCommitSha).toBeNull();
+  expect(state.selectedParentSha).toBeNull();
+  expect(state.compareToSha).toBeNull();
+});
+
+// ============================================================================
+// setSelectedParentSha
+// ============================================================================
+
+test("setSelectedParentSha(null) clears parent and reloads files", async () => {
+  const store = createStore();
+  await store.setSelectedCommitSha("abc123");
+  await store.setSelectedParentSha("parentsha");
+  expect(store.getSnapshot().selectedParentSha).toBe("parentsha");
+
+  await store.setSelectedParentSha(null);
+
+  expect(store.getSnapshot().selectedParentSha).toBeNull();
+});
+
+test("setSelectedParentSha(sha) sets parent and resets compare", async () => {
+  const store = createStore();
+  await store.setSelectedCommitSha("abc123");
+  await store.setCompareToSha("comparesha");
+
+  await store.setSelectedParentSha("parentsha");
+
+  const state = store.getSnapshot();
+  expect(state.selectedParentSha).toBe("parentsha");
+  // Compare should be cleared since parents and version comparison are exclusive
+  expect(state.compareToSha).toBeNull();
 });
