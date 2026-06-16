@@ -5,10 +5,12 @@ import {
   Copy,
   Check,
   Menu,
+  Code2,
 } from "lucide-react";
 import { memo, useState, useCallback, type ReactNode } from "react";
 import { cn } from "../cn";
 import { UserHoverCard } from "../ui/user-hover-card";
+import { Popover, PopoverTrigger, PopoverContent } from "../ui/popover";
 import type { PullRequest } from "@/api/types";
 
 interface PRHeaderProps {
@@ -95,6 +97,15 @@ export const PRHeader = memo(function PRHeader({
         {owner}/{repo}
       </a>
 
+      {/* Clone commands */}
+      <ClonePopover
+        pr={pr}
+        owner={owner}
+        repo={repo}
+        number={pr.number}
+        headRef={pr.head.ref}
+      />
+
       {/* Title with author and branches inline */}
       <h1 className="text-sm font-medium truncate flex-1 min-w-0 flex items-center gap-2">
         <span className="truncate">
@@ -175,5 +186,164 @@ function BranchBadge({ branch }: { branch: string }) {
         )}
       </button>
     </span>
+  );
+}
+
+// ============================================================================
+// Clone Popover — local checkout commands for git / gh / jj
+// ============================================================================
+
+interface ClonePopoverProps {
+  pr: PullRequest;
+  owner: string;
+  repo: string;
+  number: number;
+  headRef: string;
+}
+
+function ClonePopover({ pr, owner, repo, number, headRef }: ClonePopoverProps) {
+  const [mode, setMode] = useState<"switch" | "ssh-clone" | "https-clone">(
+    "switch"
+  );
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  const cloneRepo = mode !== "switch";
+  const useSsh = mode === "ssh-clone";
+
+  // Detect fork PR: the head ref comes from a different repository
+  const isFork = pr.head?.repo?.full_name !== `${owner}/${repo}`;
+  const forkOwner = pr.head?.repo?.owner?.login ?? owner;
+  const forkRepo = pr.head?.repo?.name ?? repo;
+
+  const proto = useSsh ? "git@github.com:" : "https://github.com/";
+  const baseUrl = `${proto}${owner}/${repo}.git`;
+  const forkUrl = `${proto}${forkOwner}/${forkRepo}.git`;
+  const gitUrl = isFork && cloneRepo ? forkUrl : baseUrl;
+  const gitCmd = cloneRepo
+    ? `git clone -b ${headRef} ${gitUrl}`
+    : isFork
+      ? `git fetch origin pull/${number}/head:pr-${number} && git checkout pr-${number}`
+      : `git fetch && git checkout ${headRef}`;
+  const ghCmd = cloneRepo
+    ? `gh repo clone ${forkOwner}/${forkRepo} -- -b ${headRef}`
+    : `gh pr checkout ${number}`;
+  const jjFetchCheckout = isFork
+    ? `git fetch origin pull/${number}/head:pr-${number} && jj new pr-${number}`
+    : `jj git fetch && jj new ${headRef}@origin`;
+  const jjCmd = cloneRepo
+    ? `jj git clone -b ${headRef} ${gitUrl}`
+    : jjFetchCheckout;
+
+  const copy = useCallback((key: string, text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedKey(key);
+    setTimeout(() => setCopiedKey(null), 2000);
+  }, []);
+
+  const modes = [
+    { value: "switch" as const, label: "Switch" },
+    { value: "ssh-clone" as const, label: "SSH Clone" },
+    { value: "https-clone" as const, label: "HTTPS Clone" },
+  ];
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          className="p-1 rounded text-muted-foreground hover:text-blue-400 hover:bg-blue-500/20 transition-colors shrink-0"
+          title="Get commands to check out this PR locally"
+        >
+          <Code2 className="w-4 h-4" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className="w-[28rem] p-3 text-xs font-mono"
+        side="bottom"
+      >
+        {/* 3-state mode buttons */}
+        <div className="flex items-center gap-1 mb-3 bg-muted rounded-md p-0.5">
+          {modes.map((m) => (
+            <button
+              key={m.value}
+              onClick={() => setMode(m.value)}
+              className={cn(
+                "flex-1 px-2 py-1 rounded text-xs font-medium transition-colors",
+                mode === m.value
+                  ? "bg-card text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+
+        {/* git */}
+        <CommandBlock
+          label="git"
+          command={gitCmd}
+          copiedKey={copiedKey}
+          copyKey="git"
+          onCopy={copy}
+        />
+
+        {/* gh */}
+        <CommandBlock
+          label="gh (GitHub CLI)"
+          command={ghCmd}
+          copiedKey={copiedKey}
+          copyKey="gh"
+          onCopy={copy}
+        />
+
+        {/* jj */}
+        <CommandBlock
+          label="jj (Jujutsu)"
+          command={jjCmd}
+          copiedKey={copiedKey}
+          copyKey="jj"
+          onCopy={copy}
+        />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function CommandBlock({
+  label,
+  command,
+  copiedKey,
+  copyKey,
+  onCopy,
+}: {
+  label: string;
+  command: string;
+  copiedKey: string | null;
+  copyKey: string;
+  onCopy: (key: string, text: string) => void;
+}) {
+  const isCopied = copiedKey === copyKey;
+
+  return (
+    <div className="mb-2 last:mb-0">
+      <div className="text-[10px] text-muted-foreground mb-1">{label}</div>
+      <div className="relative group">
+        <code className="block bg-muted rounded px-2 py-1.5 text-xs leading-relaxed whitespace-pre-wrap break-all pr-8">
+          {command}
+        </code>
+        <button
+          onClick={() => onCopy(copyKey, command)}
+          className="absolute top-1 right-1 p-1 rounded text-muted-foreground hover:text-blue-400 hover:bg-blue-500/20 transition-colors opacity-0 group-hover:opacity-100"
+          title="Copy command"
+        >
+          {isCopied ? (
+            <Check className="w-3 h-3 text-green-500" />
+          ) : (
+            <Copy className="w-3 h-3" />
+          )}
+        </button>
+      </div>
+    </div>
   );
 }
