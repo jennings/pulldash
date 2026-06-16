@@ -4,6 +4,7 @@ import {
   isMetadataComment,
   getCommentDisplayPath,
   stripCommitMetadataPrefix,
+  parseChangeIdFromPayload,
   COMMIT_METADATA_MARKER,
 } from "./commit-metadata";
 
@@ -177,4 +178,39 @@ test("stripCommitMetadataPrefix preserves content after marker with leading whit
 test("stripCommitMetadataPrefix ignores body with unclosed marker comment", () => {
   const body = "<!-- pulldash:commit-metadata sha=abc line=1 label=Author";
   expect(stripCommitMetadataPrefix(body)).toBe(body);
+});
+
+// ============================================================================
+// parseChangeIdFromPayload
+// ============================================================================
+
+test("parseChangeIdFromPayload extracts jj change-id from raw payload", () => {
+  const payload =
+    "tree abc\nparent def\nauthor Name <email> 1234 +0000\ncommitter Name <email> 5678 +0000\nchange-id lqumvuttsztkotykvwzrswsvnsukztsy\ngpgsig -----BEGIN SSH SIGNATURE-----\n line\n -----END SSH SIGNATURE-----\n\ncommit subject\n\ncommit body";
+  expect(parseChangeIdFromPayload(payload)).toBe(
+    "lqumvuttsztkotykvwzrswsvnsukztsy"
+  );
+});
+
+test("parseChangeIdFromPayload extracts Gerrit Change-Id from raw payload", () => {
+  const payload =
+    "tree abc\nparent def\nauthor Name <email> 1234 +0000\ncommitter Name <email> 5678 +0000\nChange-Id: Iabcd1234efgh5678abcdef1234abcdef5678\n\ncommit subject\n\ncommit body";
+  expect(parseChangeIdFromPayload(payload)).toBe(
+    "Iabcd1234efgh5678abcdef1234abcdef5678"
+  );
+});
+
+test("parseChangeIdFromPayload returns null when no change-id header", () => {
+  const payload =
+    "tree abc\nparent def\nauthor Name <email> 1234 +0000\ncommitter Name <email> 5678 +0000\n\ncommit subject\n\ncommit body";
+  expect(parseChangeIdFromPayload(payload)).toBeNull();
+});
+
+test("parseChangeIdFromPayload returns null for payload with only message body", () => {
+  const payload = "commit subject\n\ncommit body";
+  expect(parseChangeIdFromPayload(payload)).toBeNull();
+});
+
+test("parseChangeIdFromPayload returns null for empty payload", () => {
+  expect(parseChangeIdFromPayload("")).toBeNull();
 });

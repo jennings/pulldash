@@ -46,3 +46,14 @@ export function stripCommitMetadataPrefix(body: string): string {
   // Everything after the marker
   return body.slice(markerEnd + 3).trimStart();
 }
+
+const CHANGE_ID_HEADER_RE = /^(?:change-id|Change-Id)(?::\s*|\s+)(\S+)\s*$/m;
+
+/** Parse a change-id or Change-Id from the raw git commit payload header
+ *  section (before the first blank line). Returns the id value or null. */
+export function parseChangeIdFromPayload(payload: string): string | null {
+  // The header section ends at the first blank line
+  const headerEnd = payload.indexOf("\n\n");
+  const header = headerEnd === -1 ? payload : payload.slice(0, headerEnd);
+  return CHANGE_ID_HEADER_RE.exec(header)?.[1] ?? null;
+}

@@ -16,6 +16,7 @@ import type {
 import {
   isMetadataComment,
   parseCommitMetadataMarker,
+  parseChangeIdFromPayload,
 } from "@/shared/commit-metadata";
 import {
   MentionSuggestionsProvider,
@@ -196,6 +197,8 @@ interface PRReviewState {
   selectedParentSha: string | null;
   /** Parent commit titles (first line of commit message) keyed by SHA */
   parentCommitMessages: Record<string, string>;
+  /** Change-Id / change-id values from raw git commit payloads keyed by SHA */
+  commitChangeIds: Record<string, string>;
   /**
    * Push version SHA to compare against (null = "Target", i.e. PR base branch).
    * When non-null and a commit is selected, interdiff mode is active.
@@ -392,15 +395,17 @@ export function firstLine(message: string): string {
 /**
  * Find the best matching commit in `candidates` for the given `commit`.
  * Tries Change-Id exact match first, then subject-line exact match.
+ * An optional pre-computed `changeId` can be passed to avoid re-parsing.
  */
 export function findMatchingCommit(
   commit: PRCommit,
-  candidates: PRCommit[]
+  candidates: PRCommit[],
+  changeId?: string | null
 ): PRCommit | null {
-  const changeId = parseChangeId(commit.commit.message);
-  if (changeId) {
+  const id = changeId ?? parseChangeId(commit.commit.message);
+  if (id) {
     const match = candidates.find(
-      (c) => parseChangeId(c.commit.message) === changeId
+      (c) => parseChangeId(c.commit.message) === id
     );
     if (match) return match;
   }
@@ -568,6 +573,7 @@ export class PRReviewStore {
       selectedCommitSha: null,
       selectedParentSha: null,
       parentCommitMessages: {},
+      commitChangeIds: {},
       compareToSha: null,
       compareToCommitSha: null,
       interdiffEnabled: false,
@@ -1457,8 +1463,35 @@ export class PRReviewStore {
     const headCommit = commits.find((c) => c.sha === headCommitSha);
     let compareToCommitSha: string | null = null;
     if (headCommit && compareToVersionCommits.length > 0) {
-      compareToCommitSha =
-        findMatchingCommit(headCommit, compareToVersionCommits)?.sha ?? null;
+      // Resolve change-ids for the head commit and all candidates (may
+      // need raw git commit fetching for jj-style change-ids).
+      const headChangeId = await this.getCommitChangeId(headCommit);
+      const candidateIds = new Map<string, string>();
+      await Promise.allSettled(
+        compareToVersionCommits.map(async (c) => {
+          const id = await this.getCommitChangeId(c);
+          if (id) candidateIds.set(c.sha, id);
+        })
+      );
+      // Try matching by change-id first (Gerrit trailer + jj raw header)
+      if (headChangeId) {
+        for (const [sha, id] of candidateIds) {
+          if (id === headChangeId) {
+            compareToCommitSha = sha;
+            break;
+          }
+        }
+      }
+      // Fall back to subject-line matching
+      if (!compareToCommitSha) {
+        const subject = firstLine(headCommit.commit.message);
+        if (subject) {
+          const match = compareToVersionCommits.find(
+            (c) => firstLine(c.commit.message) === subject
+          );
+          if (match) compareToCommitSha = match.sha;
+        }
+      }
     }
 
     const interdiffEnabled = compareToCommitSha !== null;
@@ -1557,6 +1590,47 @@ export class PRReviewStore {
     if (sha && selectedCommitSha) {
       await this.computeInterdiff(sha, selectedCommitSha);
     }
+  };
+
+  /** Resolve a change-id for a commit, trying the raw git commit payload
+   *  as a fallback when the commit message has no Change-Id trailer. */
+  private getCommitChangeId = async (
+    commit: PRCommit
+  ): Promise<string | null> => {
+    // Fast path: parse from commit message (Gerrit/GitButler format)
+    const fromMessage = parseChangeId(commit.commit.message);
+    if (fromMessage) return fromMessage;
+
+    // Check cache
+    const cached = this.state.commitChangeIds[commit.sha];
+    if (cached) return cached;
+
+    // Fallback: fetch raw git commit, parse verification.payload
+    // Only works for signed commits
+    const { owner, repo, pr } = this.state;
+    try {
+      const raw = await this.github.getRawGitCommit(
+        owner,
+        repo,
+        commit.sha,
+        `${owner}/${repo}/${pr.number}`
+      );
+      if (raw?.verification?.payload) {
+        const id = parseChangeIdFromPayload(raw.verification.payload);
+        if (id) {
+          this.set({
+            commitChangeIds: {
+              ...this.state.commitChangeIds,
+              [commit.sha]: id,
+            },
+          });
+          return id;
+        }
+      }
+    } catch {
+      // Silently fail - fall through to null
+    }
+    return null;
   };
 
   resetVersionSelectors = async (): Promise<void> => {

@@ -1266,6 +1266,50 @@ function createGitHubStore() {
     return promise;
   }
 
+  async function getRawGitCommit(
+    owner: string,
+    repo: string,
+    ref: string,
+    prKey?: string
+  ): Promise<{ verification: { payload: string } | null } | null> {
+    if (!octokit) throw new Error("Not initialized");
+
+    const cacheKey = `git-commit:${owner}/${repo}:${ref}`;
+
+    const cached = cache.get<{ verification: { payload: string } | null }>(
+      cacheKey
+    );
+    if (cached) return cached;
+
+    if (prKey) {
+      const persistent = await PersistentCache.get<{
+        verification: { payload: string } | null;
+      }>(cacheKey);
+      if (persistent) {
+        cache.set(cacheKey, persistent);
+        return persistent;
+      }
+    }
+
+    const promise = octokit
+      .request("GET /repos/{owner}/{repo}/git/commits/{ref}", {
+        owner,
+        repo,
+        ref,
+      })
+      .then((res) => {
+        const data = res.data as {
+          verification: { payload: string } | null;
+        };
+        cache.set(cacheKey, data);
+        if (prKey) PersistentCache.put(cacheKey, data, prKey);
+        return data;
+      });
+
+    cache.setPending(cacheKey, promise);
+    return promise;
+  }
+
   async function getMergeCommitFiles(
     owner: string,
     repo: string,
@@ -3198,6 +3242,7 @@ function createGitHubStore() {
     getPRFilesForRange,
     getCommitFiles,
     getSingleCommit,
+    getRawGitCommit,
     getMergeCommitFiles,
     getRawCompareDiff,
     getPRComments,

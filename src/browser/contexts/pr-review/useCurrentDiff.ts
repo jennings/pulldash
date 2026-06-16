@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import {
   usePRReviewSelector,
+  parseChangeId,
   type ParsedDiff,
   type DiffLine,
   type DiffHunk,
@@ -32,7 +33,10 @@ interface MetadataLine {
   html: string;
 }
 
-function getCommitFields(commit: PRCommit): CommitField[] {
+function getCommitFields(
+  commit: PRCommit,
+  changeId?: string | null
+): CommitField[] {
   const fields: CommitField[] = [];
   const author = commit.commit.author;
   const authorName = author?.name ?? "Unknown";
@@ -74,6 +78,10 @@ function getCommitFields(commit: PRCommit): CommitField[] {
     }
   }
 
+  if (changeId) {
+    fields.push({ label: "Change-Id", value: changeId, kind: "sha" });
+  }
+
   return fields;
 }
 
@@ -85,8 +93,12 @@ function fieldHtml(field: CommitField): string {
   return `<span style="color:var(--muted-foreground);font-weight:500">${escapeHtml(field.label)}:</span> ${valueHtml}`;
 }
 
-export function getCommitFieldLabel(line: number, commit: PRCommit): string {
-  const fields = getCommitFields(commit);
+export function getCommitFieldLabel(
+  line: number,
+  commit: PRCommit,
+  changeId?: string | null
+): string {
+  const fields = getCommitFields(commit, changeId);
   const messageLines = commit.commit.message.split("\n");
 
   // Field lines (before the separator)
@@ -114,9 +126,12 @@ export function getCommitFieldLabel(line: number, commit: PRCommit): string {
   return `Line ${line}`;
 }
 
-export function buildMetadataLines(commit: PRCommit): MetadataLine[] {
+export function buildMetadataLines(
+  commit: PRCommit,
+  changeId?: string | null
+): MetadataLine[] {
   const lines: MetadataLine[] = [];
-  const fields = getCommitFields(commit);
+  const fields = getCommitFields(commit, changeId);
 
   for (const f of fields) {
     lines.push({
@@ -158,8 +173,11 @@ function makeContent(html: string, text: string): DiffLine["content"] {
   return [{ value: text, html, type: "normal" }];
 }
 
-function buildSingleCommitDiff(commit: PRCommit): ParsedDiff {
-  const metadataLines = buildMetadataLines(commit);
+function buildSingleCommitDiff(
+  commit: PRCommit,
+  changeId?: string | null
+): ParsedDiff {
+  const metadataLines = buildMetadataLines(commit, changeId);
   const diffLines: DiffLine[] = metadataLines.map((ml, i) => ({
     type: "normal",
     oldLineNumber: i + 1,
@@ -177,10 +195,12 @@ function buildSingleCommitDiff(commit: PRCommit): ParsedDiff {
 
 function buildInterdiff(
   prevCommit: PRCommit,
-  headCommit: PRCommit
+  headCommit: PRCommit,
+  prevChangeId?: string | null,
+  headChangeId?: string | null
 ): ParsedDiff {
-  const prevLines = buildMetadataLines(prevCommit);
-  const headLines = buildMetadataLines(headCommit);
+  const prevLines = buildMetadataLines(prevCommit, prevChangeId);
+  const headLines = buildMetadataLines(headCommit, headChangeId);
   const maxLen = Math.max(prevLines.length, headLines.length);
   let oldNum = 0;
   let newNum = 0;
@@ -290,21 +310,35 @@ export function useCurrentDiff(): ParsedDiff | null {
   const compareToCommitSha = usePRReviewSelector((s) => s.compareToCommitSha);
   const compareToSha = usePRReviewSelector((s) => s.compareToSha);
   const commitsByVersion = usePRReviewSelector((s) => s.commitsByVersion);
+  const commitChangeIds = usePRReviewSelector((s) => s.commitChangeIds);
   return useMemo(() => {
     if (!selectedFile) return null;
     if (versionCompareNoChangeFiles.includes(selectedFile)) return EMPTY_DIFF;
     if (selectedFile === COMMIT_FILE && selectedCommitSha) {
       const headCommit = commits.find((c) => c.sha === selectedCommitSha);
       if (!headCommit) return null;
+      const headChangeId =
+        commitChangeIds[selectedCommitSha] ??
+        parseChangeId(headCommit.commit.message);
       if (interdiffEnabled && compareToCommitSha) {
         const prevCommit = findCommitBySha(
           compareToCommitSha,
           commits,
           commitsByVersion
         );
-        if (prevCommit) return buildInterdiff(prevCommit, headCommit);
+        if (prevCommit) {
+          const prevChangeId =
+            commitChangeIds[compareToCommitSha] ??
+            parseChangeId(prevCommit.commit.message);
+          return buildInterdiff(
+            prevCommit,
+            headCommit,
+            prevChangeId,
+            headChangeId
+          );
+        }
       }
-      return buildSingleCommitDiff(headCommit);
+      return buildSingleCommitDiff(headCommit, headChangeId);
     }
     if (interdiffEnabled) return interdiffLoadedDiffs[selectedFile] ?? null;
     return loadedDiffs[selectedFile] ?? null;
