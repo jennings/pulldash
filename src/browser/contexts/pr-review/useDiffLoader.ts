@@ -268,7 +268,7 @@ export function useDiffLoader() {
 
     // Raw diff getter for recovering patches omitted by the JSON API
     const getRawDiff: RawDiffGetter = (base, head) =>
-      github.getRawCompareDiff(owner, repo, base, head);
+      github.getRawCompareDiff(owner, repo, base, head, prKey);
 
     // Determine correct base/head refs for the current view.
     // When viewing a specific commit, use its parent as the base so file

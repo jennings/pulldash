@@ -1390,7 +1390,13 @@ export class PRReviewStore {
       ...resetCompare,
     });
     const mergeFiles = await this.github
-      .getMergeCommitFiles(owner, repo, selectedCommitSha, sha)
+      .getMergeCommitFiles(
+        owner,
+        repo,
+        selectedCommitSha,
+        sha,
+        `${owner}/${repo}/${this.state.pr.number}`
+      )
       .catch(() => [] as PullRequestFile[]);
     this.set({ files: sortFilesLikeTree(mergeFiles) });
   };

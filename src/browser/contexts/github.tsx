@@ -1314,7 +1314,8 @@ function createGitHubStore() {
     owner: string,
     repo: string,
     mergeSha: string,
-    parentSha: string
+    parentSha: string,
+    prKey?: string
   ): Promise<PullRequestFile[]> {
     if (!octokit) throw new Error("Not initialized");
 
@@ -1322,6 +1323,14 @@ function createGitHubStore() {
 
     const cached = cache.get<PullRequestFile[]>(cacheKey);
     if (cached) return cached;
+
+    if (prKey) {
+      const persistent = await PersistentCache.get<PullRequestFile[]>(cacheKey);
+      if (persistent) {
+        cache.set(cacheKey, persistent);
+        return persistent;
+      }
+    }
 
     const pending = cache.getPending<PullRequestFile[]>(cacheKey);
     if (pending) return pending;
@@ -1335,6 +1344,7 @@ function createGitHubStore() {
       .then((res) => {
         const files = (res.data.files ?? []) as PullRequestFile[];
         cache.set(cacheKey, files);
+        if (prKey) PersistentCache.put(cacheKey, files, prKey);
         return files;
       });
 
@@ -1346,7 +1356,8 @@ function createGitHubStore() {
     owner: string,
     repo: string,
     baseSha: string,
-    headSha: string
+    headSha: string,
+    prKey?: string
   ): Promise<string> {
     if (!octokit) throw new Error("Not initialized");
 
@@ -1354,6 +1365,14 @@ function createGitHubStore() {
 
     const cached = cache.get<string>(cacheKey);
     if (cached) return cached;
+
+    if (prKey) {
+      const persistent = await PersistentCache.get<string>(cacheKey);
+      if (persistent) {
+        cache.set(cacheKey, persistent);
+        return persistent;
+      }
+    }
 
     const pending = cache.getPending<string>(cacheKey);
     if (pending) return pending;
@@ -1368,6 +1387,7 @@ function createGitHubStore() {
       .then((res) => {
         const text = res.data as unknown as string;
         cache.set(cacheKey, text);
+        if (prKey) PersistentCache.put(cacheKey, text, prKey);
         return text;
       });
 
