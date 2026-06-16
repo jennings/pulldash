@@ -3206,18 +3206,12 @@ export class PRReviewStore {
 
     try {
       const [
-        reviewsData,
         checksData,
         workflowRunsData,
-        conversationData,
         commitsData,
-        timelineData,
         reviewThreadsResult,
         pushVersionsData,
       ] = await Promise.all([
-        this.github
-          .getPRReviews(owner, repo, pr.number)
-          .catch(() => [] as Review[]),
         this.github.getPRChecks(owner, repo, pr.head.sha).catch(() => null),
         this.github.getWorkflowRuns(owner, repo, pr.head.sha).catch(() => ({
           workflow_runs: [] as Array<{
@@ -3228,14 +3222,8 @@ export class PRReviewStore {
           }>,
         })),
         this.github
-          .getPRConversation(owner, repo, pr.number)
-          .catch(() => [] as IssueComment[]),
-        this.github
           .getPRCommits(owner, repo, pr.number)
           .catch(() => [] as PRCommit[]),
-        this.github
-          .getPRTimeline(owner, repo, pr.number)
-          .catch(() => [] as TimelineEvent[]),
         this.github.getReviewThreads(owner, repo, pr.number).catch(() => ({
           threads: [] as ReviewThread[],
           viewerPermission: null,
@@ -3248,7 +3236,10 @@ export class PRReviewStore {
           .catch(() => [] as PushVersion[]),
       ]);
 
-      // Find workflow runs awaiting approval (fork PRs)
+      // Fire-and-forget: load overview data (reviews, conversation, timeline)
+      // in parallel so they don't wait for version data to complete.
+      this.loadOverviewData(owner, repo, pr.number);
+
       const awaitingApproval = workflowRunsData.workflow_runs
         .filter(
           (run) =>
@@ -3260,14 +3251,6 @@ export class PRReviewStore {
           name: run.name || "Workflow",
           html_url: run.html_url,
         }));
-
-      // Check if branch was already deleted from timeline
-      const deleteCount = timelineData.filter(
-        (event) => (event as { event?: string }).event === "head_ref_deleted"
-      ).length;
-      const restoreCount = timelineData.filter(
-        (event) => (event as { event?: string }).event === "head_ref_restored"
-      ).length;
 
       // Build commit version history: fetch commits for each push version
       // so we can map Change-Id footers across amended commits.
@@ -3368,18 +3351,15 @@ export class PRReviewStore {
         reviewThreadsResult.threads
       );
       this.set({
-        reviews: reviewsData,
         checks: checksData,
         checksLastUpdated: new Date(),
         workflowRunsAwaitingApproval: awaitingApproval,
-        conversation: conversationData,
         commits: commitsData,
         pushVersions: mergedVersions,
         commitVersionHistory,
         commitsByVersion,
         versionDiffCounts,
         versionRebaseInfo,
-        timeline: timelineData,
         reviewThreads: rewrittenThreads,
         comments: this.enrichCommentsFromThreads(
           this.state.comments,
@@ -3390,7 +3370,6 @@ export class PRReviewStore {
         viewerCanMergeAsAdmin: reviewThreadsResult.viewerCanMergeAsAdmin,
         repoHasMergeQueue: reviewThreadsResult.hasMergeQueue,
         prInMergeQueue: reviewThreadsResult.isInMergeQueue,
-        branchDeleted: deleteCount > restoreCount,
         loading: false,
       });
 
@@ -3414,6 +3393,44 @@ export class PRReviewStore {
     } catch (error) {
       console.error("Failed to load PR data:", error);
       this.set({ loading: false });
+    }
+  };
+
+  /** Load overview-only data (reviews, conversation, timeline) asynchronously
+   *  so they don't block the version/commit data in loadPRData. */
+  private loadOverviewData = async (
+    owner: string,
+    repo: string,
+    prNumber: number
+  ): Promise<void> => {
+    try {
+      const [reviewsData, conversationData, timelineData] = await Promise.all([
+        this.github
+          .getPRReviews(owner, repo, prNumber)
+          .catch(() => [] as Review[]),
+        this.github
+          .getPRConversation(owner, repo, prNumber)
+          .catch(() => [] as IssueComment[]),
+        this.github
+          .getPRTimeline(owner, repo, prNumber)
+          .catch(() => [] as TimelineEvent[]),
+      ]);
+
+      const deleteCount = (timelineData as { event?: string }[]).filter(
+        (event) => event.event === "head_ref_deleted"
+      ).length;
+      const restoreCount = (timelineData as { event?: string }[]).filter(
+        (event) => event.event === "head_ref_restored"
+      ).length;
+
+      this.set({
+        reviews: reviewsData,
+        conversation: conversationData,
+        timeline: timelineData,
+        branchDeleted: deleteCount > restoreCount,
+      });
+    } catch {
+      // Silently fail - overview sections will remain empty
     }
   };
 
