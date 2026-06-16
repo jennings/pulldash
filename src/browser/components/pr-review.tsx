@@ -753,6 +753,14 @@ function VersionBar() {
   const parentCommitMessages = usePRReviewSelector(
     (s) => s.parentCommitMessages
   );
+  const versionDataLoaded = usePRReviewSelector((s) => s.versionDataLoaded);
+
+  // Lazy-load version data on first mount (deferred from loadPRData)
+  useEffect(() => {
+    if (!versionDataLoaded) {
+      store.loadVersionData();
+    }
+  }, [versionDataLoaded, store]);
 
   if (commits.length === 0) return null;
 

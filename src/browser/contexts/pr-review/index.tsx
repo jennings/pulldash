@@ -223,6 +223,8 @@ interface PRReviewState {
   // Loading states
   loading: boolean;
   loadingChecks: boolean;
+  /** Whether deferred version/push data has been loaded */
+  versionDataLoaded: boolean;
 
   // Repository merge settings
   repoHasMergeQueue: boolean;
@@ -603,6 +605,7 @@ export class PRReviewStore {
       // Loading states
       loading: true,
       loadingChecks: false,
+      versionDataLoaded: false,
 
       // Repository merge settings
       repoHasMergeQueue: false,
@@ -3205,36 +3208,28 @@ export class PRReviewStore {
     const { owner, repo, pr } = this.state;
 
     try {
-      const [
-        checksData,
-        workflowRunsData,
-        commitsData,
-        reviewThreadsResult,
-        pushVersionsData,
-      ] = await Promise.all([
-        this.github.getPRChecks(owner, repo, pr.head.sha).catch(() => null),
-        this.github.getWorkflowRuns(owner, repo, pr.head.sha).catch(() => ({
-          workflow_runs: [] as Array<{
-            id: number;
-            name: string;
-            conclusion: string | null;
-            html_url: string;
-          }>,
-        })),
-        this.github
-          .getPRCommits(owner, repo, pr.number)
-          .catch(() => [] as PRCommit[]),
-        this.github.getReviewThreads(owner, repo, pr.number).catch(() => ({
-          threads: [] as ReviewThread[],
-          viewerPermission: null,
-          viewerCanMergeAsAdmin: false,
-          hasMergeQueue: false,
-          isInMergeQueue: false,
-        })),
-        this.github
-          .getPushVersions(owner, repo, pr.number)
-          .catch(() => [] as PushVersion[]),
-      ]);
+      const [checksData, workflowRunsData, commitsData, reviewThreadsResult] =
+        await Promise.all([
+          this.github.getPRChecks(owner, repo, pr.head.sha).catch(() => null),
+          this.github.getWorkflowRuns(owner, repo, pr.head.sha).catch(() => ({
+            workflow_runs: [] as Array<{
+              id: number;
+              name: string;
+              conclusion: string | null;
+              html_url: string;
+            }>,
+          })),
+          this.github
+            .getPRCommits(owner, repo, pr.number)
+            .catch(() => [] as PRCommit[]),
+          this.github.getReviewThreads(owner, repo, pr.number).catch(() => ({
+            threads: [] as ReviewThread[],
+            viewerPermission: null,
+            viewerCanMergeAsAdmin: false,
+            hasMergeQueue: false,
+            isInMergeQueue: false,
+          })),
+        ]);
 
       // Fire-and-forget: load overview data (reviews, conversation, timeline)
       // in parallel so they don't wait for version data to complete.
@@ -3252,100 +3247,6 @@ export class PRReviewStore {
           html_url: run.html_url,
         }));
 
-      // Build commit version history: fetch commits for each push version
-      // so we can map Change-Id footers across amended commits.
-      let commitVersionHistory: Record<string, PRCommit[]> = {};
-      let commitsByVersion: Array<{ version: number; commits: PRCommit[] }> =
-        [];
-
-      // Merge force-push versions with commit-grouped versions (normal pushes)
-      const commitVersions = groupCommitsIntoVersions(commitsData, 2);
-      const seenShas = new Set(pushVersionsData.map((v) => v.sha));
-      for (const cv of commitVersions) {
-        if (!seenShas.has(cv.sha)) {
-          pushVersionsData.push(cv);
-          seenShas.add(cv.sha);
-        }
-      }
-      pushVersionsData.sort(
-        (a, b) =>
-          new Date(a.pushedAt).getTime() - new Date(b.pushedAt).getTime()
-      );
-      const mergedVersions = pushVersionsData.map((v, i) => ({
-        ...v,
-        version: i + 1,
-      }));
-
-      if (mergedVersions.length > 0) {
-        commitsByVersion = await Promise.all(
-          mergedVersions.map(async (pv) => {
-            const commits = await this.github
-              .getCommitsForHeadSha(
-                owner,
-                repo,
-                pr.base.sha,
-                pv.sha,
-                `${owner}/${repo}/${pr.number}`
-              )
-              .catch(() => [] as PRCommit[]);
-            return { version: pv.version, commits };
-          })
-        );
-        commitVersionHistory = buildCommitVersionHistory(commitsByVersion);
-      }
-
-      // Fetch files for each push version and compute diff between adjacent pairs
-      let versionDiffCounts: Record<string, number> = {};
-      if (mergedVersions.length > 1) {
-        const filesByVersion = await Promise.all(
-          mergedVersions.map(async (pv) => {
-            const files = await this.github
-              .getPRFilesForRange(owner, repo, pr.base.sha, pv.sha)
-              .catch(() => [] as PullRequestFile[]);
-            return {
-              version: pv.version,
-              patchMap: new Map(files.map((f) => [f.filename, f.patch])),
-            };
-          })
-        );
-
-        for (let i = 1; i < filesByVersion.length; i++) {
-          const prev = filesByVersion[i - 1];
-          const curr = filesByVersion[i];
-          const allFiles = new Set([
-            ...prev.patchMap.keys(),
-            ...curr.patchMap.keys(),
-          ]);
-          let changed = 0;
-          for (const filename of allFiles) {
-            if (prev.patchMap.get(filename) !== curr.patchMap.get(filename)) {
-              changed++;
-            }
-          }
-          versionDiffCounts[`${prev.version}-${curr.version}`] = changed;
-        }
-      }
-
-      // Detect rebases by comparing the parent of the root commit between
-      // adjacent versions. If the base SHA changed, the branch was rebased.
-      const versionRebaseInfo: Record<
-        string,
-        { rebased: boolean; fromBase: string; toBase: string }
-      > = {};
-      for (let i = 1; i < commitsByVersion.length; i++) {
-        const prevRoot = commitsByVersion[i - 1].commits[0];
-        const currRoot = commitsByVersion[i].commits[0];
-        const prevParent = prevRoot?.parents?.[0]?.sha;
-        const currParent = currRoot?.parents?.[0]?.sha;
-        versionRebaseInfo[
-          `${commitsByVersion[i - 1].version}-${commitsByVersion[i].version}`
-        ] = {
-          rebased: prevParent !== currParent && !!prevParent && !!currParent,
-          fromBase: prevParent ?? "",
-          toBase: currParent ?? "",
-        };
-      }
-
       this.baseCommits = commitsData;
       const rewrittenThreads = this.rewriteThreadPaths(
         reviewThreadsResult.threads
@@ -3355,11 +3256,7 @@ export class PRReviewStore {
         checksLastUpdated: new Date(),
         workflowRunsAwaitingApproval: awaitingApproval,
         commits: commitsData,
-        pushVersions: mergedVersions,
-        commitVersionHistory,
-        commitsByVersion,
-        versionDiffCounts,
-        versionRebaseInfo,
+        versionDataLoaded: false,
         reviewThreads: rewrittenThreads,
         comments: this.enrichCommentsFromThreads(
           this.state.comments,
@@ -3431,6 +3328,120 @@ export class PRReviewStore {
       });
     } catch {
       // Silently fail - overview sections will remain empty
+    }
+  };
+
+  /** Load push version data (versions, version commits, diffs) lazily when
+   *  the version/commit selector is first opened. */
+  loadVersionData = async (): Promise<void> => {
+    if (this.state.versionDataLoaded) return;
+    const { owner, repo, pr, commits } = this.state;
+
+    try {
+      const pushVersionsData = await this.github
+        .getPushVersions(owner, repo, pr.number)
+        .catch(() => [] as PushVersion[]);
+
+      // Merge force-push versions with commit-grouped versions
+      const commitVersions = groupCommitsIntoVersions(commits, 2);
+      const seenShas = new Set(pushVersionsData.map((v) => v.sha));
+      for (const cv of commitVersions) {
+        if (!seenShas.has(cv.sha)) {
+          pushVersionsData.push(cv);
+          seenShas.add(cv.sha);
+        }
+      }
+      pushVersionsData.sort(
+        (a, b) =>
+          new Date(a.pushedAt).getTime() - new Date(b.pushedAt).getTime()
+      );
+      const mergedVersions = pushVersionsData.map((v, i) => ({
+        ...v,
+        version: i + 1,
+      }));
+
+      let commitsByVersion: Array<{ version: number; commits: PRCommit[] }> =
+        [];
+      let commitVersionHistory: Record<string, PRCommit[]> = {};
+
+      if (mergedVersions.length > 0) {
+        commitsByVersion = await Promise.all(
+          mergedVersions.map(async (pv) => {
+            const vc = await this.github
+              .getCommitsForHeadSha(
+                owner,
+                repo,
+                pr.base.sha,
+                pv.sha,
+                `${owner}/${repo}/${pr.number}`
+              )
+              .catch(() => [] as PRCommit[]);
+            return { version: pv.version, commits: vc };
+          })
+        );
+        commitVersionHistory = buildCommitVersionHistory(commitsByVersion);
+      }
+
+      let versionDiffCounts: Record<string, number> = {};
+      if (mergedVersions.length > 1) {
+        const filesByVersion = await Promise.all(
+          mergedVersions.map(async (pv) => {
+            const files = await this.github
+              .getPRFilesForRange(owner, repo, pr.base.sha, pv.sha)
+              .catch(() => [] as PullRequestFile[]);
+            return {
+              version: pv.version,
+              patchMap: new Map(files.map((f) => [f.filename, f.patch])),
+            };
+          })
+        );
+
+        for (let i = 1; i < filesByVersion.length; i++) {
+          const prev = filesByVersion[i - 1];
+          const curr = filesByVersion[i];
+          const allFiles = new Set([
+            ...prev.patchMap.keys(),
+            ...curr.patchMap.keys(),
+          ]);
+          let changed = 0;
+          for (const filename of allFiles) {
+            if (prev.patchMap.get(filename) !== curr.patchMap.get(filename)) {
+              changed++;
+            }
+          }
+          versionDiffCounts[`${prev.version}-${curr.version}`] = changed;
+        }
+      }
+
+      // Detect rebases
+      const versionRebaseInfo: Record<
+        string,
+        { rebased: boolean; fromBase: string; toBase: string }
+      > = {};
+      for (let i = 1; i < commitsByVersion.length; i++) {
+        const prevRoot = commitsByVersion[i - 1].commits[0];
+        const currRoot = commitsByVersion[i].commits[0];
+        const prevParent = prevRoot?.parents?.[0]?.sha;
+        const currParent = currRoot?.parents?.[0]?.sha;
+        versionRebaseInfo[
+          `${commitsByVersion[i - 1].version}-${commitsByVersion[i].version}`
+        ] = {
+          rebased: prevParent !== currParent && !!prevParent && !!currParent,
+          fromBase: prevParent ?? "",
+          toBase: currParent ?? "",
+        };
+      }
+
+      this.set({
+        pushVersions: mergedVersions,
+        commitsByVersion,
+        commitVersionHistory,
+        versionDiffCounts,
+        versionRebaseInfo,
+        versionDataLoaded: true,
+      });
+    } catch {
+      // Silently fail — version selectors will show limited info
     }
   };
 
