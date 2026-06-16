@@ -275,7 +275,7 @@ export function useOpenPRReviewTab() {
   const navigate = useNavigate();
 
   return useCallback(
-    (owner: string, repo: string, number: number) => {
+    (owner: string, repo: string, number: number, title?: string) => {
       // Check if tab already exists
       const existing = getExistingPRTab(owner, repo, number);
       if (existing) {
@@ -291,6 +291,7 @@ export function useOpenPRReviewTab() {
         id,
         type: "pr-review",
         label: `#${number}`,
+        prTitle: title,
         owner,
         repo,
         number,

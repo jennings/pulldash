@@ -281,7 +281,7 @@ function TabItem({ tab, isActive, onSelect, onClose }: TabItemProps) {
     [isHome, onClose]
   );
 
-  return (
+  const tabContent = (
     <div
       role="button"
       tabIndex={0}
@@ -308,7 +308,9 @@ function TabItem({ tab, isActive, onSelect, onClose }: TabItemProps) {
         <TabStatusIndicator status={tab.status} />
       )}
 
-      <span className="truncate">{isHome ? "Home" : tab.label}</span>
+      <span className="truncate max-w-[100px]">
+        {isHome ? "Home" : (tab.prTitle ?? tab.label)}
+      </span>
 
       {/* Repo name for PR tabs */}
       {tab.type === "pr-review" && tab.repo && (
@@ -332,6 +334,28 @@ function TabItem({ tab, isActive, onSelect, onClose }: TabItemProps) {
         </button>
       )}
     </div>
+  );
+
+  if (isHome) return tabContent;
+
+  return (
+    <HoverCard openDelay={400} closeDelay={100}>
+      <HoverCardTrigger asChild>{tabContent}</HoverCardTrigger>
+      <HoverCardContent
+        side="bottom"
+        align="start"
+        className="w-auto max-w-xs p-2"
+      >
+        <div className="flex flex-col gap-0.5">
+          <span className="text-[11px] font-mono text-muted-foreground">
+            #{tab.number} · {tab.owner}/{tab.repo}
+          </span>
+          <span className="text-xs font-medium leading-snug">
+            {tab.prTitle ?? tab.label}
+          </span>
+        </div>
+      </HoverCardContent>
+    </HoverCard>
   );
 }
 
