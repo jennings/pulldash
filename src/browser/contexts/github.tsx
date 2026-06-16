@@ -2138,22 +2138,29 @@ function createGitHubStore() {
 
     const cached = cache.get<components["schemas"]["reaction"][]>(
       cacheKey,
-      30_000
+      300_000
     );
     if (cached) return cached;
 
-    const { data } = await octokit.request(
-      "GET /repos/{owner}/{repo}/issues/{issue_number}/reactions",
-      {
+    const pending =
+      cache.getPending<components["schemas"]["reaction"][]>(cacheKey);
+    if (pending) return pending;
+
+    const promise = octokit
+      .request("GET /repos/{owner}/{repo}/issues/{issue_number}/reactions", {
         owner,
         repo,
         issue_number: issueNumber,
         per_page: 100,
-      }
-    );
+      })
+      .then((res) => {
+        const data = res.data as components["schemas"]["reaction"][];
+        cache.set(cacheKey, data);
+        return data;
+      });
 
-    cache.set(cacheKey, data);
-    return data;
+    cache.setPending(cacheKey, promise);
+    return promise;
   }
 
   async function addIssueReaction(
@@ -2210,22 +2217,32 @@ function createGitHubStore() {
 
     const cached = cache.get<components["schemas"]["reaction"][]>(
       cacheKey,
-      30_000
+      300_000
     );
     if (cached) return cached;
 
-    const { data } = await octokit.request(
-      "GET /repos/{owner}/{repo}/issues/comments/{comment_id}/reactions",
-      {
-        owner,
-        repo,
-        comment_id: commentId,
-        per_page: 100,
-      }
-    );
+    const pending =
+      cache.getPending<components["schemas"]["reaction"][]>(cacheKey);
+    if (pending) return pending;
 
-    cache.set(cacheKey, data);
-    return data;
+    const promise = octokit
+      .request(
+        "GET /repos/{owner}/{repo}/issues/comments/{comment_id}/reactions",
+        {
+          owner,
+          repo,
+          comment_id: commentId,
+          per_page: 100,
+        }
+      )
+      .then((res) => {
+        const data = res.data as components["schemas"]["reaction"][];
+        cache.set(cacheKey, data);
+        return data;
+      });
+
+    cache.setPending(cacheKey, promise);
+    return promise;
   }
 
   async function addCommentReaction(
@@ -2283,22 +2300,32 @@ function createGitHubStore() {
 
     const cached = cache.get<components["schemas"]["reaction"][]>(
       cacheKey,
-      30_000
+      300_000
     );
     if (cached) return cached;
 
-    const { data } = await octokit.request(
-      "GET /repos/{owner}/{repo}/pulls/comments/{comment_id}/reactions",
-      {
-        owner,
-        repo,
-        comment_id: commentId,
-        per_page: 100,
-      }
-    );
+    const pending =
+      cache.getPending<components["schemas"]["reaction"][]>(cacheKey);
+    if (pending) return pending;
 
-    cache.set(cacheKey, data);
-    return data;
+    const promise = octokit
+      .request(
+        "GET /repos/{owner}/{repo}/pulls/comments/{comment_id}/reactions",
+        {
+          owner,
+          repo,
+          comment_id: commentId,
+          per_page: 100,
+        }
+      )
+      .then((res) => {
+        const data = res.data as components["schemas"]["reaction"][];
+        cache.set(cacheKey, data);
+        return data;
+      });
+
+    cache.setPending(cacheKey, promise);
+    return promise;
   }
 
   async function addReviewCommentReaction(

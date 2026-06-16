@@ -674,32 +674,100 @@ export const PROverview = memo(function PROverview() {
     fetchPRReactions();
   }, [github, owner, repo, pr.number]);
 
-  // Fetch comment reactions when conversation loads
-  useEffect(() => {
-    const fetchCommentReactions = async () => {
-      for (const comment of conversation) {
-        try {
-          const commentReactions = await github.getCommentReactions(
-            owner,
-            repo,
-            comment.id
-          );
-          setReactions((prev) => ({
-            ...prev,
-            [`comment-${comment.id}`]: commentReactions,
-          }));
-        } catch (error) {
-          console.error(
-            `Failed to fetch reactions for comment ${comment.id}:`,
-            error
-          );
+  // Helper: retry an async function up to `retries` times with 1s backoff
+  async function withRetry<T>(
+    fn: () => Promise<T>,
+    retries = 2
+  ): Promise<T | null> {
+    for (let i = 0; i <= retries; i++) {
+      try {
+        return await fn();
+      } catch (err) {
+        if (i < retries) await new Promise((r) => setTimeout(r, 1000));
+        else {
+          console.error("Failed to fetch reactions after retries:", err);
+          return null;
         }
       }
-    };
-    if (conversation.length > 0) {
-      fetchCommentReactions();
     }
+    return null;
+  }
+
+  // Fetch comment reactions when conversation loads (batched + parallel)
+  useEffect(() => {
+    if (conversation.length === 0) return;
+
+    const BATCH_SIZE = 5;
+
+    async function fetchCommentReactions() {
+      for (let i = 0; i < conversation.length; i += BATCH_SIZE) {
+        const batch = conversation.slice(i, i + BATCH_SIZE);
+        const results = await Promise.all(
+          batch.map(async (comment) => {
+            const data = await withRetry(() =>
+              github.getCommentReactions(owner, repo, comment.id)
+            );
+            if (data) {
+              return { key: `comment-${comment.id}`, data };
+            }
+            return null;
+          })
+        );
+        setReactions((prev) => {
+          const next = { ...prev };
+          for (const r of results) {
+            if (r) next[r.key] = r.data;
+          }
+          return next;
+        });
+      }
+    }
+
+    fetchCommentReactions();
   }, [github, owner, repo, conversation]);
+
+  // Fetch review comment reactions (batched + parallel)
+  useEffect(() => {
+    const comments: Array<{ id: number }> = [];
+    const seen = new Set<number>();
+    for (const thread of reviewThreads) {
+      for (const c of thread.comments.nodes) {
+        if (!seen.has(c.databaseId)) {
+          seen.add(c.databaseId);
+          comments.push({ id: c.databaseId });
+        }
+      }
+    }
+    if (comments.length === 0) return;
+
+    const BATCH_SIZE = 5;
+
+    async function fetchReviewCommentReactions() {
+      for (let i = 0; i < comments.length; i += BATCH_SIZE) {
+        const batch = comments.slice(i, i + BATCH_SIZE);
+        const results = await Promise.all(
+          batch.map(async (c) => {
+            const data = await withRetry(() =>
+              github.getReviewCommentReactions(owner, repo, c.id)
+            );
+            if (data) {
+              return { key: `review-comment-${c.id}`, data };
+            }
+            return null;
+          })
+        );
+        setReactions((prev) => {
+          const next = { ...prev };
+          for (const r of results) {
+            if (r) next[r.key] = r.data;
+          }
+          return next;
+        });
+      }
+    }
+
+    fetchReviewCommentReactions();
+  }, [github, owner, repo, reviewThreads]);
 
   const handleAddPRReaction = useCallback(
     async (content: ReactionContent) => {
