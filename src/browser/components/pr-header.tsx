@@ -6,11 +6,15 @@ import {
   Check,
   Menu,
   Code2,
+  Pencil,
 } from "lucide-react";
 import { memo, useState, useCallback, type ReactNode } from "react";
 import { cn } from "../cn";
 import { UserHoverCard } from "../ui/user-hover-card";
 import { Popover, PopoverTrigger, PopoverContent } from "../ui/popover";
+import { usePRReviewSelector } from "../contexts/pr-review";
+import { useCanWrite } from "../contexts/auth";
+import { PREditDialog } from "./pr-edit-dialog";
 import type { PullRequest } from "@/api/types";
 
 interface PRHeaderProps {
@@ -32,6 +36,16 @@ export const PRHeader = memo(function PRHeader({
 }: PRHeaderProps) {
   const showQueued = inMergeQueue && pr.state === "open" && !pr.merged;
   const isFork = pr.head?.repo?.full_name !== `${owner}/${repo}`;
+  const viewerPermission = usePRReviewSelector((s) => s.viewerPermission);
+  const canWrite = useCanWrite();
+  const canEdit =
+    canWrite &&
+    (viewerPermission === "ADMIN" ||
+      viewerPermission === "MAINTAIN" ||
+      viewerPermission === "WRITE") &&
+    pr.state === "open" &&
+    !pr.merged;
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
 
   const stateIcon = pr.merged ? (
     <GitMerge className="w-3.5 h-3.5" />
@@ -64,96 +78,110 @@ export const PRHeader = memo(function PRHeader({
   const stateBgStyle = showQueued ? { backgroundColor: "#9a6700" } : undefined;
 
   return (
-    <header className="border-b border-border px-2 sm:px-4 py-2 flex items-center gap-2 sm:gap-3 shrink-0 bg-card/30">
-      {/* Mobile menu button */}
-      {onToggleSidebar && (
-        <button
-          onClick={onToggleSidebar}
-          className="p-1.5 rounded-md hover:bg-muted transition-colors md:hidden shrink-0"
-          title="Toggle file list"
-        >
-          <Menu className="w-4 h-4" />
-        </button>
-      )}
-
-      {/* State Badge */}
-      <span
-        className={cn(
-          "inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full text-white shrink-0",
-          stateBgColor
+    <>
+      <header className="border-b border-border px-2 sm:px-4 py-2 flex items-center gap-2 sm:gap-3 shrink-0 bg-card/30">
+        {/* Mobile menu button */}
+        {onToggleSidebar && (
+          <button
+            onClick={onToggleSidebar}
+            className="p-1.5 rounded-md hover:bg-muted transition-colors md:hidden shrink-0"
+            title="Toggle file list"
+          >
+            <Menu className="w-4 h-4" />
+          </button>
         )}
-        style={stateBgStyle}
-      >
-        {stateIcon}
-        <span className="hidden xs:inline">{stateLabel}</span>
-      </span>
 
-      {/* Repo Link - hidden on smallest screens */}
-      <a
-        href={`https://github.com/${owner}/${repo}`}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="text-xs text-muted-foreground hover:text-blue-400 transition-colors font-mono shrink-0 hidden sm:inline"
-      >
-        {owner}/{repo}
-      </a>
-
-      {/* Clone commands */}
-      <ClonePopover
-        pr={pr}
-        owner={owner}
-        repo={repo}
-        number={pr.number}
-        headRef={pr.head.ref}
-      />
-
-      {/* Title with author and branches inline */}
-      <h1 className="text-sm font-medium truncate flex-1 min-w-0 flex items-center gap-2">
-        <span className="truncate">
-          <span>{pr.title}</span>
-          <span className="text-muted-foreground ml-1.5">#{pr.number}</span>
+        {/* State Badge */}
+        <span
+          className={cn(
+            "inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full text-white shrink-0",
+            stateBgColor
+          )}
+          style={stateBgStyle}
+        >
+          {stateIcon}
+          <span className="hidden xs:inline">{stateLabel}</span>
         </span>
-        {/* External Link - moved here next to title */}
+
+        {/* Repo Link - hidden on smallest screens */}
         <a
-          href={`https://github.com/${owner}/${repo}/pull/${pr.number}`}
+          href={`https://github.com/${owner}/${repo}`}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-muted-foreground hover:text-blue-400 transition-colors shrink-0"
-          title="View on GitHub"
+          className="text-xs text-muted-foreground hover:text-blue-400 transition-colors font-mono shrink-0 hidden sm:inline"
         >
-          <ExternalLink className="w-4 h-4" />
+          {owner}/{repo}
         </a>
-        {/* Author */}
-        <UserHoverCard login={pr.user.login}>
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer hover:text-foreground transition-colors shrink-0">
-            <img
-              src={pr.user.avatar_url}
-              alt={pr.user.login}
-              className="w-5 h-5 rounded-full"
-            />
-            <span className="hidden lg:inline">{pr.user.login}</span>
+
+        {/* Clone commands */}
+        <ClonePopover
+          pr={pr}
+          owner={owner}
+          repo={repo}
+          number={pr.number}
+          headRef={pr.head.ref}
+        />
+
+        {/* Title with author and branches inline */}
+        <h1 className="text-sm font-medium truncate flex-1 min-w-0 flex items-center gap-2">
+          <span className="truncate">
+            <span>{pr.title}</span>
+            <span className="text-muted-foreground ml-1.5">#{pr.number}</span>
+          </span>
+          {/* External Link - moved here next to title */}
+          <a
+            href={`https://github.com/${owner}/${repo}/pull/${pr.number}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-muted-foreground hover:text-blue-400 transition-colors shrink-0"
+            title="View on GitHub"
+          >
+            <ExternalLink className="w-4 h-4" />
+          </a>
+          {canEdit && (
+            <button
+              onClick={() => setEditDialogOpen(true)}
+              className="p-1 rounded text-muted-foreground hover:text-blue-400 hover:bg-blue-500/20 transition-colors shrink-0"
+              title="Edit pull request"
+            >
+              <Pencil className="w-4 h-4" />
+            </button>
+          )}
+          {/* Author */}
+          <UserHoverCard login={pr.user.login}>
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer hover:text-foreground transition-colors shrink-0">
+              <img
+                src={pr.user.avatar_url}
+                alt={pr.user.login}
+                className="w-5 h-5 rounded-full"
+              />
+              <span className="hidden lg:inline">{pr.user.login}</span>
+            </div>
+          </UserHoverCard>
+          {/* Branch info */}
+          <div className="text-[11px] text-muted-foreground font-mono hidden lg:flex items-center gap-1 shrink-0">
+            <BranchBadge branch={pr.base.ref} />
+            <span>←</span>
+            <BranchBadge branch={isFork ? pr.head.label : pr.head.ref} />
           </div>
-        </UserHoverCard>
-        {/* Branch info */}
-        <div className="text-[11px] text-muted-foreground font-mono hidden lg:flex items-center gap-1 shrink-0">
-          <BranchBadge branch={pr.base.ref} />
-          <span>←</span>
-          <BranchBadge branch={isFork ? pr.head.label : pr.head.ref} />
+        </h1>
+
+        {/* Right side info */}
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+          {/* Line diff stats */}
+          <span className="text-xs hidden sm:inline">
+            <span className="text-green-500">+{pr.additions}</span>{" "}
+            <span className="text-red-500">−{pr.deletions}</span>
+          </span>
+
+          {/* Right content slot (e.g., Submit Review button) */}
+          {rightContent}
         </div>
-      </h1>
-
-      {/* Right side info */}
-      <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-        {/* Line diff stats */}
-        <span className="text-xs hidden sm:inline">
-          <span className="text-green-500">+{pr.additions}</span>{" "}
-          <span className="text-red-500">−{pr.deletions}</span>
-        </span>
-
-        {/* Right content slot (e.g., Submit Review button) */}
-        {rightContent}
-      </div>
-    </header>
+      </header>
+      {canEdit && (
+        <PREditDialog open={editDialogOpen} onOpenChange={setEditDialogOpen} />
+      )}
+    </>
   );
 });
 

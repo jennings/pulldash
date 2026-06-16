@@ -246,6 +246,7 @@ interface PRReviewState {
   convertingToDraft: boolean;
   markingReady: boolean;
   approvingWorkflows: boolean;
+  updatingPR: boolean;
 
   // Diff view mode (unified or split) - global user preference
   diffViewMode: DiffViewMode;
@@ -625,6 +626,7 @@ export class PRReviewStore {
       convertingToDraft: false,
       markingReady: false,
       approvingWorkflows: false,
+      updatingPR: false,
 
       // UI state
       selectedFile: null,
@@ -3881,6 +3883,42 @@ export class PRReviewStore {
       return true;
     } catch (e) {
       console.error("Failed to update branch:", e);
+      return false;
+    }
+  };
+
+  getRepoBranches = async () => {
+    const { owner, repo } = this.state;
+    return this.github.getRepoBranches(owner, repo);
+  };
+
+  /**
+   * Update PR title, body, and/or base branch
+   */
+  updatePR = async (params: {
+    title?: string;
+    body?: string;
+    base?: string;
+  }): Promise<boolean> => {
+    const { owner, repo, pr } = this.state;
+
+    this.set({ updatingPR: true });
+
+    try {
+      const updatedPR = await this.github.updatePR(
+        owner,
+        repo,
+        pr.number,
+        params
+      );
+
+      this.invalidatePRCaches(owner, repo, pr.number);
+      this.set({ pr: updatedPR, updatingPR: false });
+
+      return true;
+    } catch (e) {
+      console.error("Failed to update PR:", e);
+      this.set({ updatingPR: false });
       return false;
     }
   };

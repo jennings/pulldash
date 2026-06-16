@@ -2413,6 +2413,45 @@ function createGitHubStore() {
     return data;
   }
 
+  async function updatePR(
+    owner: string,
+    repo: string,
+    number: number,
+    params: { title?: string; body?: string; base?: string }
+  ) {
+    if (!octokit) throw new Error("Not initialized");
+
+    const { data } = await octokit.request(
+      "PATCH /repos/{owner}/{repo}/pulls/{pull_number}",
+      {
+        owner,
+        repo,
+        pull_number: number,
+        title: params.title,
+        body: params.body,
+        base: params.base,
+      }
+    );
+
+    cache.invalidate(`pr:${owner}/${repo}/${number}`);
+    return data as PullRequest;
+  }
+
+  async function getRepoBranches(owner: string, repo: string) {
+    if (!octokit) throw new Error("Not initialized");
+
+    const { data } = await octokit.request(
+      "GET /repos/{owner}/{repo}/branches",
+      {
+        owner,
+        repo,
+        per_page: 100,
+      }
+    );
+
+    return data as Array<{ name: string; commit: { sha: string } }>;
+  }
+
   async function reopenPR(owner: string, repo: string, number: number) {
     if (!octokit) throw new Error("Not initialized");
 
@@ -3328,6 +3367,8 @@ function createGitHubStore() {
     updateBranch,
     closePR,
     reopenPR,
+    updatePR,
+    getRepoBranches,
     deleteBranch,
     restoreBranch,
     // Reactions
