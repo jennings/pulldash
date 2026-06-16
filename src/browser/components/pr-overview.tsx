@@ -3989,43 +3989,49 @@ function MergeSection({
               </button>
             ) : (
               <>
-                {/* Main merge button */}
-                <button
-                  onClick={onMerge}
-                  disabled={merging || (!canMergePR && !bypassRules)}
+                <div
                   className={cn(
-                    "flex items-center justify-center gap-2 px-4 py-2 rounded-l-md text-sm font-medium transition-colors",
+                    "flex rounded-md transition-colors",
                     canMergePR || bypassRules
-                      ? "bg-green-600 text-white hover:bg-green-700"
-                      : "bg-muted text-muted-foreground cursor-not-allowed"
+                      ? "bg-green-600 hover:bg-green-700"
+                      : "bg-muted"
                   )}
                 >
-                  {merging ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <>{getMergeButtonText(mergeMethod)}</>
-                  )}
-                </button>
-
-                {/* Dropdown button */}
-                <button
-                  ref={buttonRef}
-                  onClick={handleToggleDropdown}
-                  disabled={merging}
-                  className={cn(
-                    "px-2 py-2 rounded-r-md text-sm font-medium transition-colors border-l border-green-700",
-                    canMergePR || bypassRules
-                      ? "bg-green-600 text-white hover:bg-green-700"
-                      : "bg-muted text-muted-foreground cursor-not-allowed"
-                  )}
-                >
-                  <ChevronDown
+                  <button
+                    onClick={onMerge}
+                    disabled={merging || (!canMergePR && !bypassRules)}
                     className={cn(
-                      "w-4 h-4 transition-transform",
-                      showMergeOptions && "rotate-180"
+                      "flex items-center justify-center gap-2 px-4 py-2 rounded-l-md text-sm font-medium transition-colors",
+                      canMergePR || bypassRules
+                        ? "text-white hover:bg-green-700"
+                        : "text-muted-foreground cursor-not-allowed"
                     )}
-                  />
-                </button>
+                  >
+                    {merging ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <>{getMergeButtonText(mergeMethod)}</>
+                    )}
+                  </button>
+                  <button
+                    ref={buttonRef}
+                    onClick={handleToggleDropdown}
+                    disabled={merging}
+                    className={cn(
+                      "px-3 py-2 rounded-r-md text-sm font-medium transition-colors border-l",
+                      canMergePR || bypassRules
+                        ? "text-white hover:bg-green-700 border-green-500"
+                        : "text-muted-foreground cursor-not-allowed border-green-500/30"
+                    )}
+                  >
+                    <ChevronDown
+                      className={cn(
+                        "w-4 h-4 transition-transform",
+                        showMergeOptions && "rotate-180"
+                      )}
+                    />
+                  </button>
+                </div>
               </>
             )}
 
