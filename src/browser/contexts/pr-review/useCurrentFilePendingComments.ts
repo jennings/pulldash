@@ -1,7 +1,9 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import {
   usePRReviewSelector,
+  usePRReviewStore,
   equivalentShortShas,
+  parseChangeId,
   type LocalPendingComment,
 } from ".";
 import {
@@ -13,6 +15,7 @@ const EMPTY_PENDING_COMMENTS: LocalPendingComment[] = [];
 
 /** Get pending comments for current file */
 export function useCurrentFilePendingComments(): LocalPendingComment[] {
+  const store = usePRReviewStore();
   const selectedFile = usePRReviewSelector((s) => s.selectedFile);
   const selectedCommitSha = usePRReviewSelector((s) => s.selectedCommitSha);
   const commits = usePRReviewSelector((s) => s.commits);
@@ -20,7 +23,55 @@ export function useCurrentFilePendingComments(): LocalPendingComment[] {
   const commitVersionHistory = usePRReviewSelector(
     (s) => s.commitVersionHistory
   );
+  const commitChangeIds = usePRReviewSelector((s) => s.commitChangeIds);
   const pendingComments = usePRReviewSelector((s) => s.pendingComments);
+
+  // Lazy-fetch the jj change-id from the raw git commit header when the
+  // commit has no Change-Id trailer in its message body.
+  useEffect(() => {
+    if (!selectedCommitSha) return;
+    const commit = commits.find((c) => c.sha === selectedCommitSha);
+    if (!commit) return;
+    if (
+      parseChangeId(commit.commit.message) ||
+      commitChangeIds[selectedCommitSha]
+    )
+      return;
+    store.getCommitChangeId(commit);
+  }, [selectedCommitSha, commits, commitChangeIds, store]);
+
+  // After the current commit's change-id is resolved, populate remaining
+  // commits' change-ids so commitVersionHistory is complete.
+  useEffect(() => {
+    const currentId = commitChangeIds[selectedCommitSha || ""];
+    if (!currentId) return;
+    const seen = new Set<string>();
+    for (const c of commits) {
+      if (seen.has(c.sha)) continue;
+      seen.add(c.sha);
+      if (
+        c.sha !== selectedCommitSha &&
+        !parseChangeId(c.commit.message) &&
+        !commitChangeIds[c.sha]
+      ) {
+        store.getCommitChangeId(c);
+      }
+    }
+    for (const vc of commitsByVersion) {
+      for (const c of vc.commits) {
+        if (seen.has(c.sha)) continue;
+        seen.add(c.sha);
+        if (
+          c.sha !== selectedCommitSha &&
+          !parseChangeId(c.commit.message) &&
+          !commitChangeIds[c.sha]
+        ) {
+          store.getCommitChangeId(c);
+        }
+      }
+    }
+  }, [commitChangeIds, selectedCommitSha, store]);
+
   const validShas = useMemo(() => {
     if (!selectedCommitSha) return null;
     return new Set(
@@ -28,10 +79,17 @@ export function useCurrentFilePendingComments(): LocalPendingComment[] {
         selectedCommitSha,
         commits,
         commitsByVersion,
-        commitVersionHistory
+        commitVersionHistory,
+        commitChangeIds
       )
     );
-  }, [selectedCommitSha, commits, commitsByVersion, commitVersionHistory]);
+  }, [
+    selectedCommitSha,
+    commits,
+    commitsByVersion,
+    commitVersionHistory,
+    commitChangeIds,
+  ]);
   return useMemo(() => {
     if (!selectedFile) return EMPTY_PENDING_COMMENTS;
     if (selectedFile === ":commit") {

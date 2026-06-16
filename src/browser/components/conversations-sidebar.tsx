@@ -122,10 +122,10 @@ export const ConversationsSidebar = memo(function ConversationsSidebar() {
   const filtersActive =
     filters.showResolved || !filters.showOutdated || !filters.showPending;
 
-  /** Resolve a potentially short SHA from a metadata marker to a full SHA,
-   *  searching across all push versions if the commit was amended. */
+  /** Resolve a potentially short SHA from a metadata marker to a full SHA
+   *  in the current version's commits, searching across all push versions
+   *  if the commit was amended. */
   function resolveSha(sha: string): string {
-    if (sha.length >= 40) return sha;
     const state = store.getSnapshot();
 
     // Fast path: look in current commits
@@ -137,7 +137,8 @@ export const ConversationsSidebar = memo(function ConversationsSidebar() {
       sha,
       state.commits,
       state.commitsByVersion,
-      state.commitVersionHistory
+      state.commitVersionHistory,
+      state.commitChangeIds
     );
     for (const eqSha of equivalents) {
       const match = state.commits.find((c) => c.sha.startsWith(eqSha));

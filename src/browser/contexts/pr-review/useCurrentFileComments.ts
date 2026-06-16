@@ -1,6 +1,11 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import type { ReviewComment } from "@/api/types";
-import { usePRReviewSelector, equivalentShortShas } from ".";
+import {
+  usePRReviewSelector,
+  usePRReviewStore,
+  equivalentShortShas,
+  parseChangeId,
+} from ".";
 import {
   isMetadataComment,
   parseCommitMetadataMarker,
@@ -10,6 +15,7 @@ const EMPTY_COMMENTS: ReviewComment[] = [];
 
 /** Get comments for current file */
 export function useCurrentFileComments(): ReviewComment[] {
+  const store = usePRReviewStore();
   const selectedFile = usePRReviewSelector((s) => s.selectedFile);
   const selectedCommitSha = usePRReviewSelector((s) => s.selectedCommitSha);
   const commits = usePRReviewSelector((s) => s.commits);
@@ -17,7 +23,58 @@ export function useCurrentFileComments(): ReviewComment[] {
   const commitVersionHistory = usePRReviewSelector(
     (s) => s.commitVersionHistory
   );
+  const commitChangeIds = usePRReviewSelector((s) => s.commitChangeIds);
   const comments = usePRReviewSelector((s) => s.comments);
+
+  // Lazy-fetch the jj change-id from the raw git commit header when the
+  // commit has no Change-Id trailer in its message body. When the current
+  // commit's change-id is resolved, also fetch change-ids for other commits
+  // across all versions so equivalentShortShas can find all equivalents.
+  useEffect(() => {
+    if (!selectedCommitSha) return;
+    const commit = commits.find((c) => c.sha === selectedCommitSha);
+    if (!commit) return;
+    if (
+      parseChangeId(commit.commit.message) ||
+      commitChangeIds[selectedCommitSha]
+    )
+      return;
+    // Fetch the current commit's change-id
+    store.getCommitChangeId(commit);
+  }, [selectedCommitSha, commits, commitChangeIds, store]);
+
+  // After the current commit's change-id is resolved, populate remaining
+  // commits' change-ids so commitVersionHistory is complete.
+  useEffect(() => {
+    const currentId = commitChangeIds[selectedCommitSha || ""];
+    if (!currentId) return;
+    const seen = new Set<string>();
+    for (const c of commits) {
+      if (seen.has(c.sha)) continue;
+      seen.add(c.sha);
+      if (
+        c.sha !== selectedCommitSha &&
+        !parseChangeId(c.commit.message) &&
+        !commitChangeIds[c.sha]
+      ) {
+        store.getCommitChangeId(c);
+      }
+    }
+    for (const vc of commitsByVersion) {
+      for (const c of vc.commits) {
+        if (seen.has(c.sha)) continue;
+        seen.add(c.sha);
+        if (
+          c.sha !== selectedCommitSha &&
+          !parseChangeId(c.commit.message) &&
+          !commitChangeIds[c.sha]
+        ) {
+          store.getCommitChangeId(c);
+        }
+      }
+    }
+  }, [commitChangeIds, selectedCommitSha, commits, commitsByVersion, store]);
+
   const validShas = useMemo(() => {
     if (!selectedCommitSha) return null;
     return new Set(
@@ -25,10 +82,17 @@ export function useCurrentFileComments(): ReviewComment[] {
         selectedCommitSha,
         commits,
         commitsByVersion,
-        commitVersionHistory
+        commitVersionHistory,
+        commitChangeIds
       )
     );
-  }, [selectedCommitSha, commits, commitsByVersion, commitVersionHistory]);
+  }, [
+    selectedCommitSha,
+    commits,
+    commitsByVersion,
+    commitVersionHistory,
+    commitChangeIds,
+  ]);
   return useMemo(() => {
     if (!selectedFile) return EMPTY_COMMENTS;
     if (selectedFile === ":commit") {

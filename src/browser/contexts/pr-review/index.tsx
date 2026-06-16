@@ -449,15 +449,29 @@ export function equivalentShortShas(
   sha: string,
   commits: PRCommit[],
   commitsByVersion: Array<{ version: number; commits: PRCommit[] }>,
-  commitVersionHistory: Record<string, PRCommit[]>
+  commitVersionHistory: Record<string, PRCommit[]>,
+  commitChangeIds?: Record<string, string>
 ): string[] {
   const all = allCommits(commits, commitsByVersion);
   const commit = all.find((c) => c.sha.startsWith(sha));
   if (!commit) return [sha.slice(0, 7)];
 
-  const changeId = parseChangeId(commit.commit.message);
-  if (changeId && commitVersionHistory[changeId]) {
-    return commitVersionHistory[changeId].map((c) => c.sha.slice(0, 7));
+  const changeId =
+    parseChangeId(commit.commit.message) ?? commitChangeIds?.[commit.sha];
+  if (changeId) {
+    // Fast path: look up pre-built commitVersionHistory (built during load
+    // from commit.message Change-Id trailers).
+    if (commitVersionHistory[changeId]) {
+      return commitVersionHistory[changeId].map((c) => c.sha.slice(0, 7));
+    }
+    // Fallback: if the change-id came from commitChangeIds (raw git commit
+    // payload), search all commits for others with the same id.
+    if (commitChangeIds) {
+      const matches = all.filter((c) => commitChangeIds[c.sha] === changeId);
+      if (matches.length > 0) {
+        return matches.map((c) => c.sha.slice(0, 7));
+      }
+    }
   }
 
   const subject = firstLine(commit.commit.message);
@@ -1594,9 +1608,7 @@ export class PRReviewStore {
 
   /** Resolve a change-id for a commit, trying the raw git commit payload
    *  as a fallback when the commit message has no Change-Id trailer. */
-  private getCommitChangeId = async (
-    commit: PRCommit
-  ): Promise<string | null> => {
+  getCommitChangeId = async (commit: PRCommit): Promise<string | null> => {
     // Fast path: parse from commit message (Gerrit/GitButler format)
     const fromMessage = parseChangeId(commit.commit.message);
     if (fromMessage) return fromMessage;
@@ -1618,10 +1630,21 @@ export class PRReviewStore {
       if (raw?.verification?.payload) {
         const id = parseChangeIdFromPayload(raw.verification.payload);
         if (id) {
+          // Update both commitChangeIds cache and commitVersionHistory so
+          // equivalentShortShas can find this commit cross-version.
+          const existing = this.state.commitVersionHistory[id];
+          const updated =
+            existing && !existing.some((c) => c.sha === commit.sha)
+              ? [...existing, commit]
+              : (existing ?? [commit]);
           this.set({
             commitChangeIds: {
               ...this.state.commitChangeIds,
               [commit.sha]: id,
+            },
+            commitVersionHistory: {
+              ...this.state.commitVersionHistory,
+              [id]: updated,
             },
           });
           return id;
