@@ -41,35 +41,10 @@ export function useCurrentFilePendingComments(): LocalPendingComment[] {
   }, [selectedCommitSha, commits, commitChangeIds, store]);
 
   // After the current commit's change-id is resolved, populate remaining
-  // commits' change-ids so commitVersionHistory is complete.
+  // commits' change-ids (delegates to store to avoid duplicate work).
   useEffect(() => {
-    const currentId = commitChangeIds[selectedCommitSha || ""];
-    if (!currentId) return;
-    const seen = new Set<string>();
-    for (const c of commits) {
-      if (seen.has(c.sha)) continue;
-      seen.add(c.sha);
-      if (
-        c.sha !== selectedCommitSha &&
-        !parseChangeId(c.commit.message) &&
-        !commitChangeIds[c.sha]
-      ) {
-        store.getCommitChangeId(c);
-      }
-    }
-    for (const vc of commitsByVersion) {
-      for (const c of vc.commits) {
-        if (seen.has(c.sha)) continue;
-        seen.add(c.sha);
-        if (
-          c.sha !== selectedCommitSha &&
-          !parseChangeId(c.commit.message) &&
-          !commitChangeIds[c.sha]
-        ) {
-          store.getCommitChangeId(c);
-        }
-      }
-    }
+    if (!commitChangeIds[selectedCommitSha || ""]) return;
+    store.loadCommitChangeIds();
   }, [commitChangeIds, selectedCommitSha, store]);
 
   const validShas = useMemo(() => {

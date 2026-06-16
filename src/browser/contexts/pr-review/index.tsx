@@ -1626,6 +1626,9 @@ export class PRReviewStore {
     const cached = this.state.commitChangeIds[commit.sha];
     if (cached) return cached;
 
+    // Fast path: commit is not signed — verification.payload will be null
+    if (!commit.commit?.verification?.payload) return null;
+
     // Fallback: fetch raw git commit, parse verification.payload
     // Only works for signed commits
     const { owner, repo, pr } = this.state;
@@ -1663,6 +1666,37 @@ export class PRReviewStore {
       // Silently fail - fall through to null
     }
     return null;
+  };
+
+  /** Resolve change-ids for all commits across all versions that don't
+   *  already have one. Idempotent — skips commits already resolved. */
+  loadCommitChangeIds = (): void => {
+    const { commits, commitsByVersion, commitChangeIds, selectedCommitSha } =
+      this.state;
+    const seen = new Set<string>();
+    const pending: PRCommit[] = [];
+
+    const maybeAdd = (c: PRCommit) => {
+      if (seen.has(c.sha)) return;
+      seen.add(c.sha);
+      if (
+        c.sha !== selectedCommitSha &&
+        !parseChangeId(c.commit.message) &&
+        !commitChangeIds[c.sha] &&
+        c.commit?.verification?.payload
+      ) {
+        pending.push(c);
+      }
+    };
+
+    for (const c of commits) maybeAdd(c);
+    for (const vc of commitsByVersion) {
+      for (const c of vc.commits) maybeAdd(c);
+    }
+
+    for (const c of pending) {
+      this.getCommitChangeId(c);
+    }
   };
 
   resetVersionSelectors = async (): Promise<void> => {

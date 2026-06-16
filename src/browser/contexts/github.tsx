@@ -1291,6 +1291,11 @@ function createGitHubStore() {
       }
     }
 
+    const pending = cache.getPending<{
+      verification: { payload: string } | null;
+    }>(cacheKey);
+    if (pending) return pending;
+
     const promise = octokit
       .request("GET /repos/{owner}/{repo}/git/commits/{ref}", {
         owner,
