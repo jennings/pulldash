@@ -79,6 +79,7 @@ import {
   isMetadataComment as isSingleCommentMetadata,
   stripCommitMetadataPrefix,
   parseCommitMetadataMarker,
+  getCommentDisplayPath,
 } from "../../shared/commit-metadata";
 import { buildMetadataLines } from "../contexts/pr-review/useCurrentDiff";
 
@@ -3049,7 +3050,9 @@ function ReviewThreadBox({
           onClick={() => setShowResolved(true)}
           className="w-full flex items-center justify-between px-4 py-3 text-sm hover:bg-muted/50 transition-colors"
         >
-          <span className="font-mono text-muted-foreground">{filePath}</span>
+          <span className="font-mono text-muted-foreground">
+            {getCommentDisplayPath(firstComment)}
+          </span>
           <span className="flex items-center gap-2 text-muted-foreground hover:text-foreground">
             <svg className="w-4 h-4" viewBox="0 0 16 16" fill="currentColor">
               <path d="M8 4a.5.5 0 01.5.5v3h3a.5.5 0 010 1h-3v3a.5.5 0 01-1 0v-3h-3a.5.5 0 010-1h3v-3A.5.5 0 018 4z" />
