@@ -248,7 +248,6 @@ export function PRReviewContent({
   } catch {
     // Not in tab context, ignore
   }
-
   useEffect(() => {
     if (!githubReady) return;
 
