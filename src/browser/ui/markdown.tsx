@@ -411,6 +411,21 @@ function renderNode(
     // Filter out problematic attributes that React doesn't like
     const safeAttributes: Record<string, unknown> = {};
     if (node.attributes) {
+      // Map of HTML attribute names to their React DOM property equivalents
+      const htmlToReact: Record<string, string> = {
+        class: "className",
+        for: "htmlFor",
+        colspan: "colSpan",
+        rowspan: "rowSpan",
+        tabindex: "tabIndex",
+        itemprop: "itemProp",
+        contenteditable: "contentEditable",
+        autocomplete: "autoComplete",
+        autofocus: "autoFocus",
+        readonly: "readOnly",
+        maxlength: "maxLength",
+        minlength: "minLength",
+      };
       for (const [attrName, attrValue] of Object.entries(node.attributes)) {
         // Skip data-* attributes that GitHub adds for their hovercard system
         if (
@@ -419,16 +434,11 @@ function renderNode(
         ) {
           continue;
         }
-        // Convert class to className
-        if (attrName === "class") {
-          safeAttributes.className = attrValue;
-        } else if (attrName === "for") {
-          safeAttributes.htmlFor = attrValue;
-        } else if (attrName === "style") {
+        if (attrName === "style") {
           // Convert CSS string to React style object
           safeAttributes.style = parseStyleString(attrValue);
         } else {
-          safeAttributes[attrName] = attrValue;
+          safeAttributes[htmlToReact[attrName] ?? attrName] = attrValue;
         }
       }
     }
