@@ -481,6 +481,7 @@ function renderNode(
           safeAttributes.checked !== undefined &&
           safeAttributes.checked !== false &&
           safeAttributes.checked !== null;
+        safeAttributes.readOnly = true;
       }
       return createElement(node.tag, { key, ...safeAttributes });
     }
@@ -636,6 +637,8 @@ export const Markdown = memo(function Markdown({
                   </a>
                 );
               },
+              // Suppress React controlled-input warning for task list checkboxes
+              input: (props) => <input readOnly {...props} />,
             }}
           >
             {children}
@@ -676,6 +679,8 @@ export const Markdown = memo(function Markdown({
                 </a>
               );
             },
+            // Suppress React controlled-input warning for task list checkboxes
+            input: (props) => <input readOnly {...props} />,
             // Process text nodes to find and wrap @mentions
             p: ({ children, ...props }) => {
               return <p {...props}>{processChildren(children)}</p>;
