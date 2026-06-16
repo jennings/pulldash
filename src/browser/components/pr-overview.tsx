@@ -3028,6 +3028,16 @@ function ReviewThreadBox({
     };
   }, [parsedDiff, firstComment]);
 
+  const handleQuoteReply = useCallback((body: string) => {
+    const quoted =
+      body
+        .split("\n")
+        .map((line) => `> ${line}`)
+        .join("\n") + "\n\n";
+    setReplyText(quoted);
+    setShowReplyBox(true);
+  }, []);
+
   // Early return after all hooks
   if (comments.length === 0 || !firstComment) return null;
 
@@ -3067,16 +3077,6 @@ function ReviewThreadBox({
       setSubmitting(false);
     }
   };
-
-  const handleQuoteReply = useCallback((body: string) => {
-    const quoted =
-      body
-        .split("\n")
-        .map((line) => `> ${line}`)
-        .join("\n") + "\n\n";
-    setReplyText(quoted);
-    setShowReplyBox(true);
-  }, []);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
