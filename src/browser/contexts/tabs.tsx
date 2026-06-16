@@ -32,6 +32,9 @@ export interface Tab {
   owner?: string;
   repo?: string;
   number?: number;
+  // Cached PR metadata for instant header display on tab switch
+  prTitle?: string;
+  prAuthor?: { login: string; avatar_url: string };
   // Status reported by the tab content
   status?: TabStatus;
 }
@@ -49,6 +52,10 @@ interface TabContextValue {
   closeTab: (tabId: string) => void;
   setActiveTab: (tabId: string) => void;
   updateTabStatus: (tabId: string, status: TabStatus) => void;
+  updateTabMeta: (
+    tabId: string,
+    meta: { prTitle?: string; prAuthor?: { login: string; avatar_url: string } }
+  ) => void;
   getExistingPRTab: (
     owner: string,
     repo: string,
@@ -206,6 +213,29 @@ export function TabProvider({ children }: TabProviderProps) {
     });
   }, []);
 
+  const updateTabMeta = useCallback(
+    (
+      tabId: string,
+      meta: {
+        prTitle?: string;
+        prAuthor?: { login: string; avatar_url: string };
+      }
+    ) => {
+      setState((prev) => {
+        const tabIndex = prev.tabs.findIndex((t) => t.id === tabId);
+        if (tabIndex === -1) return prev;
+
+        const newTabs = [...prev.tabs];
+        newTabs[tabIndex] = {
+          ...newTabs[tabIndex],
+          ...meta,
+        };
+        return { ...prev, tabs: newTabs };
+      });
+    },
+    []
+  );
+
   const getExistingPRTab = useCallback(
     (owner: string, repo: string, number: number): Tab | undefined => {
       return state.tabs.find(
@@ -229,6 +259,7 @@ export function TabProvider({ children }: TabProviderProps) {
     closeTab,
     setActiveTab,
     updateTabStatus,
+    updateTabMeta,
     getExistingPRTab,
   };
 

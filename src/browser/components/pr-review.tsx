@@ -34,6 +34,7 @@ import {
   ExternalLink,
   BookOpen,
   Smile,
+  GitPullRequest,
 } from "lucide-react";
 import type { Reaction, ReactionContent } from "../contexts/github";
 import { Skeleton } from "../ui/skeleton";
@@ -194,6 +195,10 @@ interface PRReviewContentProps {
   repo: string;
   number: number;
   tabId?: string;
+  cachedPr?: {
+    title: string;
+    user: { login: string; avatar_url: string };
+  } | null;
 }
 
 interface PRFetchResult {
@@ -209,6 +214,7 @@ export function PRReviewContent({
   repo,
   number,
   tabId,
+  cachedPr,
 }: PRReviewContentProps) {
   const { ready: githubReady, error: githubError } = useGitHubReady();
   const github = useGitHubStore();
@@ -225,6 +231,23 @@ export function PRReviewContent({
     fetchedData?.pr ?? null,
     fetchedData?.inMergeQueue ?? false
   );
+
+  // Get tab context for caching PR metadata on tab switch
+  let updateTabMeta:
+    | ((
+        tabId: string,
+        meta: {
+          prTitle?: string;
+          prAuthor?: { login: string; avatar_url: string };
+        }
+      ) => void)
+    | undefined;
+  try {
+    const tabContext = useTabContext();
+    updateTabMeta = tabContext.updateTabMeta;
+  } catch {
+    // Not in tab context, ignore
+  }
 
   useEffect(() => {
     if (!githubReady) return;
@@ -245,6 +268,17 @@ export function PRReviewContent({
             isInMergeQueue: false,
           })),
         ]);
+
+        // Cache PR metadata in tab for instant header on next switch
+        if (updateTabMeta && tabId && pr.user) {
+          updateTabMeta(tabId, {
+            prTitle: pr.title,
+            prAuthor: {
+              login: pr.user.login,
+              avatar_url: pr.user.avatar_url,
+            },
+          });
+        }
 
         setFetchedData({
           pr,
@@ -281,7 +315,36 @@ export function PRReviewContent({
   }
 
   if (loading) {
-    return <PRReviewSkeleton />;
+    return (
+      <div className="h-full flex flex-col">
+        {cachedPr && (
+          <header className="border-b border-border px-2 sm:px-4 py-2 flex items-center gap-2 sm:gap-3 shrink-0 bg-card/30">
+            <span
+              className={cn(
+                "inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full text-white shrink-0 bg-green-600"
+              )}
+            >
+              <GitPullRequest className="w-3.5 h-3.5" />
+              <span className="hidden xs:inline">Open</span>
+            </span>
+            <h1 className="text-sm font-medium truncate flex-1 min-w-0">
+              <span className="truncate">
+                <span>{cachedPr.title}</span>
+              </span>
+            </h1>
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground shrink-0">
+              <img
+                src={cachedPr.user.avatar_url}
+                alt={cachedPr.user.login}
+                className="w-5 h-5 rounded-full"
+              />
+              <span className="hidden lg:inline">{cachedPr.user.login}</span>
+            </div>
+          </header>
+        )}
+        <PRReviewSkeleton />
+      </div>
+    );
   }
 
   if (error || !fetchedData) {

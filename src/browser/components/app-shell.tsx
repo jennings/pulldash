@@ -236,6 +236,11 @@ export function AppShell() {
                 repo={activeTab.repo}
                 number={activeTab.number}
                 tabId={activeTab.id}
+                cachedPr={
+                  activeTab.prTitle && activeTab.prAuthor
+                    ? { title: activeTab.prTitle, user: activeTab.prAuthor }
+                    : null
+                }
               />
             </div>
           )}
