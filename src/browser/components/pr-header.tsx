@@ -31,6 +31,7 @@ export const PRHeader = memo(function PRHeader({
   rightContent,
 }: PRHeaderProps) {
   const showQueued = inMergeQueue && pr.state === "open" && !pr.merged;
+  const isFork = pr.head?.repo?.full_name !== `${owner}/${repo}`;
 
   const stateIcon = pr.merged ? (
     <GitMerge className="w-3.5 h-3.5" />
@@ -137,7 +138,7 @@ export const PRHeader = memo(function PRHeader({
         <div className="text-[11px] text-muted-foreground font-mono hidden lg:flex items-center gap-1 shrink-0">
           <BranchBadge branch={pr.base.ref} />
           <span>←</span>
-          <BranchBadge branch={pr.head.ref} />
+          <BranchBadge branch={isFork ? pr.head.label : pr.head.ref} />
         </div>
       </h1>
 
