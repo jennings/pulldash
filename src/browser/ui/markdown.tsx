@@ -324,7 +324,7 @@ function parseNodeList(nodes: NodeListOf<ChildNode>): HtmlNode[] {
 function parseNode(node: Node): HtmlNode | null {
   if (node.nodeType === Node.TEXT_NODE) {
     const text = node.textContent || "";
-    if (!text) return null;
+    if (!text.trim()) return null;
     return { type: "text", content: text };
   }
 
