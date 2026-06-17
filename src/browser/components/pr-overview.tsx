@@ -1205,6 +1205,7 @@ export const PROverview = memo(function PROverview() {
                   id="pr-description"
                   user={pr.user}
                   createdAt={pr.created_at}
+                  commentUrl={pr.html_url}
                   body={pr.body}
                   bodyHtml={pr.body_html}
                   isAuthor
@@ -1532,6 +1533,7 @@ export const PROverview = memo(function PROverview() {
                             user={comment.user}
                             createdAt={comment.created_at}
                             updatedAt={comment.updated_at}
+                            commentUrl={comment.html_url}
                             body={comment.body ?? null}
                             bodyHtml={comment.body_html}
                             reactions={reactions[`comment-${comment.id}`]}
@@ -1579,6 +1581,7 @@ export const PROverview = memo(function PROverview() {
                                   thread={thread}
                                   owner={owner}
                                   repo={repo}
+                                  prNumber={pr.number}
                                   onReply={handleReplyToThread}
                                   onResolve={handleResolveThread}
                                   onUnresolve={handleUnresolveThread}
@@ -1667,6 +1670,7 @@ export const PROverview = memo(function PROverview() {
                             thread={entry.data}
                             owner={owner}
                             repo={repo}
+                            prNumber={pr.number}
                             onReply={handleReplyToThread}
                             onResolve={handleResolveThread}
                             onUnresolve={handleUnresolveThread}
@@ -2612,6 +2616,7 @@ function CommentBox({
   user,
   createdAt,
   updatedAt,
+  commentUrl,
   body,
   bodyHtml,
   isAuthor,
@@ -2626,6 +2631,7 @@ function CommentBox({
   user: { login: string; avatar_url: string } | null;
   createdAt: string;
   updatedAt?: string;
+  commentUrl?: string;
   body: string | null;
   /** Pre-rendered HTML with signed attachment URLs from GitHub's API */
   bodyHtml?: string;
@@ -2667,7 +2673,19 @@ function CommentBox({
           </span>
         </UserHoverCard>
         <span className="text-muted-foreground">
-          commented {getTimeAgo(new Date(createdAt))}
+          commented{" "}
+          {commentUrl ? (
+            <a
+              href={commentUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:underline"
+            >
+              {getTimeAgo(new Date(createdAt))}
+            </a>
+          ) : (
+            getTimeAgo(new Date(createdAt))
+          )}
         </span>
         {updatedAt && updatedAt !== createdAt && (
           <span className="text-muted-foreground">
@@ -2920,6 +2938,7 @@ function ReviewThreadBox({
   thread,
   owner,
   repo,
+  prNumber,
   onReply,
   onResolve,
   onUnresolve,
@@ -2935,6 +2954,7 @@ function ReviewThreadBox({
   thread: ReviewThread;
   owner: string;
   repo: string;
+  prNumber: number;
   onReply?: (
     threadId: string,
     commentId: number,
@@ -3242,9 +3262,14 @@ function ReviewThreadBox({
                   </UserHoverCard>
                 </>
               )}
-              <span className="text-muted-foreground">
+              <a
+                href={`https://github.com/${owner}/${repo}/pull/${prNumber}#discussion_r${comment.databaseId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-muted-foreground hover:underline"
+              >
                 {getTimeAgo(new Date(comment.createdAt))}
-              </span>
+              </a>
               {comment.updatedAt && comment.updatedAt !== comment.createdAt && (
                 <span className="text-muted-foreground">
                   · edited {getTimeAgo(new Date(comment.updatedAt))}
