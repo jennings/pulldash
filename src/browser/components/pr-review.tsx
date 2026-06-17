@@ -1668,18 +1668,8 @@ const DiffViewer = memo(function DiffViewer({
           const hasWordDiff = line.content.some((s) => s.type !== "normal");
           if (hasWordDiff) {
             // Reconstruct the full old and new text from the segments.
-            // Strip leading whitespace from NORMAL segments when building
-            // old text — diffWords may have absorbed new-text leading
-            // whitespace into NORMAL segments, creating duplicates.
             const oldSegments = line.content.filter((s) => s.type !== "insert");
-            const fullOldText = oldSegments
-              .map((s, i) => {
-                if (i > 0 && s.type === "normal") {
-                  return s.value.replace(/^\s+/, "");
-                }
-                return s.value;
-              })
-              .join("");
+            const fullOldText = oldSegments.map((s) => s.value).join("");
             const fullNewText = line.content
               .filter((s) => s.type !== "delete")
               .map((s) => s.value)
@@ -1724,10 +1714,7 @@ const DiffViewer = memo(function DiffViewer({
             }> = [];
             for (let i = 0; i < leftTokens.length; i++) {
               const t = leftTokens[i];
-              // Strip leading whitespace from NORMAL segments after the first
-              // — diffWords may have absorbed new-text leading whitespace
-              const value =
-                i > 0 && !t.removed ? t.value.replace(/^\s+/, "") : t.value;
+              const value = t.value;
 
               // Split leading whitespace from DELETE segments so the
               // indentation is not highlighted — only the actual change
@@ -2604,18 +2591,20 @@ const DiffLineRow = memo(function DiffLineRow({
 
   // Split leading whitespace from insert/delete segments so indentation
   // is not highlighted — only the actual changed text gets the bg color.
-  // Also strip leading whitespace from NORMAL segments after the first,
-  // since diffWords may have absorbed new-text whitespace into them.
+  // When diffWords bakes common whitespace into both a delete and an
+  // insert token, only split the first one — the second would create
+  // a duplicate. Never strip leading whitespace from normal segments.
   const processedContent = useMemo(() => {
     const result: typeof line.content = [];
-    let hasRealContent = false;
+    let lastNormal: string | null = null;
     for (const seg of line.content) {
       if (
         (seg.type === "insert" || seg.type === "delete") &&
         seg.value.trim()
       ) {
         const m = seg.value.match(/^(\s+)/);
-        if (m) {
+        if (m && lastNormal !== m[1]) {
+          lastNormal = m[1];
           result.push({ ...seg, value: m[1], html: m[1], type: "normal" });
         }
         result.push({
@@ -2623,21 +2612,9 @@ const DiffLineRow = memo(function DiffLineRow({
           value: seg.value.trimStart(),
           html: seg.html.replace(/^\s+/, ""),
         });
-        hasRealContent = true;
       } else if (seg.type === "normal") {
-        // Strip leading whitespace from subsequent NORMAL segments
-        // — diffWords may have absorbed new-text whitespace into them
-        const stripped = hasRealContent
-          ? seg.value.replace(/^\s+/, "")
-          : seg.value;
-        result.push({
-          ...seg,
-          value: stripped,
-          html: hasRealContent ? seg.html.replace(/^\s+/, "") : seg.html,
-        });
-        if (seg.value.trim()) {
-          hasRealContent = true;
-        }
+        lastNormal = seg.value;
+        result.push(seg);
       } else {
         result.push(seg);
       }
