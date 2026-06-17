@@ -13,6 +13,11 @@ import "./index.css";
 // Initialize theme before rendering to avoid flash
 initTheme();
 
+// Register service worker for PWA installability
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("/sw.js");
+}
+
 createRoot(document.getElementById("app")!).render(
   <ThemeProvider>
     <AuthProvider>

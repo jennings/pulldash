@@ -46,6 +46,21 @@ async function build() {
     resolve(process.cwd(), "dist", "browser", "404.html")
   );
 
+  // PWA files
+  await cp(
+    resolve(process.cwd(), "src", "browser", "manifest.json"),
+    resolve(process.cwd(), "dist", "browser", "manifest.json")
+  );
+  await cp(
+    resolve(process.cwd(), "src", "browser", "sw.js"),
+    resolve(process.cwd(), "dist", "browser", "sw.js")
+  );
+  await cp(
+    resolve(process.cwd(), "src", "browser", "icons"),
+    resolve(process.cwd(), "dist", "browser", "icons"),
+    { recursive: true }
+  );
+
   // Build worker separately with document shim for Prism/refractor
   const workerResult = await Bun.build({
     entrypoints: ["./src/browser/lib/diff-worker.ts"],
