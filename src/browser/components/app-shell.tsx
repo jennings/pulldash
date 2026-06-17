@@ -135,6 +135,13 @@ export function AppShell() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [tabs, activeTabId, handleTabSelect, handleTabClose]);
 
+  // Reset title when switching to home tab
+  useEffect(() => {
+    if (activeTabId === "home") {
+      document.title = isAuthenticated ? "Home · Pulldash" : "Pulldash";
+    }
+  }, [activeTabId, isAuthenticated]);
+
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-background">
       {/* Native-style Tab Bar */}
