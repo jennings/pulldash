@@ -33,7 +33,7 @@
     "url": "https://coder.com"
   },
   "devDependencies": {
-    "@hono/node-server": "^1.19.6",
+    "@hono/node-server": "^2.0.2",
     "@octokit/core": "^7.0.6",
     "@radix-ui/react-collapsible": "^1.1.12",
     "@radix-ui/react-context-menu": "^2.2.16",
