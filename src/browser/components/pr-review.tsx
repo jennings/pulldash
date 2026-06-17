@@ -3280,10 +3280,10 @@ const InlineCommentForm = memo(function InlineCommentForm({
             <img
               src={currentUser.avatar_url}
               alt={currentUser.login}
-              className="w-6 h-6 rounded-full ring-1 ring-border"
+              className="w-6 h-6 rounded-full ring-1 ring-border hidden sm:block"
             />
           ) : (
-            <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center">
+            <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center hidden sm:flex">
               <MessageSquare className="w-3 h-3 text-muted-foreground" />
             </div>
           )}

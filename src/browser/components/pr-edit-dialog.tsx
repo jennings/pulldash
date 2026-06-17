@@ -6,7 +6,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogDescription,
   DialogFooter,
 } from "../ui/dialog";
 import { Button } from "../ui/button";
@@ -107,12 +106,9 @@ export const PREditDialog = memo(function PREditDialog({
       <DialogContent showCloseButton={!updatingPR} className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Edit pull request</DialogTitle>
-          <DialogDescription>
-            Update the title, description, or base branch.
-          </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
+        <div className="space-y-3">
           <div className="space-y-2">
             <label className="text-sm font-medium">Title</label>
             <input
@@ -130,7 +126,7 @@ export const PREditDialog = memo(function PREditDialog({
             <MarkdownEditor
               value={body}
               onChange={setBody}
-              minHeight="200px"
+              minHeight="80px"
               maxHeight="40vh"
               disabled={updatingPR}
             />

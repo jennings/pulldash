@@ -1418,7 +1418,7 @@ export const MarkdownEditor = memo(function MarkdownEditor({
 
         {/* Formatting toolbar - only visible in write mode */}
         {activeTab === "write" && (
-          <div className="flex items-center gap-0.5 pr-1">
+          <div className="flex items-center gap-0.5 pr-1 flex-wrap">
             {toolbarButtons.map((btn, idx) =>
               btn.type === "separator" ? (
                 <div key={idx} className="w-px h-4 bg-border mx-1" />
