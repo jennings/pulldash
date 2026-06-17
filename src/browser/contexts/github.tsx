@@ -1800,6 +1800,20 @@ function createGitHubStore() {
     cache.invalidate(`pr:${owner}/${repo}/${number}`);
   }
 
+  async function enqueuePullRequest(
+    owner: string,
+    repo: string,
+    number: number,
+    prNodeId: string
+  ): Promise<void> {
+    if (!batcher) throw new Error("Not initialized");
+    await batcher.query(
+      `mutation ($input: EnqueuePullRequestInput!) { enqueuePullRequest(input: $input) { mergeQueueEntry { id } } }`,
+      { input: { pullRequestId: prNodeId } }
+    );
+    cache.invalidate(`pr:${owner}/${repo}/${number}`);
+  }
+
   async function getPRCommits(owner: string, repo: string, number: number) {
     if (!octokit) throw new Error("Not initialized");
 
@@ -3347,6 +3361,7 @@ function createGitHubStore() {
     approveWorkflowRun,
     mergePR,
     dequeuePullRequest,
+    enqueuePullRequest,
     getPRCommits,
     getCommitsForHeadSha,
     getPRConversation,

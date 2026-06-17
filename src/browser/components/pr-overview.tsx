@@ -4047,8 +4047,10 @@ function MergeSection({
                   >
                     {merging ? (
                       <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : hasMergeQueue ? (
+                      "Add to merge queue"
                     ) : (
-                      <>{getMergeButtonText(mergeMethod)}</>
+                      getMergeButtonText(mergeMethod)
                     )}
                   </button>
                   <button
