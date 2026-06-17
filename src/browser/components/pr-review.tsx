@@ -489,7 +489,7 @@ function PRReviewLayout() {
         {/* Mobile sidebar overlay */}
         {mobileSidebarOpen && (
           <div
-            className="fixed inset-0 bg-black/50 z-40 md:hidden"
+            className="fixed inset-0 bg-black/50 z-40 lg:hidden"
             onClick={() => setMobileSidebarOpen(false)}
           />
         )}
@@ -604,12 +604,12 @@ const FilePanel = memo(function FilePanel({
       className={cn(
         "w-64 border-r border-border flex flex-col overflow-hidden shrink-0 bg-background",
         // Mobile: absolute positioned drawer
-        "fixed inset-y-0 left-0 z-50 transition-transform duration-200 ease-in-out md:relative md:translate-x-0",
+        "fixed inset-y-0 left-0 z-50 transition-transform duration-200 ease-in-out lg:relative lg:translate-x-0",
         mobileOpen ? "translate-x-0" : "-translate-x-full"
       )}
     >
       {/* Mobile close button */}
-      <div className="flex items-center justify-between px-2 py-2 border-b border-border md:hidden">
+      <div className="flex items-center justify-between px-2 py-2 border-b border-border lg:hidden">
         <span className="text-sm font-medium">Files</span>
         <button
           onClick={onMobileClose}

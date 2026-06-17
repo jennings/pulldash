@@ -84,7 +84,7 @@ export const PRHeader = memo(function PRHeader({
         {onToggleSidebar && (
           <button
             onClick={onToggleSidebar}
-            className="p-1.5 rounded-md hover:bg-muted transition-colors md:hidden shrink-0"
+            className="p-1.5 rounded-md hover:bg-muted transition-colors lg:hidden shrink-0"
             title="Toggle file list"
           >
             <Menu className="w-4 h-4" />
