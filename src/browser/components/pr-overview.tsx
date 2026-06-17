@@ -1531,6 +1531,7 @@ export const PROverview = memo(function PROverview() {
                             id={commentId}
                             user={comment.user}
                             createdAt={comment.created_at}
+                            updatedAt={comment.updated_at}
                             body={comment.body ?? null}
                             bodyHtml={comment.body_html}
                             reactions={reactions[`comment-${comment.id}`]}
@@ -2610,6 +2611,7 @@ function CommentBox({
   id,
   user,
   createdAt,
+  updatedAt,
   body,
   bodyHtml,
   isAuthor,
@@ -2623,6 +2625,7 @@ function CommentBox({
   id?: string;
   user: { login: string; avatar_url: string } | null;
   createdAt: string;
+  updatedAt?: string;
   body: string | null;
   /** Pre-rendered HTML with signed attachment URLs from GitHub's API */
   bodyHtml?: string;
@@ -2666,6 +2669,11 @@ function CommentBox({
         <span className="text-muted-foreground">
           commented {getTimeAgo(new Date(createdAt))}
         </span>
+        {updatedAt && updatedAt !== createdAt && (
+          <span className="text-muted-foreground">
+            · edited {getTimeAgo(new Date(updatedAt))}
+          </span>
+        )}
         {isAuthor && (
           <span className="ml-auto px-1.5 py-0.5 text-xs border border-border rounded text-muted-foreground">
             Author
@@ -3237,6 +3245,11 @@ function ReviewThreadBox({
               <span className="text-muted-foreground">
                 {getTimeAgo(new Date(comment.createdAt))}
               </span>
+              {comment.updatedAt && comment.updatedAt !== comment.createdAt && (
+                <span className="text-muted-foreground">
+                  · edited {getTimeAgo(new Date(comment.updatedAt))}
+                </span>
+              )}
             </div>
             <div className="mt-2">
               {isMetadataComment ? (
