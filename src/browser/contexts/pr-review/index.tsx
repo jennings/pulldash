@@ -3543,25 +3543,35 @@ export class PRReviewStore {
    * - State update
    */
   mergePR = async (): Promise<boolean> => {
-    const { owner, repo, pr, mergeMethod } = this.state;
+    const { owner, repo, pr, mergeMethod, repoHasMergeQueue } = this.state;
 
     this.set({ merging: true, mergeError: null });
 
     try {
-      await this.github.mergePR(owner, repo, pr.number, {
-        merge_method: mergeMethod,
-      });
+      if (repoHasMergeQueue) {
+        const nodeId = (pr as { node_id?: string }).node_id;
+        if (!nodeId) throw new Error("Missing PR node id");
+        await this.github.enqueuePullRequest(owner, repo, pr.number, nodeId);
 
-      // Invalidate all PR-related caches
-      this.invalidatePRCaches(owner, repo, pr.number);
+        this.invalidatePRCaches(owner, repo, pr.number);
 
-      // Optimistically update PR state
-      this.set({
-        pr: { ...this.state.pr, merged: true, state: "closed" as const },
-        merging: false,
-      });
+        this.set({ prInMergeQueue: true, merging: false });
+      } else {
+        await this.github.mergePR(owner, repo, pr.number, {
+          merge_method: mergeMethod,
+        });
 
-      // Refetch timeline in background (merge creates event)
+        // Invalidate all PR-related caches
+        this.invalidatePRCaches(owner, repo, pr.number);
+
+        // Optimistically update PR state
+        this.set({
+          pr: { ...this.state.pr, merged: true, state: "closed" as const },
+          merging: false,
+        });
+      }
+
+      // Refetch timeline in background (enqueue/merge creates event)
       this.github
         .getPRTimeline(owner, repo, pr.number)
         .then((timeline) => this.set({ timeline }))
