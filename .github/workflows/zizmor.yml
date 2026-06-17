@@ -1,0 +1,21 @@
+name: Zizmor
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  zizmor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+      - name: Install zizmor
+        run: pip install zizmor
+      - name: Check workflows
+        run: zizmor .

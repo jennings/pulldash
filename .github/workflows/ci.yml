@@ -37,29 +37,3 @@ jobs:
 
       - name: Test
         run: bun run test
-
-  zizmor:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
-        with:
-          persist-credentials: false
-      - name: Install zizmor
-        run: pip install zizmor
-      - name: Check workflows
-        run: zizmor .
-
-  dependabot-auto-merge:
-    needs:
-      - ci
-      - zizmor
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
-    if: ${{ github.event.pull_request.user.login == 'dependabot[bot]' }}
-    steps:
-      - run: gh pr merge --auto --rebase "$PR_URL"
-        env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
