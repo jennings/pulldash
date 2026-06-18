@@ -1195,9 +1195,9 @@ export const PROverview = memo(function PROverview() {
 
       {/* Main Content */}
       <div className="max-w-[1280px] mx-auto px-3 sm:px-6 py-4 sm:py-6">
-        <div className="flex flex-col lg:flex-row gap-4 lg:gap-6">
+        <div className="flex flex-col md:flex-row gap-4 md:gap-6">
           {/* Left Column - Main Content */}
-          <div className="flex-1 min-w-0 space-y-4 order-2 lg:order-1">
+          <div className="flex-1 min-w-0 space-y-4 order-2 md:order-1">
             {activeTab === "conversation" && (
               <>
                 {/* PR Description */}
@@ -1999,7 +1999,7 @@ export const PROverview = memo(function PROverview() {
           </div>
 
           {/* Right Column - Sidebar */}
-          <div className="w-full lg:w-[296px] shrink-0 space-y-4 order-1 lg:order-2">
+          <div className="w-full md:w-[296px] shrink-0 space-y-4 order-1 md:order-2">
             {/* Reviewers */}
             <SidebarSection
               title="Reviewers"
