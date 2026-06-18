@@ -18,6 +18,7 @@ import {
   Info,
 } from "lucide-react";
 import { cn } from "../cn";
+import { Tooltip, TooltipTrigger, TooltipContent } from "../ui/tooltip";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -361,7 +362,14 @@ export function FileTree({
                       ) : (
                         <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
                       )}
-                      <span className="truncate flex-1">{node.name}</span>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="truncate flex-1">{node.name}</span>
+                        </TooltipTrigger>
+                        <TooltipContent side="right">
+                          {node.path}
+                        </TooltipContent>
+                      </Tooltip>
                       {allViewed && (
                         <Check className="w-3 h-3 text-green-500 shrink-0" />
                       )}
@@ -435,9 +443,20 @@ export function FileTree({
                     style={{ paddingLeft: `${depth * 12 + 8}px` }}
                   >
                     {node.file && getFileIcon(node.file)}
-                    <span className="truncate flex-1">
-                      {node.path === ":commit" ? "Commit metadata" : node.name}
-                    </span>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="truncate flex-1">
+                          {node.path === ":commit"
+                            ? "Commit metadata"
+                            : node.name}
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent side="right">
+                        {node.path === ":commit"
+                          ? "Commit metadata"
+                          : node.path}
+                      </TooltipContent>
+                    </Tooltip>
                     <div className="flex items-center gap-1 shrink-0">
                       {pendingCount > 0 && (
                         <span className="flex items-center gap-0.5 text-xs text-yellow-500 bg-yellow-500/20 px-1.5 py-0.5 rounded">
