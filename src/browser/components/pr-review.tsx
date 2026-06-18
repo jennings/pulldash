@@ -99,6 +99,10 @@ import {
   parseCommitMetadataMarker,
 } from "../../shared/commit-metadata";
 import {
+  resolveCommentLineFromDiffHunk,
+  commitShasMatch,
+} from "../lib/comment-anchor";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -1561,6 +1565,12 @@ const DiffViewer = memo(function DiffViewer({
   const pendingComments = useCurrentFilePendingComments();
   const commentingOnLine = usePRReviewSelector((s) => s.commentingOnLine);
   const selectedFile = usePRReviewSelector((s) => s.selectedFile);
+  // The commit whose line numbers the rendered `diff` is in. Comments anchored
+  // to any other commit must be re-positioned by content instead of using
+  // `comment.line` (which is in the comment's commit_id coordinates).
+  const viewedCommitSha = usePRReviewSelector(
+    (s) => s.selectedHeadSha ?? s.pr.head.sha
+  );
 
   // Note: selectionState removed from context - rows subscribe directly to avoid re-renders
   const commentingRange = useCommentingRange();
@@ -1612,7 +1622,24 @@ const DiffViewer = memo(function DiffViewer({
     const map = new Map<number, ReviewComment[]>();
     for (const comment of comments) {
       if (comment.subject_type === "file") continue;
-      const line = comment.line ?? comment.original_line;
+      let line: number | null | undefined;
+      if (
+        comment.commit_id &&
+        !commitShasMatch(comment.commit_id, viewedCommitSha)
+      ) {
+        // Comment was made on a different commit; re-anchor by content.
+        line = resolveCommentLineFromDiffHunk(
+          {
+            side: comment.side as "LEFT" | "RIGHT" | null | undefined,
+            line: comment.line,
+            startLine: comment.start_line,
+            diffHunk: comment.diff_hunk,
+          },
+          diff
+        );
+      } else {
+        line = comment.line ?? comment.original_line;
+      }
       if (line) {
         const existing = map.get(line) || [];
         existing.push(comment);
@@ -1620,7 +1647,7 @@ const DiffViewer = memo(function DiffViewer({
       }
     }
     return map;
-  }, [comments]);
+  }, [comments, diff, viewedCommitSha]);
 
   // File-level comments (subject_type === "file") aren't tied to a diff line.
   // GitHub still returns them with line=1, but they belong above the diff
