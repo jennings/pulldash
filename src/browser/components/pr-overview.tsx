@@ -24,7 +24,6 @@ import {
   Settings,
   Circle,
   Eye,
-  Smile,
   X,
   Plus,
   User,
@@ -54,7 +53,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "../ui/tooltip";
-import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
+import { EmojiReactions } from "./emoji-reactions";
 import {
   usePRReviewSelector,
   usePRReviewStore,
@@ -4473,170 +4472,6 @@ function CheckStatusIcon({
     default:
       return <Clock className={cn(sizeClass, "text-yellow-500")} />;
   }
-}
-
-// ============================================================================
-// Emoji Reactions Component
-// ============================================================================
-
-const REACTION_EMOJIS: Record<ReactionContent, string> = {
-  "+1": "👍",
-  "-1": "👎",
-  laugh: "😄",
-  hooray: "🎉",
-  confused: "😕",
-  heart: "❤️",
-  rocket: "🚀",
-  eyes: "👀",
-};
-
-const REACTION_ORDER: ReactionContent[] = [
-  "+1",
-  "-1",
-  "laugh",
-  "hooray",
-  "confused",
-  "heart",
-  "rocket",
-  "eyes",
-];
-
-function EmojiReactions({
-  reactions,
-  onAddReaction,
-  onRemoveReaction,
-  currentUser,
-}: {
-  reactions: Reaction[];
-  onAddReaction?: (content: ReactionContent) => void;
-  onRemoveReaction?: (reactionId: number) => void;
-  currentUser?: string | null;
-}) {
-  const [showPicker, setShowPicker] = useState(false);
-
-  // Group reactions by content
-  const groupedReactions = useMemo(() => {
-    const groups: Record<
-      string,
-      { count: number; users: string[]; userReactionId?: number }
-    > = {};
-
-    for (const reaction of reactions) {
-      const content = reaction.content as ReactionContent;
-      if (!groups[content]) {
-        groups[content] = { count: 0, users: [] };
-      }
-      groups[content].count++;
-      if (reaction.user?.login) {
-        groups[content].users.push(reaction.user.login);
-        if (reaction.user.login === currentUser) {
-          groups[content].userReactionId = reaction.id;
-        }
-      }
-    }
-
-    return groups;
-  }, [reactions, currentUser]);
-
-  const handleReactionClick = useCallback(
-    (content: ReactionContent) => {
-      const group = groupedReactions[content];
-      if (group?.userReactionId && onRemoveReaction) {
-        // User already reacted, remove it
-        onRemoveReaction(group.userReactionId);
-      } else if (onAddReaction) {
-        // Add new reaction
-        onAddReaction(content);
-      }
-      setShowPicker(false);
-    },
-    [groupedReactions, onAddReaction, onRemoveReaction]
-  );
-
-  // Sort reactions to show in consistent order
-  const sortedReactions = useMemo(() => {
-    return REACTION_ORDER.filter(
-      (content) => groupedReactions[content]?.count > 0
-    );
-  }, [groupedReactions]);
-
-  // Format users list for tooltip (like GitHub: "user1, user2, and 3 others reacted with 👍")
-  const formatUsersTooltip = (users: string[], emoji: string) => {
-    if (users.length === 0) return "";
-    if (users.length === 1) return `${users[0]} reacted with ${emoji}`;
-    if (users.length === 2)
-      return `${users[0]} and ${users[1]} reacted with ${emoji}`;
-    if (users.length === 3)
-      return `${users[0]}, ${users[1]}, and ${users[2]} reacted with ${emoji}`;
-    return `${users[0]}, ${users[1]}, and ${users.length - 2} others reacted with ${emoji}`;
-  };
-
-  return (
-    <div className="flex items-center gap-1.5 flex-wrap">
-      {/* Add reaction button - on the left like GitHub */}
-      {onAddReaction && (
-        <Popover open={showPicker} onOpenChange={setShowPicker}>
-          <TooltipProvider delayDuration={200}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <PopoverTrigger asChild>
-                  <button className="inline-flex items-center justify-center w-7 h-7 text-xs rounded-full border border-border hover:border-blue-500/50 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors">
-                    <Smile className="w-4 h-4" />
-                  </button>
-                </PopoverTrigger>
-              </TooltipTrigger>
-              <TooltipContent>Add reaction</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-          <PopoverContent align="start" className="w-auto p-2 flex gap-1">
-            {REACTION_ORDER.map((content) => (
-              <button
-                key={content}
-                onClick={() => handleReactionClick(content)}
-                className={cn(
-                  "w-8 h-8 flex items-center justify-center text-lg rounded hover:bg-muted transition-colors",
-                  groupedReactions[content]?.userReactionId && "bg-blue-500/20"
-                )}
-                title={content}
-              >
-                {REACTION_EMOJIS[content]}
-              </button>
-            ))}
-          </PopoverContent>
-        </Popover>
-      )}
-
-      {/* Existing reactions - after the add button */}
-      <TooltipProvider delayDuration={200}>
-        {sortedReactions.map((content) => {
-          const group = groupedReactions[content];
-          const isUserReaction = !!group.userReactionId;
-
-          return (
-            <Tooltip key={content}>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={() => handleReactionClick(content)}
-                  className={cn(
-                    "inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-full border transition-colors",
-                    isUserReaction
-                      ? "bg-blue-500/20 border-blue-500/50 text-blue-400"
-                      : "bg-muted/50 border-border hover:border-blue-500/50"
-                  )}
-                >
-                  <span>{REACTION_EMOJIS[content]}</span>
-                  <span>{group.count}</span>
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {formatUsersTooltip(group.users, REACTION_EMOJIS[content])}
-              </TooltipContent>
-            </Tooltip>
-          );
-        })}
-      </TooltipProvider>
-    </div>
-  );
 }
 
 // ============================================================================
