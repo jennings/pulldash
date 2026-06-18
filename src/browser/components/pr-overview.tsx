@@ -4255,7 +4255,7 @@ function CommitsTab({
             {commit.parents && commit.parents.length > 1 ? (
               <GitMerge className="w-4 h-4 text-purple-500" />
             ) : (
-              <Check className="w-4 h-4 text-green-500" />
+              <GitCommit className="w-4 h-4 text-muted-foreground" />
             )}
             <a
               href={`https://github.com/${owner}/${repo}/commit/${commit.sha}`}
