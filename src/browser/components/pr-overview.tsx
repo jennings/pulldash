@@ -54,6 +54,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "../ui/tooltip";
+import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 import {
   usePRReviewSelector,
   usePRReviewStore,
@@ -4512,8 +4513,6 @@ function EmojiReactions({
   currentUser?: string | null;
 }) {
   const [showPicker, setShowPicker] = useState(false);
-  const buttonRef = useRef<HTMLButtonElement>(null);
-  const [pickerPosition, setPickerPosition] = useState({ top: 0, left: 0 });
 
   // Group reactions by content
   const groupedReactions = useMemo(() => {
@@ -4554,17 +4553,6 @@ function EmojiReactions({
     [groupedReactions, onAddReaction, onRemoveReaction]
   );
 
-  const handleTogglePicker = useCallback(() => {
-    if (!showPicker && buttonRef.current) {
-      const rect = buttonRef.current.getBoundingClientRect();
-      setPickerPosition({
-        top: rect.bottom + 4,
-        left: rect.left,
-      });
-    }
-    setShowPicker(!showPicker);
-  }, [showPicker]);
-
   // Sort reactions to show in consistent order
   const sortedReactions = useMemo(() => {
     return REACTION_ORDER.filter(
@@ -4587,53 +4575,35 @@ function EmojiReactions({
     <div className="flex items-center gap-1.5 flex-wrap">
       {/* Add reaction button - on the left like GitHub */}
       {onAddReaction && (
-        <>
+        <Popover open={showPicker} onOpenChange={setShowPicker}>
           <TooltipProvider delayDuration={200}>
             <Tooltip>
               <TooltipTrigger asChild>
-                <button
-                  ref={buttonRef}
-                  onClick={handleTogglePicker}
-                  className="inline-flex items-center justify-center w-7 h-7 text-xs rounded-full border border-border hover:border-blue-500/50 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-                >
-                  <Smile className="w-4 h-4" />
-                </button>
+                <PopoverTrigger asChild>
+                  <button className="inline-flex items-center justify-center w-7 h-7 text-xs rounded-full border border-border hover:border-blue-500/50 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors">
+                    <Smile className="w-4 h-4" />
+                  </button>
+                </PopoverTrigger>
               </TooltipTrigger>
               <TooltipContent>Add reaction</TooltipContent>
             </Tooltip>
           </TooltipProvider>
-
-          {/* Emoji picker dropdown - using fixed positioning to escape overflow */}
-          {showPicker && (
-            <>
-              {/* Backdrop */}
-              <div
-                className="fixed inset-0 z-[100]"
-                onClick={() => setShowPicker(false)}
-              />
-              {/* Picker */}
-              <div
-                className="fixed p-2 bg-card border border-border rounded-lg shadow-xl z-[101] flex gap-1"
-                style={{ top: pickerPosition.top, left: pickerPosition.left }}
+          <PopoverContent align="start" className="w-auto p-2 flex gap-1">
+            {REACTION_ORDER.map((content) => (
+              <button
+                key={content}
+                onClick={() => handleReactionClick(content)}
+                className={cn(
+                  "w-8 h-8 flex items-center justify-center text-lg rounded hover:bg-muted transition-colors",
+                  groupedReactions[content]?.userReactionId && "bg-blue-500/20"
+                )}
+                title={content}
               >
-                {REACTION_ORDER.map((content) => (
-                  <button
-                    key={content}
-                    onClick={() => handleReactionClick(content)}
-                    className={cn(
-                      "w-8 h-8 flex items-center justify-center text-lg rounded hover:bg-muted transition-colors",
-                      groupedReactions[content]?.userReactionId &&
-                        "bg-blue-500/20"
-                    )}
-                    title={content}
-                  >
-                    {REACTION_EMOJIS[content]}
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
-        </>
+                {REACTION_EMOJIS[content]}
+              </button>
+            ))}
+          </PopoverContent>
+        </Popover>
       )}
 
       {/* Existing reactions - after the add button */}
