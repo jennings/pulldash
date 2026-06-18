@@ -2097,6 +2097,19 @@ const DiffViewer = memo(function DiffViewer({
     paddingEnd: 300,
   });
 
+  // Scroll to top/bottom via gg/ge keyboard shortcuts
+  useEffect(() => {
+    const onTop = () => virtualizer.scrollToIndex(0, { align: "start" });
+    const onBottom = () =>
+      virtualizer.scrollToIndex(virtualRows.length - 1, { align: "start" });
+    window.addEventListener("pr-review:scroll-to-top", onTop);
+    window.addEventListener("pr-review:scroll-to-bottom", onBottom);
+    return () => {
+      window.removeEventListener("pr-review:scroll-to-top", onTop);
+      window.removeEventListener("pr-review:scroll-to-bottom", onBottom);
+    };
+  }, [virtualizer, virtualRows.length]);
+
   const onDragStart = useCallback(
     (lineNum: number, side: "old" | "new", shiftKey?: boolean) => {
       const state = store.getSnapshot();

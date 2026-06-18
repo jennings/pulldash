@@ -43,6 +43,18 @@ export function useKeyboardNavigation() {
           store.appendGotoInput(e.key);
           return;
         }
+        if (e.key === "g") {
+          e.preventDefault();
+          store.exitGotoMode();
+          window.dispatchEvent(new CustomEvent("pr-review:scroll-to-top"));
+          return;
+        }
+        if (e.key === "e") {
+          e.preventDefault();
+          store.exitGotoMode();
+          window.dispatchEvent(new CustomEvent("pr-review:scroll-to-bottom"));
+          return;
+        }
         if (e.key === "Backspace") {
           e.preventDefault();
           store.backspaceGotoInput();

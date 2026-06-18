@@ -157,6 +157,25 @@ export const PROverview = memo(function PROverview() {
   const [submittingComment, setSubmittingComment] = useState(false);
   const [assigningSelf, setAssigningSelf] = useState(false);
   const [refreshingChecks, setRefreshingChecks] = useState(false);
+  const overviewRef = useRef<HTMLDivElement>(null);
+
+  // Scroll to top/bottom via gg/ge keyboard shortcuts
+  useEffect(() => {
+    const el = overviewRef.current;
+    if (!el) return;
+    const onTop = () => {
+      el.scrollTop = 0;
+    };
+    const onBottom = () => {
+      el.scrollTop = el.scrollHeight;
+    };
+    window.addEventListener("pr-review:scroll-to-top", onTop);
+    window.addEventListener("pr-review:scroll-to-bottom", onBottom);
+    return () => {
+      window.removeEventListener("pr-review:scroll-to-top", onTop);
+      window.removeEventListener("pr-review:scroll-to-bottom", onBottom);
+    };
+  }, []);
 
   // Overview keyboard navigation state
   const [focusedOverviewItemId, setFocusedOverviewItemId] = useState<
@@ -1151,7 +1170,10 @@ export const PROverview = memo(function PROverview() {
   }
 
   return (
-    <div className="flex-1 overflow-auto themed-scrollbar bg-background">
+    <div
+      ref={overviewRef}
+      className="flex-1 overflow-auto themed-scrollbar bg-background"
+    >
       {/* Tabs */}
       <div className="border-b border-border overflow-x-auto">
         <div className="max-w-[1280px] mx-auto px-2 sm:px-6">
