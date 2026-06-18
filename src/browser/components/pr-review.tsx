@@ -2857,7 +2857,7 @@ const DiffLineRow = memo(function DiffLineRow({
         <Tag className="no-underline">
           {processedContent.map((seg, i) => {
             // For tiny inline changes, use more prominent styling
-            const isTinyChange = seg.type !== "normal" && seg.html.length <= 3;
+            const isTinyChange = seg.type !== "normal" && seg.value.length <= 2;
             return (
               <span
                 key={i}
@@ -3055,7 +3055,7 @@ const SplitDiffLineRow = memo(function SplitDiffLineRow({
               const showInsert = side === "new" && seg.type === "insert";
               const showDelete = side === "old" && seg.type === "delete";
               const isTinyChange =
-                (showInsert || showDelete) && seg.html.length <= 3;
+                (showInsert || showDelete) && seg.value.length <= 2;
               return (
                 <span
                   key={i}
