@@ -2852,8 +2852,6 @@ const DiffLineRow = memo(function DiffLineRow({
       bgColor = "var(--diff-delete-bg)";
     } else if (hasInlineChanges) {
       bgColor = "var(--diff-inline-change-bg)";
-    } else if (hasCommentRange) {
-      bgColor = "var(--diff-comment-range-active-bg)";
     }
 
     const result: React.CSSProperties = {};
@@ -2865,7 +2863,7 @@ const DiffLineRow = memo(function DiffLineRow({
     }
 
     return result;
-  }, [isInCommentingRange, line.type, hasCommentRange]);
+  }, [isInCommentingRange, line.type]);
 
   return (
     <div
@@ -2902,6 +2900,10 @@ const DiffLineRow = memo(function DiffLineRow({
             "!border-[var(--code-changed)]/60"
         )}
       />
+      {/* Dotted line for comment-associated lines */}
+      {hasCommentRange && (
+        <div className="w-0.5 shrink-0 border-l-2 border-dotted border-blue-500/50" />
+      )}
       {/* Old line number (shown for delete and normal lines) */}
       <div
         data-line-gutter
@@ -3085,8 +3087,6 @@ const SplitDiffLineRow = memo(function SplitDiffLineRow({
       bgColor = "var(--diff-insert-bg)";
     } else if (isDelete) {
       bgColor = "var(--diff-delete-bg)";
-    } else if (hasCommentRange) {
-      bgColor = "var(--diff-comment-range-active-bg)";
     }
 
     const bgStyle: React.CSSProperties = bgColor
@@ -3112,6 +3112,10 @@ const SplitDiffLineRow = memo(function SplitDiffLineRow({
             isDelete && "!border-[var(--code-removed)]/80"
           )}
         />
+        {/* Dotted line for comment-associated lines */}
+        {hasCommentRange && (
+          <div className="w-0.5 shrink-0 border-l-2 border-dotted border-blue-500/50" />
+        )}
         {/* Line number */}
         <div
           data-line-gutter
