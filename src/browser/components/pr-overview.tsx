@@ -981,6 +981,65 @@ export const PROverview = memo(function PROverview() {
   const latestReviews = getLatestReviewsByUser(reviews);
   const canMergePR = canMerge(pr, checkStatus);
 
+  // Combined list of all reviewers sorted by state priority:
+  // CHANGES_REQUESTED > APPROVED > COMMENTED > pending
+  const allReviewers = useMemo(() => {
+    const seen = new Set<string>();
+    const result: Array<{
+      login: string;
+      avatar_url: string;
+      state: Review["state"] | "PENDING";
+    }> = [];
+
+    const byUser = new Map<string, Review>();
+    for (const r of reviews) {
+      if (
+        r.user &&
+        (r.state === "APPROVED" ||
+          r.state === "CHANGES_REQUESTED" ||
+          r.state === "COMMENTED")
+      ) {
+        byUser.set(r.user.login, r);
+      }
+    }
+
+    const addReviewer = (
+      login: string,
+      avatar_url: string,
+      state: Review["state"] | "PENDING"
+    ) => {
+      if (seen.has(login)) return;
+      seen.add(login);
+      result.push({ login, avatar_url, state });
+    };
+
+    // Priority order function
+    const priority = (s: string) =>
+      s === "CHANGES_REQUESTED"
+        ? 0
+        : s === "APPROVED"
+          ? 1
+          : s === "COMMENTED"
+            ? 2
+            : 3;
+
+    // Collect all reviews first (changes requested, approved, commented)
+    for (const r of byUser.values()) {
+      if (r.user) {
+        addReviewer(r.user.login, r.user.avatar_url, r.state);
+      }
+    }
+    // Then pending reviewers who haven't submitted any review
+    if (pr.requested_reviewers) {
+      for (const reviewer of pr.requested_reviewers) {
+        addReviewer(reviewer.login, reviewer.avatar_url, "PENDING");
+      }
+    }
+
+    result.sort((a, b) => priority(a.state) - priority(b.state));
+    return result;
+  }, [reviews, pr.requested_reviewers]);
+
   // Tab counts
   const checksCount = checks
     ? checks.checkRuns.length + checks.status.statuses.length
@@ -2038,10 +2097,10 @@ export const PROverview = memo(function PROverview() {
                 ) : undefined
               }
             >
-              {pr.requested_reviewers && pr.requested_reviewers.length > 0 ? (
-                <TooltipProvider delayDuration={200}>
-                  <div className="space-y-2">
-                    {pr.requested_reviewers.map((reviewer) => (
+              <TooltipProvider delayDuration={200}>
+                <div className="space-y-2">
+                  {allReviewers.length > 0 ? (
+                    allReviewers.map((reviewer) => (
                       <div
                         key={reviewer.login}
                         className="flex items-center gap-2 group"
@@ -2058,60 +2117,42 @@ export const PROverview = memo(function PROverview() {
                             {reviewer.login}
                           </span>
                         </UserHoverCard>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <span className="ml-auto cursor-default">
-                              <Clock className="w-3.5 h-3.5 text-yellow-500" />
-                            </span>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            Awaiting review from this user
-                          </TooltipContent>
-                        </Tooltip>
-                        {canMergeRepo && !pr.merged && (
-                          <button
-                            onClick={() => handleRemoveReviewer(reviewer.login)}
-                            className="p-0.5 text-muted-foreground hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
-                            title="Remove reviewer"
-                          >
-                            <X className="w-3 h-3" />
-                          </button>
+                        {reviewer.state === "PENDING" ? (
+                          <>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="ml-auto cursor-default">
+                                  <Clock className="w-3.5 h-3.5 text-yellow-500" />
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                Awaiting review from this user
+                              </TooltipContent>
+                            </Tooltip>
+                            {canMergeRepo && !pr.merged && (
+                              <button
+                                onClick={() =>
+                                  handleRemoveReviewer(reviewer.login)
+                                }
+                                className="p-0.5 text-muted-foreground hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                                title="Remove reviewer"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            )}
+                          </>
+                        ) : (
+                          <ReviewStateIcon state={reviewer.state} showTooltip />
                         )}
                       </div>
-                    ))}
-                  </div>
-                </TooltipProvider>
-              ) : latestReviews.length > 0 ? (
-                <TooltipProvider delayDuration={200}>
-                  <div className="space-y-2">
-                    {latestReviews.map((review) => (
-                      <div key={review.id} className="flex items-center gap-2">
-                        {review.user && (
-                          <UserHoverCard login={review.user.login}>
-                            <img
-                              src={review.user.avatar_url}
-                              alt={review.user.login}
-                              className="w-5 h-5 rounded-full cursor-pointer"
-                            />
-                          </UserHoverCard>
-                        )}
-                        {review.user && (
-                          <UserHoverCard login={review.user.login}>
-                            <span className="text-sm hover:text-blue-400 hover:underline cursor-pointer">
-                              {review.user.login}
-                            </span>
-                          </UserHoverCard>
-                        )}
-                        <ReviewStateIcon state={review.state} showTooltip />
-                      </div>
-                    ))}
-                  </div>
-                </TooltipProvider>
-              ) : (
-                <span className="text-sm text-muted-foreground">
-                  No reviews yet
-                </span>
-              )}
+                    ))
+                  ) : (
+                    <span className="text-sm text-muted-foreground">
+                      No reviews yet
+                    </span>
+                  )}
+                </div>
+              </TooltipProvider>
               {pr.state === "open" && !pr.merged && (
                 <div className="mt-2 pt-2 border-t border-border">
                   <p className="text-xs text-muted-foreground">
