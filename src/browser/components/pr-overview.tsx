@@ -1869,7 +1869,7 @@ export const PROverview = memo(function PROverview() {
                               {isFromFork ? (
                                 <>
                                   The{" "}
-                                  <code className="px-1.5 py-0.5 bg-blue-500/20 text-blue-300 rounded text-xs">
+                                  <code className="px-1.5 py-0.5 bg-blue-500/20 text-blue-400 rounded">
                                     {pr.head.label || pr.head.ref}
                                   </code>{" "}
                                   branch is in a fork and cannot be deleted from
@@ -1878,7 +1878,7 @@ export const PROverview = memo(function PROverview() {
                               ) : (
                                 <>
                                   You're all set — the{" "}
-                                  <code className="px-1.5 py-0.5 bg-blue-500/20 text-blue-300 rounded text-xs">
+                                  <code className="px-1.5 py-0.5 bg-blue-500/20 text-blue-400 rounded">
                                     {pr.head.label || pr.head.ref}
                                   </code>{" "}
                                   branch can be safely deleted.
@@ -1947,7 +1947,7 @@ export const PROverview = memo(function PROverview() {
                         </h3>
                         <p className="text-sm text-muted-foreground mt-1">
                           This pull request is closed, but the{" "}
-                          <code className="px-1.5 py-0.5 bg-blue-500/20 text-blue-300 rounded text-xs">
+                          <code className="px-1.5 py-0.5 bg-blue-500/20 text-blue-400 rounded">
                             {pr.head.ref}
                           </code>{" "}
                           branch has unmerged commits.
@@ -5490,7 +5490,7 @@ function TimelineItem({
                   </span>
                 )}{" "}
               the{" "}
-              <code className="px-1.5 py-0.5 bg-blue-500/20 text-blue-300 rounded text-xs">
+              <code className="px-1.5 py-0.5 bg-blue-500/20 text-blue-400 rounded">
                 {pr?.head?.ref || "branch"}
               </code>{" "}
               branch{" "}
@@ -5558,7 +5558,7 @@ function TimelineItem({
                 </UserHoverCard>
               )}{" "}
               pushed the{" "}
-              <code className="px-1.5 py-0.5 bg-blue-500/20 text-blue-300 rounded text-xs">
+              <code className="px-1.5 py-0.5 bg-blue-500/20 text-blue-400 rounded">
                 {pr?.head?.ref || "branch"}
               </code>{" "}
               branch{" "}
@@ -5639,7 +5639,7 @@ function TimelineItem({
                   pr?.merge_commit_sha?.slice(0, 7)}
               </code>{" "}
               into{" "}
-              <code className="px-1.5 py-0.5 bg-blue-500/20 text-blue-300 rounded text-xs">
+              <code className="px-1.5 py-0.5 bg-blue-500/20 text-blue-400 rounded">
                 {pr?.base?.ref || "main"}
               </code>
             </span>
