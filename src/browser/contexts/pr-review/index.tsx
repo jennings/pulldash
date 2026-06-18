@@ -2741,6 +2741,8 @@ export class PRReviewStore {
     // Process regular comments
     for (const comment of comments) {
       if (!comment.path) continue;
+      // File-level comments aren't anchored to a real diff line.
+      if (comment.subject_type === "file") continue;
       if (!lookup[comment.path]) lookup[comment.path] = new Set();
 
       if (comment.start_line && comment.line) {

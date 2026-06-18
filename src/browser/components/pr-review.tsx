@@ -1611,6 +1611,7 @@ const DiffViewer = memo(function DiffViewer({
   const commentsByLine = useMemo(() => {
     const map = new Map<number, ReviewComment[]>();
     for (const comment of comments) {
+      if (comment.subject_type === "file") continue;
       const line = comment.line ?? comment.original_line;
       if (line) {
         const existing = map.get(line) || [];
@@ -1619,6 +1620,27 @@ const DiffViewer = memo(function DiffViewer({
       }
     }
     return map;
+  }, [comments]);
+
+  // File-level comments (subject_type === "file") aren't tied to a diff line.
+  // GitHub still returns them with line=1, but they belong above the diff
+  // rather than at line 1 (which often isn't in the diff at all).
+  const fileLevelThreads = useMemo(() => {
+    const threadMap = new Map<number, ReviewComment[]>();
+    for (const comment of comments) {
+      if (comment.subject_type !== "file") continue;
+      if (!comment.in_reply_to_id) {
+        threadMap.set(comment.id, [comment]);
+      }
+    }
+    for (const comment of comments) {
+      if (comment.subject_type !== "file") continue;
+      if (comment.in_reply_to_id) {
+        const thread = threadMap.get(comment.in_reply_to_id);
+        if (thread) thread.push(comment);
+      }
+    }
+    return [...threadMap.values()];
   }, [comments]);
 
   const pendingCommentsByLine = useMemo(() => {
@@ -1893,6 +1915,21 @@ const DiffViewer = memo(function DiffViewer({
 
     // Helper to add comments after a line
     const placedThreadIds = new Set<string>();
+
+    // File-level threads render at the top of the file, above any hunk.
+    if (!commentsHidden) {
+      for (const thread of fileLevelThreads) {
+        const threadId = thread[0]?.pull_request_review_thread_id;
+        if (threadId) placedThreadIds.add(threadId);
+        rows.push({
+          type: "comment-thread",
+          comments: thread,
+          lineNum: 0,
+          index: index++,
+        });
+      }
+    }
+
     const addCommentsForLine = (lineNum: number | undefined) => {
       if (!lineNum || commentsHidden) return;
 
@@ -1997,6 +2034,7 @@ const DiffViewer = memo(function DiffViewer({
     skipBlockStartLines,
     pendingCommentsByLine,
     threadsByLine,
+    fileLevelThreads,
     getExpandedLines,
     viewMode,
     convertToSplitPairs,
