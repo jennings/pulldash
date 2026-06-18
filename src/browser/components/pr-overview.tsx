@@ -37,6 +37,7 @@ import {
   Lock,
   Unlock,
   GitBranch,
+  Users,
   UserPlus,
   UserMinus,
   RefreshCw,
@@ -989,6 +990,7 @@ export const PROverview = memo(function PROverview() {
       login: string;
       avatar_url: string;
       state: Review["state"] | "PENDING";
+      isTeam?: boolean;
     }> = [];
 
     const byUser = new Map<string, Review>();
@@ -1006,11 +1008,12 @@ export const PROverview = memo(function PROverview() {
     const addReviewer = (
       login: string,
       avatar_url: string,
-      state: Review["state"] | "PENDING"
+      state: Review["state"] | "PENDING",
+      isTeam?: boolean
     ) => {
       if (seen.has(login)) return;
       seen.add(login);
-      result.push({ login, avatar_url, state });
+      result.push({ login, avatar_url, state, isTeam });
     };
 
     // Priority order function
@@ -1035,10 +1038,16 @@ export const PROverview = memo(function PROverview() {
         addReviewer(reviewer.login, reviewer.avatar_url, "PENDING");
       }
     }
+    // Then pending team review requests
+    if (pr.requested_teams) {
+      for (const team of pr.requested_teams) {
+        addReviewer(team.slug, "", "PENDING", true);
+      }
+    }
 
     result.sort((a, b) => priority(a.state) - priority(b.state));
     return result;
-  }, [reviews, pr.requested_reviewers]);
+  }, [reviews, pr.requested_reviewers, pr.requested_teams]);
 
   // Tab counts
   const checksCount = checks
@@ -2105,18 +2114,28 @@ export const PROverview = memo(function PROverview() {
                         key={reviewer.login}
                         className="flex items-center gap-2 group"
                       >
-                        <UserHoverCard login={reviewer.login}>
-                          <img
-                            src={reviewer.avatar_url}
-                            alt={reviewer.login}
-                            className="w-5 h-5 rounded-full cursor-pointer"
-                          />
-                        </UserHoverCard>
-                        <UserHoverCard login={reviewer.login}>
-                          <span className="text-sm flex-1 hover:text-blue-400 hover:underline cursor-pointer">
+                        {reviewer.isTeam ? (
+                          <Users className="w-5 h-5 p-0.5 rounded-full text-muted-foreground shrink-0" />
+                        ) : (
+                          <UserHoverCard login={reviewer.login}>
+                            <img
+                              src={reviewer.avatar_url}
+                              alt={reviewer.login}
+                              className="w-5 h-5 rounded-full cursor-pointer"
+                            />
+                          </UserHoverCard>
+                        )}
+                        {reviewer.isTeam ? (
+                          <span className="text-sm flex-1 font-medium text-muted-foreground">
                             {reviewer.login}
                           </span>
-                        </UserHoverCard>
+                        ) : (
+                          <UserHoverCard login={reviewer.login}>
+                            <span className="text-sm flex-1 hover:text-blue-400 hover:underline cursor-pointer">
+                              {reviewer.login}
+                            </span>
+                          </UserHoverCard>
+                        )}
                         {reviewer.state === "PENDING" ? (
                           <>
                             <Tooltip>
@@ -2126,10 +2145,12 @@ export const PROverview = memo(function PROverview() {
                                 </span>
                               </TooltipTrigger>
                               <TooltipContent>
-                                Awaiting review from this user
+                                {reviewer.isTeam
+                                  ? "Awaiting review from this team"
+                                  : "Awaiting review from this user"}
                               </TooltipContent>
                             </Tooltip>
-                            {canMergeRepo && !pr.merged && (
+                            {!reviewer.isTeam && canMergeRepo && !pr.merged && (
                               <button
                                 onClick={() =>
                                   handleRemoveReviewer(reviewer.login)
