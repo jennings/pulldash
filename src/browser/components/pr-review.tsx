@@ -1854,6 +1854,7 @@ const DiffViewer = memo(function DiffViewer({
     let skipIndex = 0;
 
     // Helper to add comments after a line
+    const placedThreadIds = new Set<string>();
     const addCommentsForLine = (lineNum: number | undefined) => {
       if (!lineNum) return;
 
@@ -1871,6 +1872,9 @@ const DiffViewer = memo(function DiffViewer({
       const threads = threadsByLine.get(lineNum);
       if (threads) {
         for (const thread of threads) {
+          const threadId = thread[0]?.pull_request_review_thread_id;
+          if (threadId && placedThreadIds.has(threadId)) continue;
+          if (threadId) placedThreadIds.add(threadId);
           rows.push({
             type: "comment-thread",
             comments: thread,
