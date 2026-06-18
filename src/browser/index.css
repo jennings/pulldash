@@ -111,7 +111,7 @@
   --diff-delete-bg: #261710;
   --diff-comment-range-bg: #19273e;
   --diff-comment-range-active-bg: #1b1810;
-  --diff-inline-change-bg: #1a2332;
+  --diff-inline-change-bg: #282310;
   --markdown-code-bg: oklch(0.22 0.01 260 / 80%);
   --markdown-pre-bg: oklch(0.18 0.01 260 / 60%);
   --markdown-pre-border: oklch(1 0 0 / 8%);
@@ -163,7 +163,7 @@
   --diff-delete-bg: #ffebe9;
   --diff-comment-range-bg: #dbeafe;
   --diff-comment-range-active-bg: #fff8c5;
-  --diff-inline-change-bg: #eef2ff;
+  --diff-inline-change-bg: #fef9c3;
   --markdown-code-bg: oklch(0.95 0.01 260);
   --markdown-pre-bg: oklch(0.96 0.01 260);
   --markdown-pre-border: oklch(0 0 0 / 8%);
