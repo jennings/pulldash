@@ -36,6 +36,8 @@ import {
   BookOpen,
   Smile,
   GitPullRequest,
+  GitMerge,
+  GitCommit,
 } from "lucide-react";
 import type { Reaction, ReactionContent } from "../contexts/github";
 import { Skeleton } from "../ui/skeleton";
@@ -762,6 +764,15 @@ function VersionBar() {
     }
   }, [versionDataLoaded, store]);
 
+  // Map of SHA → whether it's a merge commit (for showing correct icon in dropdowns)
+  const isMergeCommit = useMemo(() => {
+    const map = new Map<string, boolean>();
+    for (const c of commits) {
+      map.set(c.sha, c.parents && c.parents.length > 1);
+    }
+    return map;
+  }, [commits]);
+
   if (commits.length === 0) return null;
 
   const isViewingLatest = selectedHeadSha === null;
@@ -937,8 +948,13 @@ function VersionBar() {
               <DropdownMenuItem
                 key={c.sha}
                 onClick={() => store.setSelectedCommitSha(c.sha)}
-                className="text-xs flex items-center justify-between gap-2"
+                className="text-xs flex items-center gap-2"
               >
+                {c.parents && c.parents.length > 1 ? (
+                  <GitMerge className="w-3.5 h-3.5 shrink-0 text-purple-500" />
+                ) : (
+                  <GitCommit className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+                )}
                 <span className="flex-1 truncate">
                   {c.commit.message.split("\n")[0]}
                 </span>
@@ -979,6 +995,11 @@ function VersionBar() {
                     onClick={() => store.setSelectedParentSha(p.sha)}
                     className="text-xs flex items-center gap-2"
                   >
+                    {isMergeCommit.get(p.sha) ? (
+                      <GitMerge className="w-3.5 h-3.5 shrink-0 text-purple-500" />
+                    ) : (
+                      <GitCommit className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+                    )}
                     <div className="flex flex-col">
                       <span className="truncate">
                         Parent #{i + 1}{" "}
@@ -1073,8 +1094,13 @@ function VersionBar() {
                   <DropdownMenuItem
                     key={c.sha}
                     onClick={() => store.setCompareToCommitSha(c.sha)}
-                    className="text-xs flex items-center justify-between gap-2"
+                    className="text-xs flex items-center gap-2"
                   >
+                    {c.parents && c.parents.length > 1 ? (
+                      <GitMerge className="w-3.5 h-3.5 shrink-0 text-purple-500" />
+                    ) : (
+                      <GitCommit className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+                    )}
                     <span className="flex-1 truncate">
                       {c.commit.message.split("\n")[0]}
                     </span>
