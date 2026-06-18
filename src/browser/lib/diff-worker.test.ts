@@ -261,4 +261,55 @@ describe("error propagation", () => {
     expect(contextLine2.type).toBe("normal");
     expect(contextLine2.content[0].value).toBe("context");
   });
+
+  test("merges delete+insert pair when change only differs by digit inside underscore-separated word", () => {
+    // Old: %{python2_sitearch}/*   New: %{python3_sitearch}/*
+    // _ is treated as separator, so python2 and python3 are separate tokens
+    const patch = [
+      "@@ -1068,3 +463,3 @@",
+      " context",
+      "-%{python2_sitearch}/*",
+      "+%{python3_sitearch}/*",
+      " context",
+    ].join("\n");
+
+    handler({
+      data: {
+        type: "parse-diff",
+        id: "sitearch",
+        patch,
+        filename: "kernel.spec",
+      },
+    });
+
+    const result = posted[0].result;
+    const hunks = result.hunks;
+    // First hunk is a skip block, second is the actual hunk
+    const hunk = hunks[1];
+    expect(hunk).toBeDefined();
+    expect(hunk.lines).toHaveLength(3);
+
+    const [contextLine, modifiedLine, contextLine2] = hunk.lines;
+
+    // First line: context
+    expect(contextLine.type).toBe("normal");
+
+    // Second line: should be a single merged "normal" line
+    expect(modifiedLine.type).toBe("normal");
+    expect(modifiedLine.oldLineNumber).toBe(1069);
+    expect(modifiedLine.newLineNumber).toBe(464);
+    // Word-diff segments: at least one insert and one delete
+    const hasInsert = modifiedLine.content.some(
+      (s: any) => s.type === "insert"
+    );
+    const hasDelete = modifiedLine.content.some(
+      (s: any) => s.type === "delete"
+    );
+    expect(hasInsert).toBe(true);
+    expect(hasDelete).toBe(true);
+
+    // Third line: context
+    expect(contextLine2.type).toBe("normal");
+    expect(contextLine2.content[0].value).toBe("context");
+  });
 });

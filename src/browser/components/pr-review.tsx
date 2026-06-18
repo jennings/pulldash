@@ -8,7 +8,8 @@ import React, {
 } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { diffWords } from "diff";
+import { diffArrays } from "diff";
+import { tokenizeWords } from "../../shared/diff-utils";
 import {
   Loader2,
   MessageSquare,
@@ -1686,7 +1687,14 @@ const DiffViewer = memo(function DiffViewer({
                 : fullOldText;
 
             // Compute word-diff between corrected old and new text
-            const diffTokens = diffWords(adjustedOld, fullNewText);
+            const diffTokens = diffArrays(
+              tokenizeWords(adjustedOld),
+              tokenizeWords(fullNewText)
+            ).map((part) => ({
+              value: part.value.join(""),
+              added: part.added,
+              removed: part.removed,
+            }));
 
             // LEFT side: old text with DELETE segments highlighted.
             // Recover leading whitespace lost to INSERT tokens.

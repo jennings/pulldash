@@ -5,9 +5,12 @@ import gitDiffParser, {
   DeleteChange,
   InsertChange,
 } from "gitdiff-parser";
-import { diffWords } from "diff";
+import { diffArrays } from "diff";
 import { INLINE_MAX_CHAR_EDITS } from "../../../../diff-parse-constants";
-import { buildInlineDiffSegments } from "../../../../shared/diff-utils";
+import {
+  buildInlineDiffSegments,
+  tokenizeWords,
+} from "../../../../shared/diff-utils";
 
 export interface LineSegment {
   value: string;
@@ -45,10 +48,12 @@ export interface ParseOptions {
 const calculateChangeRatio = (a: string, b: string): number => {
   const totalChars = a.length + b.length;
   if (totalChars === 0) return 1;
-  const tokens = diffWords(a, b);
-  const changedChars = tokens
-    .filter((token) => token.added || token.removed)
-    .reduce((sum, token) => sum + token.value.length, 0);
+  const tokensA = tokenizeWords(a);
+  const tokensB = tokenizeWords(b);
+  const diffs = diffArrays(tokensA, tokensB);
+  const changedChars = diffs
+    .filter((part) => part.added || part.removed)
+    .reduce((sum, part) => sum + part.value.join("").length, 0);
   return changedChars / totalChars;
 };
 

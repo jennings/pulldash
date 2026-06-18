@@ -1,4 +1,4 @@
-import { diffChars, diffWords } from "diff";
+import { diffChars, diffArrays } from "diff";
 import { refractor } from "refractor/all";
 import type { RootContent, ElementContent } from "hast";
 
@@ -134,45 +134,36 @@ export function diffCharsIfWithinEditLimit(
   };
 }
 
+const WORD_TOKENIZER = /([a-zA-Z0-9]+|[^a-zA-Z0-9])/g;
+
+export function tokenizeWords(str: string): string[] {
+  return str.match(WORD_TOKENIZER) || [];
+}
+
 export function buildInlineDiffSegments(
   currentContent: string,
   nextContent: string,
-  inlineMaxCharEdits: number
+  _inlineMaxCharEdits: number
 ): RawLineSegment[] {
-  const segments: RawLineSegment[] = diffWords(currentContent, nextContent).map(
-    (token) => ({
-      value: token.value,
-      type: token.added ? "insert" : token.removed ? "delete" : "normal",
+  // tokenizeWords already splits at word granularity (including _ as
+  // separator), so character-level diffs within tokens are unnecessary.
+  const tokensA = tokenizeWords(currentContent);
+  const tokensB = tokenizeWords(nextContent);
+  const segments: RawLineSegment[] = diffArrays(tokensA, tokensB).flatMap(
+    (part) => ({
+      value: part.value.join(""),
+      type: part.added ? "insert" : part.removed ? "delete" : "normal",
     })
   );
 
+  // Merge adjacent same-type segments
   const result: RawLineSegment[] = [];
-  const mergeIntoResult = (segment: RawLineSegment) => {
+  for (const segment of segments) {
     const last = result[result.length - 1];
     if (last && last.type === segment.type) {
       last.value += segment.value;
     } else {
       result.push(segment);
-    }
-  };
-
-  for (let i = 0; i < segments.length; i++) {
-    const current = segments[i];
-    const next = segments[i + 1];
-    if (current.type === "delete" && next?.type === "insert") {
-      const charDiff = diffCharsIfWithinEditLimit(
-        current.value,
-        next.value,
-        inlineMaxCharEdits
-      );
-      if (!charDiff.exceededLimit) {
-        charDiff.diffs.forEach(mergeIntoResult);
-        i++;
-      } else {
-        result.push(current);
-      }
-    } else {
-      mergeIntoResult(current);
     }
   }
 
