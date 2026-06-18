@@ -85,6 +85,7 @@ import {
   usePendingCommentCountsByFile,
   useCommentingRange,
   useCommentRangeLookup,
+  useCommentAnchorLookup,
   getTimeAgo,
   type LocalPendingComment,
   type ParsedDiff,
@@ -1491,6 +1492,7 @@ interface LineDragContextValue {
   onClickFallback: (lineNum: number, side: "old" | "new") => void;
   commentingRange: { start: number; end: number } | null;
   commentRangeLookup: Set<number> | null;
+  commentAnchorLookup: Set<number> | null;
 }
 
 const LineDragContext = React.createContext<LineDragContextValue | null>(null);
@@ -1575,6 +1577,7 @@ const DiffViewer = memo(function DiffViewer({
   // Note: selectionState removed from context - rows subscribe directly to avoid re-renders
   const commentingRange = useCommentingRange();
   const commentRangeLookup = useCommentRangeLookup();
+  const commentAnchorLookup = useCommentAnchorLookup();
 
   // Subscribe to expanded skip blocks directly for re-render triggering
   const expandedSkipBlocks = usePRReviewSelector((s) => s.expandedSkipBlocks);
@@ -2401,6 +2404,7 @@ const DiffViewer = memo(function DiffViewer({
       onClickFallback,
       commentingRange,
       commentRangeLookup,
+      commentAnchorLookup,
     }),
     [
       isDraggingState,
@@ -2410,6 +2414,7 @@ const DiffViewer = memo(function DiffViewer({
       onClickFallback,
       commentingRange,
       commentRangeLookup,
+      commentAnchorLookup,
     ]
   );
 
@@ -2717,6 +2722,7 @@ const DiffLineRow = memo(function DiffLineRow({
     onClickFallback,
     commentingRange,
     commentRangeLookup,
+    commentAnchorLookup,
   } = useLineDrag();
 
   // Determine which side this line is on: 'old' for deletes, 'new' for insert/context
@@ -2778,6 +2784,10 @@ const DiffLineRow = memo(function DiffLineRow({
     if (lineNum === undefined || !commentRangeLookup) return false;
     return commentRangeLookup.has(lineNum);
   }, [lineNum, commentRangeLookup]);
+  const hasCommentAnchor = useMemo(() => {
+    if (lineNum === undefined || !commentAnchorLookup) return false;
+    return commentAnchorLookup.has(lineNum);
+  }, [lineNum, commentAnchorLookup]);
 
   const Tag =
     line.type === "insert" ? "ins" : line.type === "delete" ? "del" : "span";
@@ -2903,7 +2913,7 @@ const DiffLineRow = memo(function DiffLineRow({
       data-line-side={lineSide}
     >
       {/* Comment indicator dot — left of both line numbers */}
-      {!hasDraft && rowCommentsHidden && hasCommentRange && (
+      {!hasDraft && rowCommentsHidden && hasCommentAnchor && (
         <span
           className="absolute left-0 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-blue-500 ring-1 ring-background z-10"
           title="Has comment"
@@ -3022,6 +3032,7 @@ const SplitDiffLineRow = memo(function SplitDiffLineRow({
     onClickFallback,
     commentingRange,
     commentRangeLookup,
+    commentAnchorLookup,
   } = useLineDrag();
 
   const { left, right, lineNum } = pair;
@@ -3036,6 +3047,10 @@ const SplitDiffLineRow = memo(function SplitDiffLineRow({
     if (lineNum === undefined || !commentRangeLookup) return false;
     return commentRangeLookup.has(lineNum);
   }, [lineNum, commentRangeLookup]);
+  const hasCommentAnchor = useMemo(() => {
+    if (lineNum === undefined || !commentAnchorLookup) return false;
+    return commentAnchorLookup.has(lineNum);
+  }, [lineNum, commentAnchorLookup]);
   const rowCommentsHidden = usePRReviewSelector((s) => s.commentsHidden);
 
   // Render one side of the split view
@@ -3153,7 +3168,7 @@ const SplitDiffLineRow = memo(function SplitDiffLineRow({
           onClick={handleClick}
         >
           {lineNumber || ""}
-          {rowCommentsHidden && hasCommentRange && (
+          {rowCommentsHidden && hasCommentAnchor && (
             <span
               className="absolute left-0 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-blue-500 ring-1 ring-background z-10"
               title="Has comment"

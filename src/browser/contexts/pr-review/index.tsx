@@ -285,6 +285,7 @@ interface PRReviewState {
   navigableItems: Record<string, NavigableItem[]>;
   // Pre-computed comment range lookup per file (Fix 3)
   commentRangeLookup: Record<string, Set<number>>;
+  commentAnchorLookup: Record<string, Set<number>>;
 
   // Line selection
   focusedLine: number | null;
@@ -648,6 +649,7 @@ export class PRReviewStore {
       expandingSkipBlocks: new Set(),
       navigableItems: {},
       commentRangeLookup: {},
+      commentAnchorLookup: {},
       focusedLine: null,
       focusedLineSide: null,
       selectionAnchor: null,
@@ -2736,6 +2738,7 @@ export class PRReviewStore {
   // Recompute comment range lookup for O(1) line lookup (Fix 3)
   private recomputeCommentRangeLookup = () => {
     const lookup: Record<string, Set<number>> = {};
+    const anchorLookup: Record<string, Set<number>> = {};
     const { comments, pendingComments } = this.state;
 
     // Process regular comments
@@ -2744,6 +2747,7 @@ export class PRReviewStore {
       // File-level comments aren't anchored to a real diff line.
       if (comment.subject_type === "file") continue;
       if (!lookup[comment.path]) lookup[comment.path] = new Set();
+      if (!anchorLookup[comment.path]) anchorLookup[comment.path] = new Set();
 
       if (comment.start_line && comment.line) {
         for (let i = comment.start_line; i <= comment.line; i++) {
@@ -2754,12 +2758,20 @@ export class PRReviewStore {
       } else if (comment.original_line) {
         lookup[comment.path].add(comment.original_line);
       }
+
+      // Anchor lookup only includes the anchor line
+      if (comment.line) {
+        anchorLookup[comment.path].add(comment.line);
+      } else if (comment.original_line) {
+        anchorLookup[comment.path].add(comment.original_line);
+      }
     }
 
     // Process pending comments
     for (const comment of pendingComments) {
       if (!comment.path) continue;
       if (!lookup[comment.path]) lookup[comment.path] = new Set();
+      if (!anchorLookup[comment.path]) anchorLookup[comment.path] = new Set();
 
       if (comment.start_line && comment.line) {
         for (let i = comment.start_line; i <= comment.line; i++) {
@@ -2768,9 +2780,14 @@ export class PRReviewStore {
       } else if (comment.line) {
         lookup[comment.path].add(comment.line);
       }
+
+      // Anchor lookup only includes the anchor line
+      if (comment.line) {
+        anchorLookup[comment.path].add(comment.line);
+      }
     }
 
-    this.set({ commentRangeLookup: lookup });
+    this.set({ commentRangeLookup: lookup, commentAnchorLookup: anchorLookup });
   };
 
   private enrichCommentsFromThreads(
@@ -4206,6 +4223,7 @@ export { useIsLineInCommentRange } from "./useIsLineInCommentRange";
 export { useSelectionState, type SelectionState } from "./useSelectionState";
 export { useCommentingRange } from "./useCommentingRange";
 export { useCommentRangeLookup } from "./useCommentRangeLookup";
+export { useCommentAnchorLookup } from "./useCommentAnchorLookup";
 export { useKeyboardNavigation } from "./useKeyboardNavigation";
 export { useHashNavigation } from "./useHashNavigation";
 export { useDiffLoader } from "./useDiffLoader";
