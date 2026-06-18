@@ -1390,8 +1390,13 @@ export class PRReviewStore {
         }
       : {};
 
+    // loadedDiffs is intentionally NOT cleared here — it must be cleared
+    // atomically with the new files below. Clearing it here would cause
+    // useDiffLoader to fire between this set and the files update, at which
+    // point files still holds the previous parent's patches, causing stale
+    // diffs to be parsed and stored before the correct files arrive.
     if (sha === null || !selectedCommitSha) {
-      this.set({ selectedParentSha: null, loadedDiffs: {}, ...resetCompare });
+      this.set({ selectedParentSha: null, ...resetCompare });
       const commitFiles = await this.github
         .getCommitFiles(
           owner,
@@ -1400,13 +1405,12 @@ export class PRReviewStore {
           `${owner}/${repo}/${this.state.pr.number}`
         )
         .catch(() => [] as PullRequestFile[]);
-      this.set({ files: sortFilesLikeTree(commitFiles) });
+      this.set({ files: sortFilesLikeTree(commitFiles), loadedDiffs: {} });
       return;
     }
 
     this.set({
       selectedParentSha: sha,
-      loadedDiffs: {},
       ...resetCompare,
     });
     const mergeFiles = await this.github
@@ -1418,7 +1422,7 @@ export class PRReviewStore {
         `${owner}/${repo}/${this.state.pr.number}`
       )
       .catch(() => [] as PullRequestFile[]);
-    this.set({ files: sortFilesLikeTree(mergeFiles) });
+    this.set({ files: sortFilesLikeTree(mergeFiles), loadedDiffs: {} });
   };
 
   private computeInterdiff = async (

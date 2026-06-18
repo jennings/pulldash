@@ -288,13 +288,17 @@ export function useDiffLoader() {
         }
       }
       const commit = all.find((c) => c.sha === selectedCommitSha);
-      if (commit?.parents?.[0]?.sha) {
-        baseRef = commit.parents[0].sha;
+      // Use the explicitly selected parent (always available from the store
+      // even before commits are loaded), falling back to the commit's first
+      // parent when no explicit selection has been made.
+      const parentSha = state.selectedParentSha ?? commit?.parents?.[0]?.sha;
+      if (parentSha) {
+        baseRef = parentSha;
         headRef = selectedCommitSha;
         // Include the parent SHA in the cache context so the diff for
         // this commit vs its parent doesn't collide with the same commit
         // vs a different parent.
-        cacheContext = `${selectedCommitSha}:parent:${commit.parents[0].sha}`;
+        cacheContext = `${selectedCommitSha}:parent:${parentSha}`;
       }
     }
 
