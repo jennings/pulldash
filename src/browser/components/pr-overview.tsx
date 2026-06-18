@@ -4252,7 +4252,11 @@ function CommitsTab({
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Check className="w-4 h-4 text-green-500" />
+            {commit.parents && commit.parents.length > 1 ? (
+              <GitMerge className="w-4 h-4 text-purple-500" />
+            ) : (
+              <Check className="w-4 h-4 text-green-500" />
+            )}
             <a
               href={`https://github.com/${owner}/${repo}/commit/${commit.sha}`}
               target="_blank"
@@ -4844,7 +4848,11 @@ function CommitGroup({
           className="flex items-center gap-3 py-1.5 text-sm text-muted-foreground"
         >
           <div className="relative z-10 p-1.5 rounded-full bg-background border border-border shrink-0">
-            <GitCommit className="w-4 h-4" />
+            {commit.parents && commit.parents.length > 1 ? (
+              <GitMerge className="w-4 h-4 text-purple-500" />
+            ) : (
+              <GitCommit className="w-4 h-4" />
+            )}
           </div>
           <div className="flex-1 min-w-0 flex items-center gap-2">
             {renderAuthor(commit)}
@@ -4896,7 +4904,11 @@ function CommitRow({
 }) {
   return (
     <div className="text-xs text-muted-foreground flex items-center gap-2">
-      <GitCommit className="w-3 h-3 shrink-0" />
+      {commit.parents && commit.parents.length > 1 ? (
+        <GitMerge className="w-3 h-3 shrink-0 text-purple-500" />
+      ) : (
+        <GitCommit className="w-3 h-3 shrink-0" />
+      )}
       <a
         href={
           versionSha
