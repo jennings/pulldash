@@ -260,6 +260,8 @@ interface PRReviewState {
 
   // Conversations sidebar
   conversationsSidebarOpen: boolean;
+  /** Hide all comment threads in the diff view */
+  commentsHidden: boolean;
   conversationsFilters: {
     showResolved: boolean;
     showOutdated: boolean;
@@ -634,6 +636,7 @@ export class PRReviewStore {
       showOverview: true,
       overviewScrollTarget: null,
       conversationsSidebarOpen: false,
+      commentsHidden: false,
       conversationsFilters,
       conversationScrollTarget: null,
       viewedFiles,
@@ -810,6 +813,18 @@ export class PRReviewStore {
     this.set({
       conversationsSidebarOpen: !this.state.conversationsSidebarOpen,
     });
+  };
+
+  toggleComments = () => {
+    this.set({
+      commentsHidden: !this.state.commentsHidden,
+    });
+  };
+
+  showComments = () => {
+    if (this.state.commentsHidden) {
+      this.set({ commentsHidden: false });
+    }
   };
 
   setConversationsFilter = <
@@ -2728,6 +2743,10 @@ export class PRReviewStore {
         for (let i = comment.start_line; i <= comment.line; i++) {
           lookup[comment.path].add(i);
         }
+      } else if (comment.line) {
+        lookup[comment.path].add(comment.line);
+      } else if (comment.original_line) {
+        lookup[comment.path].add(comment.original_line);
       }
     }
 
@@ -2740,6 +2759,8 @@ export class PRReviewStore {
         for (let i = comment.start_line; i <= comment.line; i++) {
           lookup[comment.path].add(i);
         }
+      } else if (comment.line) {
+        lookup[comment.path].add(comment.line);
       }
     }
 

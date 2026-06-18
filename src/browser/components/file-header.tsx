@@ -6,6 +6,7 @@ import {
   Columns2,
   AlignJustify,
   MessageSquare,
+  MessageSquareOff,
 } from "lucide-react";
 import { cn } from "../cn";
 import { Keycap } from "../ui/keycap";
@@ -26,6 +27,8 @@ interface FileHeaderProps {
   conversationsSidebarOpen?: boolean;
   onToggleConversationsSidebar?: () => void;
   conversationsCount?: number;
+  commentsHidden?: boolean;
+  onToggleComments?: () => void;
   /** When viewing a historical push version, the version number for display */
   selectedVersion?: number;
 }
@@ -43,6 +46,8 @@ export const FileHeader = memo(function FileHeader({
   conversationsSidebarOpen,
   onToggleConversationsSidebar,
   conversationsCount,
+  commentsHidden,
+  onToggleComments,
   selectedVersion,
 }: FileHeaderProps) {
   const fileStatusBadge = (() => {
@@ -136,6 +141,22 @@ export const FileHeader = memo(function FileHeader({
             {conversationsCount !== undefined && conversationsCount > 0 && (
               <span className="tabular-nums">{conversationsCount}</span>
             )}
+          </button>
+        )}
+
+        {/* Comment visibility toggle */}
+        {onToggleComments && (
+          <button
+            onClick={onToggleComments}
+            className={cn(
+              "flex items-center gap-1.5 px-2 py-1 text-xs rounded transition-colors",
+              commentsHidden
+                ? "bg-blue-500/20 text-blue-400"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted"
+            )}
+            title={`${commentsHidden ? "Show" : "Hide"} comments (h)`}
+          >
+            <MessageSquareOff className="w-3.5 h-3.5" />
           </button>
         )}
 

@@ -148,6 +148,10 @@ export function useKeyboardNavigation() {
           e.preventDefault();
           store.startCommentingOnFocusedLine();
           break;
+        case "h":
+          e.preventDefault();
+          store.toggleComments();
+          break;
         case "e":
           if (state.focusedCommentId) {
             // Check if user can edit this comment

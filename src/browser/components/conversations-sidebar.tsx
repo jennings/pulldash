@@ -150,6 +150,7 @@ export const ConversationsSidebar = memo(function ConversationsSidebar() {
 
   const handleClickThread = useCallback(
     async (firstCommentId: number, path: string, body: string) => {
+      store.showComments();
       if (isMetadataComment(body)) {
         const info = parseCommitMetadataMarker(body);
         if (info) {
