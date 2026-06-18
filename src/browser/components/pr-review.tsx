@@ -2493,7 +2493,7 @@ const DiffViewer = memo(function DiffViewer({
           <div className="border border-border rounded-lg overflow-hidden">
             <div
               ref={containerRef}
-              className="relative w-full font-mono text-[0.8rem] [--code-added:theme(colors.green.500)] [--code-removed:theme(colors.orange.600)] diff-line-container"
+              className="relative w-full font-mono text-[0.8rem] [--code-added:theme(colors.green.500)] [--code-removed:theme(colors.orange.600)] [--code-changed:theme(colors.blue.500)] diff-line-container"
               style={{ height: `${virtualizer.getTotalSize()}px` }}
             >
               {virtualizer.getVirtualItems().map((virtualRow) => {
@@ -2796,6 +2796,12 @@ const DiffLineRow = memo(function DiffLineRow({
   );
 
   // Styles for non-selection highlighting (selection is handled via CSS data attributes)
+  const hasInlineChanges = useMemo(
+    () =>
+      line.type === "normal" && line.content.some((s) => s.type !== "normal"),
+    [line.content, line.type]
+  );
+
   const styles = useMemo(() => {
     let bgColor: string | undefined;
 
@@ -2806,6 +2812,8 @@ const DiffLineRow = memo(function DiffLineRow({
       bgColor = "var(--diff-insert-bg)";
     } else if (line.type === "delete") {
       bgColor = "var(--diff-delete-bg)";
+    } else if (hasInlineChanges) {
+      bgColor = "var(--diff-inline-change-bg)";
     } else if (hasCommentRange) {
       bgColor = "var(--diff-comment-range-active-bg)";
     }
@@ -2850,7 +2858,10 @@ const DiffLineRow = memo(function DiffLineRow({
             "!border-[var(--code-added)]/60",
           !isInCommentingRange &&
             line.type === "delete" &&
-            "!border-[var(--code-removed)]/80"
+            "!border-[var(--code-removed)]/80",
+          !isInCommentingRange &&
+            hasInlineChanges &&
+            "!border-[var(--code-changed)]/60"
         )}
       />
       {/* Old line number (shown for delete and normal lines) */}
