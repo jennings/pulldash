@@ -207,4 +207,58 @@ describe("error propagation", () => {
     // Either a result or an error — either way something is posted and the handler doesn't throw
     expect(["parse-diff-result", "error"]).toContain(posted[0].type);
   });
+
+  test("merges delete+insert pair when offset between old/new line numbers exceeds maxDiffDistance", () => {
+    // Hunk: @@ -780,3 +183,3 @@
+    // Delete has oldLineNumber=781, Insert has newLineNumber=184
+    // Difference of 597 is well above maxDiffDistance=30
+    // The function should use change index, not absolute line numbers, to pair them
+    const patch = [
+      "@@ -780,3 +183,3 @@",
+      " context",
+      "-%package -n python2-perf",
+      "+%package -n python3-perf",
+      " context",
+    ].join("\n");
+
+    handler({
+      data: {
+        type: "parse-diff",
+        id: "large-offset",
+        patch,
+        filename: "kernel.spec",
+      },
+    });
+
+    const result = posted[0].result;
+    const hunks = result.hunks;
+    // First hunk is a skip block (lines 1-779), second is the actual hunk
+    const hunk = hunks[1];
+    expect(hunk).toBeDefined();
+    expect(hunk.lines).toHaveLength(3);
+
+    const [contextLine, modifiedLine, contextLine2] = hunk.lines;
+
+    // First line: context
+    expect(contextLine.type).toBe("normal");
+    expect(contextLine.content[0].value).toBe("context");
+
+    // Second line: should be a single merged "normal" line (not separate delete+insert)
+    expect(modifiedLine.type).toBe("normal");
+    expect(modifiedLine.oldLineNumber).toBe(781);
+    expect(modifiedLine.newLineNumber).toBe(184);
+    // Word-diff segments: at least one insert and one delete for the single-char change
+    const hasInsert = modifiedLine.content.some(
+      (s: any) => s.type === "insert"
+    );
+    const hasDelete = modifiedLine.content.some(
+      (s: any) => s.type === "delete"
+    );
+    expect(hasInsert).toBe(true);
+    expect(hasDelete).toBe(true);
+
+    // Third line: context
+    expect(contextLine2.type).toBe("normal");
+    expect(contextLine2.content[0].value).toBe("context");
+  });
 });

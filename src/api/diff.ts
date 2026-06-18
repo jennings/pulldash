@@ -255,8 +255,8 @@ function findBestInsertForDelete(
   options: ParseOptions
 ): number {
   const del = changes[delIdx] as DeleteChange;
-  const lower = del.lineNumber - options.maxDiffDistance;
-  const upper = del.lineNumber + options.maxDiffDistance;
+  const lower = delIdx - options.maxDiffDistance;
+  const upper = delIdx + options.maxDiffDistance;
 
   let bestAddIdx = UNPAIRED;
   let bestRatio = Infinity;
@@ -264,8 +264,8 @@ function findBestInsertForDelete(
   for (const addIdx of insertIdxs) {
     const add = changes[addIdx] as InsertChange;
     if (pairOfAdd[addIdx] !== UNPAIRED) continue;
-    if (add.lineNumber < lower) continue;
-    if (add.lineNumber > upper) break;
+    if (addIdx < lower) continue;
+    if (addIdx > upper) break;
 
     const ratio = calculateChangeRatio(del.content, add.content);
     if (ratio > options.maxChangeRatio) continue;
