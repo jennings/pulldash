@@ -3289,15 +3289,15 @@ const SplitDiffLineRow = memo(function SplitDiffLineRow({
       // Empty cell
       return (
         <div className="flex flex-1 min-w-0 overflow-hidden bg-muted/30 split-diff-side">
+          <div className="w-0.5 shrink-0" />
           <div
-            className="flex"
+            className="flex flex-1 min-w-0"
             style={
               {
                 transform: "translateX(calc(-1 * var(--h-scroll)))",
               } as React.CSSProperties
             }
           >
-            <div className="w-0.5 shrink-0" />
             <div className="w-10 shrink-0 tabular-nums text-right opacity-30 pr-2 text-xs select-none pt-0.5 border-r border-border/30" />
             <div className="flex-1" />
           </div>
@@ -3376,47 +3376,49 @@ const SplitDiffLineRow = memo(function SplitDiffLineRow({
 
     return (
       <div
-        className="flex flex-1 min-w-0 overflow-hidden split-diff-side"
+        className="flex flex-1 min-w-0 overflow-hidden split-diff-side relative"
         style={bgStyle}
         data-line-num={lineNumber}
         data-line-side={side}
       >
+        {/* Left border indicator — fixed */}
         <div
-          className="flex"
+          className={cn(
+            "w-0.5 shrink-0 border-l-2 border-transparent",
+            isInsert && "!border-[var(--code-added)]/60",
+            isDelete && "!border-[var(--code-removed)]/80"
+          )}
+        />
+        {/* Dotted line for comment-associated lines — fixed */}
+        {hasCommentRange && (
+          <div className="w-0.5 shrink-0 border-l-2 border-dotted border-blue-500/50" />
+        )}
+        {/* Comment anchor dot — fixed */}
+        {rowCommentsHidden && hasCommentAnchor && (
+          <span
+            className="absolute left-0 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-blue-500 ring-1 ring-background z-10"
+            title="Has comment"
+          />
+        )}
+        {/* Scrollable content: line number + code */}
+        <div
+          className="flex flex-1 min-w-0"
           style={
             {
               transform: "translateX(calc(-1 * var(--h-scroll)))",
             } as React.CSSProperties
           }
         >
-          {/* Left border indicator */}
-          <div
-            className={cn(
-              "w-0.5 shrink-0 border-l-2 border-transparent",
-              isInsert && "!border-[var(--code-added)]/60",
-              isDelete && "!border-[var(--code-removed)]/80"
-            )}
-          />
-          {/* Dotted line for comment-associated lines */}
-          {hasCommentRange && (
-            <div className="w-0.5 shrink-0 border-l-2 border-dotted border-blue-500/50" />
-          )}
           {/* Line number */}
           <div
             data-line-gutter
-            className="w-10 shrink-0 tabular-nums text-right opacity-50 pr-2 text-xs select-none pt-0.5 cursor-pointer hover:bg-blue-500/20 border-r border-border/30 relative"
+            className="w-10 shrink-0 tabular-nums text-right opacity-50 pr-2 text-xs select-none pt-0.5 cursor-pointer hover:bg-blue-500/20 border-r border-border/30"
             onMouseDown={handleMouseDown}
             onMouseUp={handleMouseUp}
             onMouseEnter={handleMouseEnter}
             onClick={handleClick}
           >
             {lineNumber || ""}
-            {rowCommentsHidden && hasCommentAnchor && (
-              <span
-                className="absolute left-0 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-blue-500 ring-1 ring-background z-10"
-                title="Has comment"
-              />
-            )}
           </div>
           {/* Code content */}
           <div
