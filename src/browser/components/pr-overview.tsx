@@ -1924,7 +1924,7 @@ export const PROverview = memo(function PROverview() {
                     return (
                       <div className="border border-purple-500/30 rounded-md overflow-hidden bg-purple-500/10">
                         <div className="flex items-start gap-3 p-4">
-                          <div className="p-2 rounded-full bg-purple-500/20 text-purple-400">
+                          <div className="p-2 rounded-full bg-purple-500/20 text-purple-400 shrink-0">
                             <GitMerge className="w-5 h-5" />
                           </div>
                           <div className="flex-1 min-w-0">
@@ -1935,7 +1935,7 @@ export const PROverview = memo(function PROverview() {
                               {isFromFork ? (
                                 <>
                                   The{" "}
-                                  <code className="px-1.5 py-0.5 bg-blue-500/20 text-blue-400 rounded">
+                                  <code className="break-all px-1.5 py-0.5 bg-blue-500/20 text-blue-400 rounded">
                                     {pr.head.label || pr.head.ref}
                                   </code>{" "}
                                   branch is in a fork and cannot be deleted from
@@ -1944,15 +1944,86 @@ export const PROverview = memo(function PROverview() {
                               ) : (
                                 <>
                                   You're all set — the{" "}
-                                  <code className="px-1.5 py-0.5 bg-blue-500/20 text-blue-400 rounded">
+                                  <code className="break-all px-1.5 py-0.5 bg-blue-500/20 text-blue-400 rounded">
                                     {pr.head.label || pr.head.ref}
                                   </code>{" "}
                                   branch can be safely deleted.
                                 </>
                               )}
                             </p>
+                            <div className="mt-3 flex flex-col sm:flex-row sm:items-center gap-3">
+                              {canMergeRepo &&
+                                !branchDeleted &&
+                                !isFromFork && (
+                                  <button
+                                    onClick={handleDeleteBranch}
+                                    disabled={deletingBranch}
+                                    className="shrink-0 px-4 py-2 border border-border text-sm font-medium rounded-md hover:bg-muted/50 transition-colors disabled:opacity-50"
+                                  >
+                                    {deletingBranch ? (
+                                      <span className="flex items-center gap-2">
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                        Deleting...
+                                      </span>
+                                    ) : (
+                                      "Delete branch"
+                                    )}
+                                  </button>
+                                )}
+                              {branchDeleted && !isFromFork && (
+                                <>
+                                  <span className="text-sm text-muted-foreground inline-flex items-center gap-2">
+                                    <Check className="w-4 h-4 text-green-400 shrink-0" />
+                                    <span>Deleted</span>
+                                    <code className="break-all min-w-0 px-1.5 py-0.5 bg-muted rounded text-xs">
+                                      {pr.head.ref}
+                                    </code>
+                                  </span>
+                                  {canMergeRepo && (
+                                    <button
+                                      onClick={handleRestoreBranch}
+                                      disabled={restoringBranch}
+                                      className="shrink-0 px-3 py-1.5 border border-border text-sm font-medium rounded-md hover:bg-muted/50 transition-colors disabled:opacity-50"
+                                    >
+                                      {restoringBranch ? (
+                                        <span className="flex items-center gap-2">
+                                          <Loader2 className="w-4 h-4 animate-spin" />
+                                          Restoring...
+                                        </span>
+                                      ) : (
+                                        "Restore branch"
+                                      )}
+                                    </button>
+                                  )}
+                                </>
+                              )}
+                            </div>
                           </div>
-                          {canMergeRepo && !branchDeleted && !isFromFork && (
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                {/* Closed with unmerged commits - show for closed, unmerged PRs */}
+                {pr.state === "closed" && !pr.merged && (
+                  <div className="border border-border rounded-md overflow-hidden">
+                    <div className="flex items-start gap-3 p-4 bg-card/30">
+                      <div className="p-2 rounded-full bg-purple-500/10 text-purple-400 shrink-0">
+                        <GitBranch className="w-5 h-5" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-semibold">
+                          Closed with unmerged commits
+                        </h3>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          This pull request is closed, but the{" "}
+                          <code className="break-all px-1.5 py-0.5 bg-blue-500/20 text-blue-400 rounded">
+                            {pr.head.ref}
+                          </code>{" "}
+                          branch has unmerged commits.
+                        </p>
+                        <div className="mt-3 flex flex-col sm:flex-row sm:items-center gap-3">
+                          {canMergeRepo && !branchDeleted && (
                             <button
                               onClick={handleDeleteBranch}
                               disabled={deletingBranch}
@@ -1968,12 +2039,12 @@ export const PROverview = memo(function PROverview() {
                               )}
                             </button>
                           )}
-                          {branchDeleted && !isFromFork && (
-                            <div className="shrink-0 flex items-center gap-3">
-                              <span className="text-sm text-muted-foreground flex items-center gap-2">
-                                <Check className="w-4 h-4 text-green-400" />
-                                Deleted{" "}
-                                <code className="px-1.5 py-0.5 bg-muted rounded text-xs">
+                          {branchDeleted && (
+                            <>
+                              <span className="text-sm text-muted-foreground inline-flex items-center gap-2">
+                                <Check className="w-4 h-4 text-green-400 shrink-0" />
+                                <span>Deleted</span>
+                                <code className="break-all min-w-0 px-1.5 py-0.5 bg-muted rounded text-xs">
                                   {pr.head.ref}
                                 </code>
                               </span>
@@ -1981,7 +2052,7 @@ export const PROverview = memo(function PROverview() {
                                 <button
                                   onClick={handleRestoreBranch}
                                   disabled={restoringBranch}
-                                  className="px-3 py-1.5 border border-border text-sm font-medium rounded-md hover:bg-muted/50 transition-colors disabled:opacity-50"
+                                  className="shrink-0 px-3 py-1.5 border border-border text-sm font-medium rounded-md hover:bg-muted/50 transition-colors disabled:opacity-50"
                                 >
                                   {restoringBranch ? (
                                     <span className="flex items-center gap-2">
@@ -1993,75 +2064,10 @@ export const PROverview = memo(function PROverview() {
                                   )}
                                 </button>
                               )}
-                            </div>
+                            </>
                           )}
                         </div>
                       </div>
-                    );
-                  })()}
-
-                {/* Closed with unmerged commits - show for closed, unmerged PRs */}
-                {pr.state === "closed" && !pr.merged && (
-                  <div className="border border-border rounded-md overflow-hidden">
-                    <div className="flex items-start gap-3 p-4 bg-card/30">
-                      <div className="p-2 rounded-full bg-purple-500/10 text-purple-400">
-                        <GitBranch className="w-5 h-5" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <h3 className="font-semibold">
-                          Closed with unmerged commits
-                        </h3>
-                        <p className="text-sm text-muted-foreground mt-1">
-                          This pull request is closed, but the{" "}
-                          <code className="px-1.5 py-0.5 bg-blue-500/20 text-blue-400 rounded">
-                            {pr.head.ref}
-                          </code>{" "}
-                          branch has unmerged commits.
-                        </p>
-                      </div>
-                      {canMergeRepo && !branchDeleted && (
-                        <button
-                          onClick={handleDeleteBranch}
-                          disabled={deletingBranch}
-                          className="shrink-0 px-4 py-2 border border-border text-sm font-medium rounded-md hover:bg-muted/50 transition-colors disabled:opacity-50"
-                        >
-                          {deletingBranch ? (
-                            <span className="flex items-center gap-2">
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                              Deleting...
-                            </span>
-                          ) : (
-                            "Delete branch"
-                          )}
-                        </button>
-                      )}
-                      {branchDeleted && (
-                        <div className="shrink-0 flex items-center gap-3">
-                          <span className="text-sm text-muted-foreground flex items-center gap-2">
-                            <Check className="w-4 h-4 text-green-400" />
-                            Deleted{" "}
-                            <code className="px-1.5 py-0.5 bg-muted rounded text-xs">
-                              {pr.head.ref}
-                            </code>
-                          </span>
-                          {canMergeRepo && (
-                            <button
-                              onClick={handleRestoreBranch}
-                              disabled={restoringBranch}
-                              className="px-3 py-1.5 border border-border text-sm font-medium rounded-md hover:bg-muted/50 transition-colors disabled:opacity-50"
-                            >
-                              {restoringBranch ? (
-                                <span className="flex items-center gap-2">
-                                  <Loader2 className="w-4 h-4 animate-spin" />
-                                  Restoring...
-                                </span>
-                              ) : (
-                                "Restore branch"
-                              )}
-                            </button>
-                          )}
-                        </div>
-                      )}
                     </div>
                     {canMergeRepo && (
                       <div className="px-4 py-3 border-t border-border bg-card/10 flex items-center justify-end">
