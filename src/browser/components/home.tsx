@@ -349,8 +349,16 @@ export function Home() {
   const [page, setPage] = useState(1);
   const perPage = 30;
 
-  // Client-side filter for UPDATED PRs
-  const [showUpdatedOnly, setShowUpdatedOnly] = useState(false);
+  // Client-side filter for UPDATED PRs, persisted across reloads
+  const [showUpdatedOnly, setShowUpdatedOnly] = useState(
+    () => localStorage.getItem("pulldash_show_updated_only") === "true"
+  );
+  useEffect(() => {
+    localStorage.setItem(
+      "pulldash_show_updated_only",
+      showUpdatedOnly ? "true" : ""
+    );
+  }, [showUpdatedOnly]);
 
   // Build queries from config (one per mode group)
   const searchQueries = useMemo(() => buildSearchQueries(config), [config]);
