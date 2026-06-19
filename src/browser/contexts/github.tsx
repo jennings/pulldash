@@ -29,6 +29,7 @@ export type ReviewComment =
 // Extended Review with body_html from GitHub's HTML media type
 export type Review = components["schemas"]["pull-request-review"] & {
   body_html?: string;
+  reactions?: components["schemas"]["reaction"][];
 };
 export type CheckRun = components["schemas"]["check-run"];
 export type CombinedStatus = components["schemas"]["combined-commit-status"];
@@ -2410,6 +2411,66 @@ function createGitHubStore() {
     cache.invalidate(`reactions:review-comment:${owner}/${repo}/${commentId}`);
   }
 
+  async function getReviewReactions(
+    owner: string,
+    repo: string,
+    reviewId: number
+  ) {
+    if (!octokit) throw new Error("Not initialized");
+
+    const { data } = await octokit.request(
+      "GET /repos/{owner}/{repo}/issues/comments/{comment_id}/reactions",
+      {
+        owner,
+        repo,
+        comment_id: reviewId,
+        per_page: 100,
+      }
+    );
+
+    return data as components["schemas"]["reaction"][];
+  }
+
+  async function addReviewReaction(
+    owner: string,
+    repo: string,
+    reviewId: number,
+    content: ReactionContent
+  ) {
+    if (!octokit) throw new Error("Not initialized");
+
+    const { data } = await octokit.request(
+      "POST /repos/{owner}/{repo}/issues/comments/{comment_id}/reactions",
+      {
+        owner,
+        repo,
+        comment_id: reviewId,
+        content,
+      }
+    );
+
+    return data;
+  }
+
+  async function deleteReviewReaction(
+    owner: string,
+    repo: string,
+    reviewId: number,
+    reactionId: number
+  ) {
+    if (!octokit) throw new Error("Not initialized");
+
+    await octokit.request(
+      "DELETE /repos/{owner}/{repo}/issues/comments/{comment_id}/reactions/{reaction_id}",
+      {
+        owner,
+        repo,
+        comment_id: reviewId,
+        reaction_id: reactionId,
+      }
+    );
+  }
+
   async function closePR(owner: string, repo: string, number: number) {
     if (!octokit) throw new Error("Not initialized");
 
@@ -3397,6 +3458,10 @@ function createGitHubStore() {
     getReviewCommentReactions,
     addReviewCommentReaction,
     deleteReviewCommentReaction,
+    // Review reactions
+    getReviewReactions,
+    addReviewReaction,
+    deleteReviewReaction,
     // GraphQL
     graphql,
     getPREnrichment,

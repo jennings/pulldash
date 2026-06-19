@@ -2830,6 +2830,62 @@ function CommentBox({
 // ============================================================================
 
 function ReviewBox({ review }: { review: Review }) {
+  const store = usePRReviewStore();
+  const github = useGitHub();
+  const owner = usePRReviewSelector((s) => s.owner);
+  const repo = usePRReviewSelector((s) => s.repo);
+  const prNumber = usePRReviewSelector((s) => s.pr.number);
+  const currentUser = useCurrentUser()?.login ?? null;
+  const viewerPermission = usePRReviewSelector((s) => s.viewerPermission);
+  const canWrite =
+    viewerPermission === "ADMIN" ||
+    viewerPermission === "MAINTAIN" ||
+    viewerPermission === "WRITE";
+  const [reactions, setReactions] = useState<Reaction[]>([]);
+
+  // Use reactions from the API response if available, otherwise fetch them
+  useEffect(() => {
+    if (review.reactions) {
+      setReactions(review.reactions);
+    } else if (review.id) {
+      github
+        .getReviewReactions(owner, repo, review.id)
+        .then(setReactions)
+        .catch(() => {});
+    }
+  }, [github, owner, repo, review.id, review.reactions]);
+
+  const handleAddReaction = useCallback(
+    async (content: ReactionContent) => {
+      if (!review.id) return;
+      try {
+        const newReaction = await github.addReviewReaction(
+          owner,
+          repo,
+          review.id,
+          content
+        );
+        setReactions((prev) => [...prev, newReaction]);
+      } catch (error) {
+        console.error("Failed to add reaction:", error);
+      }
+    },
+    [github, owner, repo, review.id]
+  );
+
+  const handleRemoveReaction = useCallback(
+    async (reactionId: number) => {
+      if (!review.id) return;
+      try {
+        await github.deleteReviewReaction(owner, repo, review.id, reactionId);
+        setReactions((prev) => prev.filter((r) => r.id !== reactionId));
+      } catch (error) {
+        console.error("Failed to remove reaction:", error);
+      }
+    },
+    [github, owner, repo, review.id]
+  );
+
   if (!review.user) return null;
 
   const stateText =
@@ -2942,15 +2998,26 @@ function ReviewBox({ review }: { review: Review }) {
                 href={review.html_url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-blue-400 hover:underline text-xs"
+                className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                title="View on GitHub"
               >
-                View on GitHub
+                <ExternalLink className="w-3.5 h-3.5" />
               </a>
             )}
           </div>
           <div className="p-4 bg-card">
             <Markdown html={review.body_html}>{review.body}</Markdown>
           </div>
+          {reactions.length > 0 || canWrite ? (
+            <div className="px-4 pb-3 bg-card">
+              <EmojiReactions
+                reactions={reactions}
+                onAddReaction={canWrite ? handleAddReaction : undefined}
+                onRemoveReaction={canWrite ? handleRemoveReaction : undefined}
+                currentUser={currentUser}
+              />
+            </div>
+          ) : null}
         </div>
       )}
     </div>
