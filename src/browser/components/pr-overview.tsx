@@ -178,7 +178,7 @@ export const PROverview = memo(function PROverview() {
       window.removeEventListener("pr-review:scroll-to-top", onTop);
       window.removeEventListener("pr-review:scroll-to-bottom", onBottom);
     };
-  }, []);
+  }, [loading]);
 
   // Overview keyboard navigation state
   const [focusedOverviewItemId, setFocusedOverviewItemId] = useState<
