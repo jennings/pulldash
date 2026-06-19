@@ -4028,8 +4028,8 @@ const CommentItem = memo(function CommentItem({
                 )}
               </div>
 
-              {/* Reactions */}
-              <div className="mt-2">
+              {/* Reactions + Actions footer */}
+              <div className="flex items-center gap-1 px-4 py-2 border-t border-border bg-card">
                 <EmojiReactions
                   reactions={reactions}
                   onAddReaction={canWrite ? handleAddReaction : undefined}
@@ -4037,54 +4037,53 @@ const CommentItem = memo(function CommentItem({
                   currentUser={currentUser}
                   compact
                 />
-              </div>
-
-              <div className="flex items-center gap-3 mt-2">
-                {canWrite && (
-                  <button
-                    onClick={() => store.startReplying(comment.id)}
-                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                    title="Reply (r)"
-                  >
-                    <Reply className="w-3 h-3" />
-                    Reply
-                    {isFocused && (
-                      <kbd className="ml-0.5 px-1 py-0.5 bg-muted/60 rounded text-[9px] font-mono">
-                        r
-                      </kbd>
-                    )}
-                  </button>
-                )}
-                {canEditComment && (
-                  <>
+                <div className="ml-auto flex items-center gap-3">
+                  {canWrite && (
                     <button
-                      onClick={() => store.startEditing(comment.id)}
+                      onClick={() => store.startReplying(comment.id)}
                       className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                      title="Edit (e)"
+                      title="Reply (r)"
                     >
-                      <Pencil className="w-3 h-3" />
-                      Edit
+                      <Reply className="w-3 h-3" />
+                      Reply
                       {isFocused && (
                         <kbd className="ml-0.5 px-1 py-0.5 bg-muted/60 rounded text-[9px] font-mono">
-                          e
+                          r
                         </kbd>
                       )}
                     </button>
-                    <button
-                      onClick={() => onDelete(comment.id)}
-                      className="flex items-center gap-1 text-xs text-muted-foreground hover:text-destructive transition-colors"
-                      title="Delete (d)"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                      Delete
-                      {isFocused && (
-                        <kbd className="ml-0.5 px-1 py-0.5 bg-muted/60 rounded text-[9px] font-mono">
-                          d
-                        </kbd>
-                      )}
-                    </button>
-                  </>
-                )}
+                  )}
+                  {canEditComment && (
+                    <>
+                      <button
+                        onClick={() => store.startEditing(comment.id)}
+                        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                        title="Edit (e)"
+                      >
+                        <Pencil className="w-3 h-3" />
+                        Edit
+                        {isFocused && (
+                          <kbd className="ml-0.5 px-1 py-0.5 bg-muted/60 rounded text-[9px] font-mono">
+                            e
+                          </kbd>
+                        )}
+                      </button>
+                      <button
+                        onClick={() => onDelete(comment.id)}
+                        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-destructive transition-colors"
+                        title="Delete (d)"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                        Delete
+                        {isFocused && (
+                          <kbd className="ml-0.5 px-1 py-0.5 bg-muted/60 rounded text-[9px] font-mono">
+                            d
+                          </kbd>
+                        )}
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
             </>
           )}

@@ -2940,6 +2940,16 @@ function CommentBox({
             currentUser={currentUser}
           />
           <div className="ml-auto flex items-center gap-3">
+            {onQuote && (
+              <button
+                onClick={() => onQuote(body ?? "")}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                title="Reply"
+              >
+                <Reply className="w-3 h-3" />
+                Reply
+              </button>
+            )}
             {isAuthor && onEdit && !editing && (
               <button
                 onClick={handleStartEdit}
@@ -2958,15 +2968,6 @@ function CommentBox({
               >
                 <Trash2 className="w-3 h-3" />
                 Delete
-              </button>
-            )}
-            {onQuote && (
-              <button
-                onClick={() => onQuote(body ?? "")}
-                title="Quote reply"
-                className="text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <Reply className="w-3.5 h-3.5" />
               </button>
             )}
           </div>
@@ -3660,6 +3661,22 @@ function ReviewThreadBox({
                   currentUser={currentUser}
                 />
                 <div className="ml-auto flex items-center gap-3">
+                  {canWrite && (
+                    <button
+                      onClick={() =>
+                        handleQuoteReply(
+                          isMetadataComment
+                            ? stripCommitMetadataPrefix(comment.body)
+                            : comment.body
+                        )
+                      }
+                      className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                      title="Reply"
+                    >
+                      <Reply className="w-3 h-3" />
+                      Reply
+                    </button>
+                  )}
                   {isCommentAuthor && onEditComment && !isEditing && (
                     <button
                       onClick={handleStartEdit}
@@ -3678,21 +3695,6 @@ function ReviewThreadBox({
                     >
                       <Trash2 className="w-3 h-3" />
                       Delete
-                    </button>
-                  )}
-                  {canWrite && (
-                    <button
-                      onClick={() =>
-                        handleQuoteReply(
-                          isMetadataComment
-                            ? stripCommitMetadataPrefix(comment.body)
-                            : comment.body
-                        )
-                      }
-                      title="Quote reply"
-                      className="text-muted-foreground hover:text-foreground transition-colors"
-                    >
-                      <Reply className="w-3.5 h-3.5" />
                     </button>
                   )}
                 </div>
