@@ -2479,31 +2479,9 @@ const DiffViewer = memo(function DiffViewer({
       if (focusedLine && !isDraggingState) {
         const rowIndex = getRowIndexForLine(focusedLine, focusedLineSide);
         if (rowIndex !== undefined) {
-          // Use "auto" alignment - only scrolls if needed, keeps row visible
           virtualizer.scrollToIndex(rowIndex, {
-            align: "auto",
+            align: "center",
           });
-
-          // Account for KeybindsBar: if line is near bottom of viewport, scroll a bit more
-          // This prevents lines from being hidden under the bar
-          const scrollEl = parentRef.current;
-          if (scrollEl) {
-            requestAnimationFrame(() => {
-              const item = virtualizer
-                .getVirtualItems()
-                .find((v) => v.index === rowIndex);
-              if (item) {
-                const itemBottom = item.start + item.size;
-                const viewportBottom =
-                  scrollEl.scrollTop + scrollEl.clientHeight;
-                const KEYBINDS_BAR_HEIGHT = 50;
-                // If item is within 50px of viewport bottom, scroll down to give clearance
-                if (itemBottom > viewportBottom - KEYBINDS_BAR_HEIGHT) {
-                  scrollEl.scrollTop += KEYBINDS_BAR_HEIGHT;
-                }
-              }
-            });
-          }
         }
       }
     });
@@ -2521,6 +2499,7 @@ const DiffViewer = memo(function DiffViewer({
     isDraggingState,
     getRowIndexForLine,
     virtualizer,
+    virtualRows,
   ]);
 
   // Scroll to a conversation thread when conversationScrollTarget changes

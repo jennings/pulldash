@@ -3447,7 +3447,7 @@ function ReviewThreadBox({
           </span>
         ) : (
           <a
-            href={`#file=${encodeURIComponent(filePath)}`}
+            href={`#file=${encodeURIComponent(filePath)}&L=${firstComment.line}`}
             className="font-mono text-muted-foreground hover:text-blue-400 hover:underline"
           >
             {filePath}
