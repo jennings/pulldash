@@ -2995,12 +2995,47 @@ function ReviewBox({ review }: { review: Review }) {
     viewerPermission === "WRITE";
   const [reactions, setReactions] = useState<Reaction[]>([]);
 
-  // Use reactions from the API response if available (populated by full+json media type)
+  // Fetch reactions via GraphQL using the review's node_id
   useEffect(() => {
-    if (review.reactions) {
-      setReactions(review.reactions);
+    if (review.node_id) {
+      github
+        .getReviewReactions(review.node_id)
+        .then(setReactions)
+        .catch(() => {});
     }
-  }, [review.reactions]);
+  }, [github, review.node_id]);
+
+  const handleAddReaction = useCallback(
+    async (content: ReactionContent) => {
+      if (!review.node_id) return;
+      try {
+        const newReaction = await github.addReviewReaction(
+          review.node_id,
+          content
+        );
+        setReactions((prev) => [...prev, newReaction]);
+      } catch (error) {
+        console.error("Failed to add reaction:", error);
+      }
+    },
+    [github, review.node_id]
+  );
+
+  const handleRemoveReaction = useCallback(
+    async (reactionId: number) => {
+      if (!review.node_id) return;
+      // Find the reaction by database ID to get its node_id for deletion
+      const reaction = reactions.find((r) => r.id === reactionId);
+      if (!reaction?.node_id) return;
+      try {
+        await github.deleteReviewReaction(reaction.node_id);
+        setReactions((prev) => prev.filter((r) => r.id !== reactionId));
+      } catch (error) {
+        console.error("Failed to remove reaction:", error);
+      }
+    },
+    [github, review.node_id, reactions]
+  );
 
   if (!review.user) return null;
 
@@ -3124,9 +3159,14 @@ function ReviewBox({ review }: { review: Review }) {
           <div className="p-4 bg-card">
             <Markdown html={review.body_html}>{review.body}</Markdown>
           </div>
-          {reactions.length > 0 ? (
+          {reactions.length > 0 || canWrite ? (
             <div className="px-4 pb-3 bg-card">
-              <EmojiReactions reactions={reactions} currentUser={currentUser} />
+              <EmojiReactions
+                reactions={reactions}
+                onAddReaction={canWrite ? handleAddReaction : undefined}
+                onRemoveReaction={canWrite ? handleRemoveReaction : undefined}
+                currentUser={currentUser}
+              />
             </div>
           ) : null}
         </div>

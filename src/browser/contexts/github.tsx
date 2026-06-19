@@ -3265,6 +3265,132 @@ function createGitHubStore() {
     );
   }
 
+  async function getReviewReactions(reviewNodeId: string): Promise<Reaction[]> {
+    if (!batcher) throw new Error("Not initialized");
+
+    const data = await batcher.query<{
+      node: {
+        reactions: {
+          nodes: Array<{
+            id: string;
+            databaseId: number;
+            content: string;
+            user: { login: string };
+          }>;
+        };
+      } | null;
+    }>(
+      `query ($id: ID!) {
+        node(id: $id) {
+          ... on PullRequestReview {
+            reactions(first: 100) {
+              nodes {
+                id
+                databaseId
+                content
+                user { login }
+              }
+            }
+          }
+        }
+      }`,
+      { id: reviewNodeId }
+    );
+
+    if (!data.node) return [];
+
+    return data.node.reactions.nodes.map(
+      (r) =>
+        ({
+          id: r.databaseId,
+          node_id: r.id,
+          content: GRAPHQL_REACTION_TO_CONTENT[r.content] ?? r.content,
+          user: { login: r.user.login },
+        }) as Reaction
+    );
+  }
+
+  // Map REST reaction content values to GraphQL enum values
+  const REACTION_CONTENT_TO_GRAPHQL: Record<ReactionContent, string> = {
+    "+1": "THUMBS_UP",
+    "-1": "THUMBS_DOWN",
+    laugh: "LAUGH",
+    hooray: "HOORAY",
+    confused: "CONFUSED",
+    heart: "HEART",
+    rocket: "ROCKET",
+    eyes: "EYES",
+  };
+
+  // Map GraphQL enum values back to REST content strings
+  const GRAPHQL_REACTION_TO_CONTENT: Record<string, ReactionContent> = {
+    THUMBS_UP: "+1",
+    THUMBS_DOWN: "-1",
+    LAUGH: "laugh",
+    HOORAY: "hooray",
+    CONFUSED: "confused",
+    HEART: "heart",
+    ROCKET: "rocket",
+    EYES: "eyes",
+  };
+
+  async function addReviewReaction(
+    reviewNodeId: string,
+    content: ReactionContent
+  ): Promise<Reaction> {
+    if (!batcher) throw new Error("Not initialized");
+
+    const data = await batcher.query<{
+      addReaction: {
+        reaction: {
+          id: string;
+          databaseId: number;
+          content: string;
+          user: { login: string };
+        };
+      };
+    }>(
+      `mutation ($input: AddReactionInput!) {
+        addReaction(input: $input) {
+          reaction {
+            id
+            databaseId
+            content
+            user { login }
+          }
+        }
+      }`,
+      {
+        input: {
+          subjectId: reviewNodeId,
+          content: REACTION_CONTENT_TO_GRAPHQL[content],
+        },
+      }
+    );
+
+    return {
+      id: data.addReaction.reaction.databaseId,
+      node_id: data.addReaction.reaction.id,
+      content:
+        GRAPHQL_REACTION_TO_CONTENT[data.addReaction.reaction.content] ??
+        data.addReaction.reaction.content,
+      user: { login: data.addReaction.reaction.user.login },
+    } as Reaction;
+  }
+
+  async function deleteReviewReaction(reactionNodeId: string): Promise<void> {
+    if (!batcher) throw new Error("Not initialized");
+
+    await batcher.query(
+      `mutation ($input: RemoveReactionInput!) {
+        removeReaction(input: $input) {
+          reaction { id }
+        }
+      }`,
+      { input: { subjectId: reactionNodeId } }
+    );
+  }
+
   async function updateComment(
     owner: string,
     repo: string,
@@ -3444,6 +3570,10 @@ function createGitHubStore() {
     deletePendingComment,
     updatePendingComment,
     submitPendingReview,
+    // Review reactions
+    getReviewReactions,
+    addReviewReaction,
+    deleteReviewReaction,
     updateComment,
     deleteComment,
     updateIssueComment,
