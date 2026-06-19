@@ -47,6 +47,7 @@ import {
   usePRListActions,
   type PRSearchResult,
 } from "../contexts/github";
+import { getLastViewed, setLastViewed } from "../lib/waiting-prs";
 import { useAuth } from "../contexts/auth";
 
 // ============================================================================
@@ -348,6 +349,9 @@ export function Home() {
   const [page, setPage] = useState(1);
   const perPage = 30;
 
+  // Client-side filter for UPDATED PRs
+  const [showUpdatedOnly, setShowUpdatedOnly] = useState(false);
+
   // Build queries from config (one per mode group)
   const searchQueries = useMemo(() => buildSearchQueries(config), [config]);
 
@@ -371,6 +375,24 @@ export function Home() {
   const prs = prList.items;
   const loadingPrs = prList.loading;
   const totalCount = prList.totalCount;
+
+  // Client-side filter for UPDATED PRs
+  const filteredPrs = useMemo(() => {
+    if (!showUpdatedOnly) return prs;
+    return prs.filter((pr) => {
+      const info = extractRepoFromUrl(pr.repository_url);
+      if (!info) return false;
+      const prId = `${info.owner}/${info.repo}#${pr.number}`;
+      const viewerLastViewedAt = getLastViewed(prId);
+      const baselines: string[] = [];
+      if (pr.viewerLastReviewAt) baselines.push(pr.viewerLastReviewAt);
+      if (viewerLastViewedAt) baselines.push(viewerLastViewedAt);
+      if (pr.isReadByViewer && pr.updated_at) baselines.push(pr.updated_at);
+      if (baselines.length === 0) return true;
+      const baseline = baselines.reduce((a, b) => (a > b ? a : b));
+      return pr.updated_at ? pr.updated_at > baseline : false;
+    });
+  }, [prs, showUpdatedOnly]);
 
   // Seed the open/queued/merged dot for PR tabs that don't yet have a status,
   // using the home list's enrichment so we don't pay an extra request per tab.
@@ -533,6 +555,7 @@ export function Home() {
 
   const handleOpenPR = useCallback(
     (owner: string, repo: string, number: number, title: string) => {
+      setLastViewed(`${owner}/${repo}#${number}`);
       openPRReviewTab(owner, repo, number, title);
     },
     [openPRReviewTab]
@@ -599,6 +622,19 @@ export function Home() {
               </button>
             ))}
           </div>
+
+          {/* UPDATED Filter Toggle */}
+          <button
+            onClick={() => setShowUpdatedOnly((v) => !v)}
+            className={cn(
+              "shrink-0 px-2 py-1 text-xs font-medium rounded transition-colors",
+              showUpdatedOnly
+                ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+                : "text-muted-foreground hover:text-foreground border border-transparent"
+            )}
+          >
+            Updated
+          </button>
 
           {/* Repo Chips with Mode Dropdowns */}
           <div className="flex items-center gap-1.5 shrink-0">
@@ -1045,7 +1081,7 @@ export function Home() {
               </div>
             ) : (
               <div className="divide-y divide-border">
-                {prs.map((pr) => (
+                {filteredPrs.map((pr) => (
                   <PRListItem key={pr.id} pr={pr} onSelect={handleOpenPR} />
                 ))}
               </div>
@@ -1164,6 +1200,20 @@ function PRListItem({ pr, onSelect }: PRListItemProps) {
   const repoInfo = extractRepoFromUrl(pr.repository_url);
   const isMerged = pr.pull_request?.merged_at != null;
   const isClosed = pr.state === "closed" && !isMerged;
+
+  // Compute whether the PR has new content since the user last saw it
+  const hasNewContent = useMemo(() => {
+    if (!repoInfo) return false;
+    const prId = `${repoInfo.owner}/${repoInfo.repo}#${pr.number}`;
+    const viewerLastViewedAt = getLastViewed(prId);
+    const baselines: string[] = [];
+    if (pr.viewerLastReviewAt) baselines.push(pr.viewerLastReviewAt);
+    if (viewerLastViewedAt) baselines.push(viewerLastViewedAt);
+    if (pr.isReadByViewer && pr.updated_at) baselines.push(pr.updated_at);
+    if (baselines.length === 0) return true;
+    const baseline = baselines.reduce((a, b) => (a > b ? a : b));
+    return pr.updated_at ? pr.updated_at > baseline : false;
+  }, [repoInfo, pr.updated_at, pr.viewerLastReviewAt, pr.isReadByViewer]);
 
   const handleClick = () => {
     if (repoInfo) {
@@ -1531,6 +1581,11 @@ function PRListItem({ pr, onSelect }: PRListItemProps) {
           {pr.hasNewChanges && (
             <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-blue-500/20 text-blue-400 border border-blue-500/30 shrink-0">
               NEW
+            </span>
+          )}
+          {hasNewContent && (
+            <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-amber-500/20 text-amber-400 border border-amber-500/30 shrink-0">
+              UPDATED
             </span>
           )}
           {/* Labels - hide on mobile to save space */}

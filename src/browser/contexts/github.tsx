@@ -84,6 +84,8 @@ export interface PRSearchResult {
   lastCommitAt?: string | null;
   viewerLastReviewAt?: string | null;
   hasNewChanges?: boolean;
+  isReadByViewer?: boolean;
+  hasNewContent?: boolean;
   // CI status
   ciStatus?: "pending" | "success" | "failure" | "none" | "action_required";
   ciSummary?: string; // e.g. "2/3 checks passed" or "Build failed"
@@ -172,6 +174,7 @@ export interface PREnrichment {
   changedFiles: number;
   additions: number;
   deletions: number;
+  isReadByViewer: boolean;
   lastCommitAt: string | null;
   viewerLastReviewAt: string | null;
   hasNewChanges: boolean;
@@ -2777,6 +2780,7 @@ function createGitHubStore() {
       pr${idx}: repository(owner: "${pr.owner}", name: "${pr.repo}") {
         pullRequest(number: ${pr.number}) {
           number
+          isReadByViewer
           changedFiles
           additions
           deletions
@@ -2843,6 +2847,7 @@ function createGitHubStore() {
         {
           pullRequest: {
             number: number;
+            isReadByViewer: boolean;
             changedFiles: number;
             additions: number;
             deletions: number;
@@ -2986,6 +2991,7 @@ function createGitHubStore() {
           changedFiles: result.changedFiles,
           additions: result.additions,
           deletions: result.deletions,
+          isReadByViewer: result.isReadByViewer,
           lastCommitAt,
           viewerLastReviewAt,
           hasNewChanges,
