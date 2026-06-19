@@ -1045,6 +1045,19 @@ function createGitHubStore() {
     return promise;
   }
 
+  async function fetchInvolvedPRs(): Promise<PRSearchResult[]> {
+    try {
+      const data = await searchPRs(
+        "is:pr involves:@me sort:updated-desc",
+        1,
+        50
+      );
+      return (data.items || []) as PRSearchResult[];
+    } catch {
+      return [];
+    }
+  }
+
   async function searchRepos(query: string) {
     if (!octokit) throw new Error("Not initialized");
 
@@ -3507,6 +3520,7 @@ function createGitHubStore() {
     getPRCheckKey,
     // API methods
     searchPRs,
+    fetchInvolvedPRs,
     searchRepos,
     searchUsers,
     getPR,

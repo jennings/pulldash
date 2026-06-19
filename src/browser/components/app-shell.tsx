@@ -184,6 +184,10 @@ export function AppShell() {
         prTabs.map((t) => ({ owner: t.owner, repo: t.repo, number: t.number }))
       );
 
+      const tabPrIds = new Set(
+        prTabs.map((t) => `${t.owner}/${t.repo}#${t.number}`)
+      );
+
       for (const tab of prTabs) {
         const key = `${tab.owner}/${tab.repo}/${tab.number}`;
         const prId = `${tab.owner}/${tab.repo}#${tab.number}`;
@@ -199,7 +203,6 @@ export function AppShell() {
             : null;
         if (baseline && enrichment.updatedAt > baseline) {
           markTabUpdated(tab.id);
-          // Send notification if enabled and not already notified for this event
           if (
             notifsEnabled() &&
             enrichment.updatedAt > (getNotifiedAt(prId) ?? "")
@@ -207,6 +210,29 @@ export function AppShell() {
             const prUrl = `/${tab.owner}/${tab.repo}/pull/${tab.number}`;
             sendNotification(key, tab.prTitle || `#${tab.number}`, prUrl);
             setNotifiedAt(prId, enrichment.updatedAt);
+          }
+        }
+      }
+
+      // Also check involved PRs (independent of current filter)
+      const involvedPRs = await githubStore.fetchInvolvedPRs();
+      for (const pr of involvedPRs) {
+        const match = pr.repository_url?.match(/repos\/([^/]+)\/([^/]+)/);
+        if (!match || !pr.number) continue;
+        const owner = match[1];
+        const repo = match[2];
+        const number = pr.number;
+        const prId = `${owner}/${repo}#${number}`;
+        const prKey = `${owner}/${repo}/${number}`;
+        if (tabPrIds.has(prId)) continue;
+
+        const viewerLastViewedAt = getLastViewed(prId);
+        const baseline = viewerLastViewedAt || null;
+        if (baseline && pr.updated_at > baseline) {
+          if (notifsEnabled() && pr.updated_at > (getNotifiedAt(prId) ?? "")) {
+            const prUrl = `/${owner}/${repo}/pull/${number}`;
+            sendNotification(prKey, pr.title, prUrl);
+            setNotifiedAt(prId, pr.updated_at);
           }
         }
       }
