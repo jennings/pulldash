@@ -48,9 +48,9 @@ export function sendNotification(
       icon: "/favicon.svg",
     });
     n.onclick = () => {
-      window.focus();
-      window.open(url, "_self");
       n.close();
+      window.focus();
+      window.location.href = url;
     };
   } catch {
     // ignore
