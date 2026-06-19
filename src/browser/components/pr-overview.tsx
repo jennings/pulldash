@@ -3289,9 +3289,7 @@ function ReviewThreadBox({
           </span>
         ) : (
           <a
-            href={`https://github.com/${owner}/${repo}/blob/HEAD/${filePath}`}
-            target="_blank"
-            rel="noopener noreferrer"
+            href={`#file=${encodeURIComponent(filePath)}`}
             className="font-mono text-muted-foreground hover:text-blue-400 hover:underline"
           >
             {filePath}
