@@ -174,6 +174,7 @@ export interface PREnrichment {
   changedFiles: number;
   additions: number;
   deletions: number;
+  updatedAt: string;
   isReadByViewer: boolean;
   lastCommitAt: string | null;
   viewerLastReviewAt: string | null;
@@ -2780,6 +2781,7 @@ function createGitHubStore() {
       pr${idx}: repository(owner: "${pr.owner}", name: "${pr.repo}") {
         pullRequest(number: ${pr.number}) {
           number
+          updatedAt
           isReadByViewer
           changedFiles
           additions
@@ -2847,6 +2849,7 @@ function createGitHubStore() {
         {
           pullRequest: {
             number: number;
+            updatedAt: string;
             isReadByViewer: boolean;
             changedFiles: number;
             additions: number;
@@ -2991,6 +2994,7 @@ function createGitHubStore() {
           changedFiles: result.changedFiles,
           additions: result.additions,
           deletions: result.deletions,
+          updatedAt: result.updatedAt,
           isReadByViewer: result.isReadByViewer,
           lastCommitAt,
           viewerLastReviewAt,

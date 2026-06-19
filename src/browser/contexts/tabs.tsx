@@ -22,6 +22,8 @@ export type TabStatus = {
   mergeable: boolean | null;
   // Whether this PR is currently sitting in the repo's merge queue
   inMergeQueue?: boolean;
+  // Whether new activity was detected while the tab was in the background
+  updated?: boolean;
 };
 
 export interface Tab {
@@ -52,6 +54,8 @@ interface TabContextValue {
   closeTab: (tabId: string) => void;
   setActiveTab: (tabId: string) => void;
   updateTabStatus: (tabId: string, status: TabStatus) => void;
+  markTabUpdated: (tabId: string) => void;
+  clearTabUpdated: (tabId: string) => void;
   updateTabMeta: (
     tabId: string,
     meta: { prTitle?: string; prAuthor?: { login: string; avatar_url: string } }
@@ -213,6 +217,36 @@ export function TabProvider({ children }: TabProviderProps) {
     });
   }, []);
 
+  const markTabUpdated = useCallback((tabId: string) => {
+    setState((prev) => {
+      const tabIndex = prev.tabs.findIndex((t) => t.id === tabId);
+      if (tabIndex === -1) return prev;
+      const tab = prev.tabs[tabIndex];
+      if (!tab.status) return prev;
+      const newTabs = [...prev.tabs];
+      newTabs[tabIndex] = {
+        ...tab,
+        status: { ...tab.status, updated: true },
+      };
+      return { ...prev, tabs: newTabs };
+    });
+  }, []);
+
+  const clearTabUpdated = useCallback((tabId: string) => {
+    setState((prev) => {
+      const tabIndex = prev.tabs.findIndex((t) => t.id === tabId);
+      if (tabIndex === -1) return prev;
+      const tab = prev.tabs[tabIndex];
+      if (!tab.status) return prev;
+      const newTabs = [...prev.tabs];
+      newTabs[tabIndex] = {
+        ...tab,
+        status: { ...tab.status, updated: false },
+      };
+      return { ...prev, tabs: newTabs };
+    });
+  }, []);
+
   const updateTabMeta = useCallback(
     (
       tabId: string,
@@ -259,6 +293,8 @@ export function TabProvider({ children }: TabProviderProps) {
     closeTab,
     setActiveTab,
     updateTabStatus,
+    markTabUpdated,
+    clearTabUpdated,
     updateTabMeta,
     getExistingPRTab,
   };

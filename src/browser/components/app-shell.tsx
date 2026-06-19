@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   X,
@@ -15,6 +15,8 @@ import {
   type Tab,
   type TabStatus,
 } from "../contexts/tabs";
+import { useGitHubStore } from "../contexts/github";
+import { getLastViewed, setLastViewed } from "../lib/waiting-prs";
 import { Home } from "./home";
 import { PRReviewContent } from "./pr-review";
 import { UserMenuButton } from "./welcome-dialog";
@@ -39,10 +41,13 @@ export function AppShell() {
     closeTab,
     openTab,
     getExistingPRTab,
+    markTabUpdated,
+    clearTabUpdated,
   } = useTabContext();
   const { isAuthenticated } = useAuth();
   const params = useParams<{ owner: string; repo: string; number: string }>();
   const navigate = useNavigate();
+  const githubStore = useGitHubStore();
 
   // URL is the source of truth - sync URL → Tab
   useEffect(() => {
@@ -81,6 +86,16 @@ export function AppShell() {
   // Navigate when clicking on a tab
   const handleTabSelect = useCallback(
     (tab: Tab) => {
+      // Clear updated flag and record as viewed when switching to a PR tab
+      if (
+        tab.type === "pr-review" &&
+        tab.owner &&
+        tab.repo &&
+        tab.number !== undefined
+      ) {
+        markTabUpdated(tab.id);
+        setLastViewed(`${tab.owner}/${tab.repo}#${tab.number}`);
+      }
       if (tab.type === "home") {
         navigate("/");
       } else if (
@@ -92,7 +107,7 @@ export function AppShell() {
         navigate(`/${tab.owner}/${tab.repo}/pull/${tab.number}`);
       }
     },
-    [navigate]
+    [navigate, markTabUpdated]
   );
 
   // Close a tab and navigate to the next active tab if needed
@@ -141,6 +156,79 @@ export function AppShell() {
       document.title = isAuthenticated ? "Home · Pulldash" : "Pulldash";
     }
   }, [activeTabId, isAuthenticated]);
+
+  // Background detection: poll PR timestamps when tab is hidden
+  useEffect(() => {
+    const POLL_INTERVAL = 60000; // 60 seconds
+    let interval: ReturnType<typeof setInterval> | null = null;
+
+    const checkPRs = async () => {
+      const prTabs = tabs.filter(
+        (t): t is Tab & { owner: string; repo: string; number: number } =>
+          t.type === "pr-review" &&
+          t.owner !== undefined &&
+          t.repo !== undefined &&
+          t.number !== undefined
+      );
+      if (prTabs.length === 0) return;
+
+      const enrichmentMap = await githubStore.getPREnrichment(
+        prTabs.map((t) => ({ owner: t.owner, repo: t.repo, number: t.number }))
+      );
+
+      for (const tab of prTabs) {
+        const key = `${tab.owner}/${tab.repo}/${tab.number}`;
+        const enrichment = enrichmentMap.get(key);
+        if (!enrichment) continue;
+        const viewerLastViewedAt = getLastViewed(
+          `${tab.owner}/${tab.repo}#${tab.number}`
+        );
+        const baselineDates: string[] = [];
+        if (viewerLastViewedAt) baselineDates.push(viewerLastViewedAt);
+        if (enrichment.isReadByViewer) baselineDates.push(enrichment.updatedAt);
+        const baseline =
+          baselineDates.length > 0
+            ? baselineDates.reduce((a, b) => (a > b ? a : b))
+            : null;
+        if (baseline && enrichment.updatedAt > baseline) {
+          markTabUpdated(tab.id);
+        }
+      }
+    };
+
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        // Start checking when tab goes to background
+        if (!interval) {
+          checkPRs();
+          interval = setInterval(checkPRs, POLL_INTERVAL);
+        }
+      } else {
+        // Stop when user comes back, clear active tab's updated flag
+        if (interval) {
+          clearInterval(interval);
+          interval = null;
+        }
+        if (
+          activeTab?.type === "pr-review" &&
+          activeTab.owner &&
+          activeTab.repo &&
+          activeTab.number !== undefined
+        ) {
+          clearTabUpdated(activeTab.id);
+          setLastViewed(
+            `${activeTab.owner}/${activeTab.repo}#${activeTab.number}`
+          );
+        }
+      }
+    };
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      if (interval) clearInterval(interval);
+    };
+  }, [tabs, activeTab, markTabUpdated, clearTabUpdated]);
 
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-background">
@@ -375,6 +463,16 @@ function TabStatusIndicator({ status }: { status?: TabStatus }) {
     // Loading state - show pulsing dot
     return (
       <span className="w-2 h-2 rounded-full bg-muted-foreground/50 animate-pulse shrink-0" />
+    );
+  }
+
+  // Updated while in background gets an orange dot
+  if (status.updated) {
+    return (
+      <span
+        className="w-2 h-2 rounded-full shrink-0 bg-orange-500"
+        title="New activity"
+      />
     );
   }
 
