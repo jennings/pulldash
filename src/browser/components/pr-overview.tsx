@@ -1040,6 +1040,9 @@ export const PROverview = memo(function PROverview() {
     }> = [];
 
     const byUser = new Map<string, Review>();
+    const requestedLogins = new Set(
+      pr.requested_reviewers?.map((r) => r.login) ?? []
+    );
     for (const r of reviews) {
       if (
         r.user &&
@@ -1047,6 +1050,8 @@ export const PROverview = memo(function PROverview() {
           r.state === "CHANGES_REQUESTED" ||
           r.state === "COMMENTED")
       ) {
+        // Skip re-requested reviewers — they'll show as PENDING instead
+        if (requestedLogins.has(r.user.login)) continue;
         byUser.set(r.user.login, r);
       }
     }
