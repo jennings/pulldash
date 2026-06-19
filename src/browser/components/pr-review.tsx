@@ -3472,7 +3472,9 @@ const SplitDiffLineRow = memo(function SplitDiffLineRow({
       {/* Left side (old/delete) */}
       {renderSide(left, "old", left?.oldLineNumber)}
       {/* Divider */}
-      <div className="w-px bg-border/50 shrink-0" />
+      <div className="w-3 shrink-0 flex items-center justify-center">
+        <div className="w-px h-full bg-border/50" />
+      </div>
       {/* Right side (new/insert) */}
       {renderSide(right, "new", right?.newLineNumber)}
     </div>
