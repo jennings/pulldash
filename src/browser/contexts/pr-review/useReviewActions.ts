@@ -72,14 +72,53 @@ export function useReviewActions() {
 
       // If the review we just submitted isn't in the re-fetched data yet
       // (eventual consistency), add it manually so it appears immediately.
+      const addReviewToArray = (review: Review) => {
+        // Remove any stale review by the same user so the new one takes effect
+        const existingIdx = reviews.findIndex(
+          (r) => r.user?.login === review.user?.login
+        );
+        if (existingIdx !== -1) reviews.splice(existingIdx, 1);
+        reviews.unshift(review);
+      };
+
       if (newReview?.id && !reviews.some((r) => r.id === newReview!.id)) {
-        reviews.unshift(newReview);
+        addReviewToArray(newReview);
         timeline.unshift({
           id: newReview.id,
           event: "reviewed",
           actor: { login: currentUser ?? "", avatar_url: "" },
           created_at: new Date().toISOString(),
         } as TimelineEvent);
+      } else if (!newReview && currentUser) {
+        // GraphQL path: submitPendingReview returns void, so newReview is null.
+        // Construct a synthetic review so the UI updates immediately.
+        const submittedAt = new Date().toISOString();
+        const syntheticReview = {
+          id: Date.now(),
+          user: {
+            login: currentUser,
+            avatar_url: `https://github.com/${currentUser}.png`,
+          },
+          state:
+            event === "APPROVE"
+              ? "APPROVED"
+              : event === "REQUEST_CHANGES"
+                ? "CHANGES_REQUESTED"
+                : "COMMENTED",
+          submitted_at: submittedAt,
+        } as Review;
+        if (!reviews.some((r) => r.user?.login === currentUser)) {
+          addReviewToArray(syntheticReview);
+          timeline.unshift({
+            id: syntheticReview.id,
+            event: "reviewed",
+            actor: {
+              login: currentUser,
+              avatar_url: `https://github.com/${currentUser}.png`,
+            },
+            created_at: submittedAt,
+          } as TimelineEvent);
+        }
       }
 
       store.setComments(newComments as ReviewComment[]);
