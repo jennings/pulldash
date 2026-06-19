@@ -13,10 +13,19 @@ import {
   CheckCircle2,
   XCircle,
   Clock,
+  Bell,
+  BellOff,
   Sun,
   Moon,
 } from "lucide-react";
 import { BookmarkletDialog, useShowBookmarklet } from "./bookmarklet";
+import {
+  isSupported as notifSupported,
+  getPermission,
+  getEnabled,
+  setEnabled,
+  requestPermission,
+} from "../lib/notifications";
 import {
   Dialog,
   DialogContent,
@@ -1252,6 +1261,29 @@ export function UserMenuButton({ className }: { className?: string }) {
             )}
             {ctx.theme === "dark" ? "Light mode" : "Dark mode"}
           </DropdownMenuItem>
+          {notifSupported() && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={async () => {
+                  if (getPermission() !== "granted") {
+                    const ok = await requestPermission();
+                    if (ok) setEnabled(true);
+                  } else {
+                    setEnabled(!getEnabled());
+                  }
+                }}
+                className="cursor-pointer"
+              >
+                {getEnabled() ? (
+                  <Bell className="w-4 h-4" />
+                ) : (
+                  <BellOff className="w-4 h-4" />
+                )}
+                {getEnabled() ? "Notifications on" : "Notifications off"}
+              </DropdownMenuItem>
+            </>
+          )}
           <DropdownMenuSeparator />
           {showBookmarklet && (
             <>

@@ -17,6 +17,12 @@ import {
 } from "../contexts/tabs";
 import { useGitHubStore } from "../contexts/github";
 import { getLastViewed, setLastViewed } from "../lib/waiting-prs";
+import {
+  getEnabled as notifsEnabled,
+  sendNotification,
+  getNotifiedAt,
+  setNotifiedAt,
+} from "../lib/notifications";
 import { Home } from "./home";
 import { PRReviewContent } from "./pr-review";
 import { UserMenuButton } from "./welcome-dialog";
@@ -157,10 +163,12 @@ export function AppShell() {
     }
   }, [activeTabId, isAuthenticated]);
 
-  // Background detection: poll PR timestamps when tab is hidden
+  // Background detection: poll PR timestamps when tab or window is not focused
   useEffect(() => {
     const POLL_INTERVAL = 60000; // 60 seconds
     let interval: ReturnType<typeof setInterval> | null = null;
+
+    const isInBackground = () => document.hidden || !document.hasFocus();
 
     const checkPRs = async () => {
       const prTabs = tabs.filter(
@@ -178,11 +186,10 @@ export function AppShell() {
 
       for (const tab of prTabs) {
         const key = `${tab.owner}/${tab.repo}/${tab.number}`;
+        const prId = `${tab.owner}/${tab.repo}#${tab.number}`;
         const enrichment = enrichmentMap.get(key);
         if (!enrichment) continue;
-        const viewerLastViewedAt = getLastViewed(
-          `${tab.owner}/${tab.repo}#${tab.number}`
-        );
+        const viewerLastViewedAt = getLastViewed(prId);
         const baselineDates: string[] = [];
         if (viewerLastViewedAt) baselineDates.push(viewerLastViewedAt);
         if (enrichment.isReadByViewer) baselineDates.push(enrichment.updatedAt);
@@ -192,43 +199,62 @@ export function AppShell() {
             : null;
         if (baseline && enrichment.updatedAt > baseline) {
           markTabUpdated(tab.id);
+          // Send notification if enabled and not already notified for this event
+          if (
+            notifsEnabled() &&
+            enrichment.updatedAt > (getNotifiedAt(prId) ?? "")
+          ) {
+            const prUrl = `/${tab.owner}/${tab.repo}/pull/${tab.number}`;
+            sendNotification(key, tab.prTitle || `#${tab.number}`, prUrl);
+            setNotifiedAt(prId, enrichment.updatedAt);
+          }
         }
       }
     };
 
-    const onVisibilityChange = () => {
-      if (document.hidden) {
-        // Start checking when tab goes to background
-        if (!interval) {
-          checkPRs();
-          interval = setInterval(checkPRs, POLL_INTERVAL);
-        }
+    const startPolling = () => {
+      if (!interval) {
+        checkPRs();
+        interval = setInterval(checkPRs, POLL_INTERVAL);
+      }
+    };
+
+    const stopPolling = () => {
+      if (interval) {
+        clearInterval(interval);
+        interval = null;
+      }
+      if (
+        activeTab?.type === "pr-review" &&
+        activeTab.owner &&
+        activeTab.repo &&
+        activeTab.number !== undefined
+      ) {
+        clearTabUpdated(activeTab.id);
+        setLastViewed(
+          `${activeTab.owner}/${activeTab.repo}#${activeTab.number}`
+        );
+      }
+    };
+
+    const onStateChange = () => {
+      if (isInBackground()) {
+        startPolling();
       } else {
-        // Stop when user comes back, clear active tab's updated flag
-        if (interval) {
-          clearInterval(interval);
-          interval = null;
-        }
-        if (
-          activeTab?.type === "pr-review" &&
-          activeTab.owner &&
-          activeTab.repo &&
-          activeTab.number !== undefined
-        ) {
-          clearTabUpdated(activeTab.id);
-          setLastViewed(
-            `${activeTab.owner}/${activeTab.repo}#${activeTab.number}`
-          );
-        }
+        stopPolling();
       }
     };
 
-    document.addEventListener("visibilitychange", onVisibilityChange);
+    document.addEventListener("visibilitychange", onStateChange);
+    window.addEventListener("blur", onStateChange);
+    window.addEventListener("focus", onStateChange);
     return () => {
-      document.removeEventListener("visibilitychange", onVisibilityChange);
+      document.removeEventListener("visibilitychange", onStateChange);
+      window.removeEventListener("blur", onStateChange);
+      window.removeEventListener("focus", onStateChange);
       if (interval) clearInterval(interval);
     };
-  }, [tabs, activeTab, markTabUpdated, clearTabUpdated]);
+  }, [tabs, activeTab, githubStore, markTabUpdated, clearTabUpdated]);
 
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-background">
