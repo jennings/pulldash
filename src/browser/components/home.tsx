@@ -569,7 +569,10 @@ export function Home() {
     [openPRReviewTab]
   );
 
-  const totalPages = Math.max(1, Math.ceil(totalCount / perPage));
+  const totalPages = Math.max(
+    1,
+    Math.ceil((showUpdatedOnly ? filteredPrs.length : totalCount) / perPage)
+  );
 
   // Track which repo dropdown is open
   const [openRepoDropdown, setOpenRepoDropdown] = useState<string | null>(null);
@@ -1085,6 +1088,16 @@ export function Home() {
                     : config.repos.some(isAllReposFilter)
                       ? "No PRs match your current filters"
                       : "Try adjusting your filter settings"}
+                </p>
+              </div>
+            ) : showUpdatedOnly && filteredPrs.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-20 text-center">
+                <GitPullRequest className="w-12 h-12 text-muted-foreground/30 mb-4" />
+                <p className="text-lg font-medium text-muted-foreground">
+                  No updated pull requests
+                </p>
+                <p className="text-sm text-muted-foreground/70 mt-1 max-w-md">
+                  All your PRs are up to date
                 </p>
               </div>
             ) : (
