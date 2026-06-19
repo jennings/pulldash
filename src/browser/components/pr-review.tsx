@@ -2,6 +2,7 @@ import React, {
   memo,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -1546,6 +1547,116 @@ type VirtualRowType =
   | { type: "skip-spacer"; position: "before" | "after"; index: number };
 
 // ============================================================================
+// Horizontal Scrollbar for Split View
+// ============================================================================
+
+interface HorizontalScrollBarProps {
+  maxChars: number;
+  contentWidthPx: number;
+  containerWidth: number;
+  hScroll: number;
+  onScroll: (value: number) => void;
+}
+
+const HorizontalScrollBar = memo(function HorizontalScrollBar({
+  maxChars,
+  contentWidthPx,
+  containerWidth,
+  hScroll,
+  onScroll,
+}: HorizontalScrollBarProps) {
+  const GUTTER_WIDTH = 53;
+  const viewportWidth = Math.max(1, containerWidth / 2 - GUTTER_WIDTH);
+  const maxScroll = Math.max(0, contentWidthPx - viewportWidth);
+  const thumbRatio = Math.min(1, viewportWidth / contentWidthPx);
+  const scrollableRatio = 1 - thumbRatio;
+  const thumbPosition =
+    scrollableRatio > 0
+      ? maxScroll > 0
+        ? (hScroll / maxScroll) * scrollableRatio * 100
+        : 0
+      : 0;
+
+  const trackRef = useRef<HTMLDivElement>(null);
+  const isDragging = useRef(false);
+
+  const handleTrackClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (!trackRef.current) return;
+      const rect = trackRef.current.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const ratio = x / rect.width;
+      onScroll(Math.round(ratio * maxScroll));
+    },
+    [maxScroll, onScroll]
+  );
+
+  const handleThumbMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      isDragging.current = true;
+      const startX = e.clientX;
+      const startScroll = hScroll;
+
+      const handleMouseMove = (e: MouseEvent) => {
+        if (!isDragging.current || !trackRef.current) return;
+        const rect = trackRef.current.getBoundingClientRect();
+        const dx = e.clientX - startX;
+        const scrollableWidth = rect.width * (1 - thumbRatio);
+        const ratio = scrollableWidth > 0 ? dx / scrollableWidth : 0;
+        const newScroll = startScroll + ratio * maxScroll;
+        onScroll(Math.max(0, Math.min(maxScroll, Math.round(newScroll))));
+      };
+
+      const handleMouseUp = () => {
+        isDragging.current = false;
+        document.removeEventListener("mousemove", handleMouseMove);
+        document.removeEventListener("mouseup", handleMouseUp);
+      };
+
+      document.addEventListener("mousemove", handleMouseMove);
+      document.addEventListener("mouseup", handleMouseUp);
+    },
+    [hScroll, maxScroll, thumbRatio, onScroll]
+  );
+
+  const handleWheel = useCallback(
+    (e: React.WheelEvent) => {
+      const delta = e.deltaX || e.deltaY;
+      if (Math.abs(delta) > 0) {
+        e.preventDefault();
+        const newScroll = Math.max(0, Math.min(maxScroll, hScroll + delta));
+        onScroll(Math.round(newScroll));
+      }
+    },
+    [hScroll, maxScroll, onScroll]
+  );
+
+  if (maxChars <= 0 || maxScroll <= 0) return null;
+
+  return (
+    <div className="px-4 pb-1.5 pt-0.5">
+      <div
+        ref={trackRef}
+        className="h-2 relative bg-muted rounded-full cursor-pointer"
+        onMouseDown={handleTrackClick}
+        onWheel={handleWheel}
+      >
+        <div
+          className="absolute h-full bg-muted-foreground/30 rounded-full hover:bg-muted-foreground/50 transition-colors"
+          style={{
+            width: `${thumbRatio * 100}%`,
+            left: `${thumbPosition}%`,
+          }}
+          onMouseDown={handleThumbMouseDown}
+        />
+      </div>
+    </div>
+  );
+});
+
+// ============================================================================
 // Diff Viewer (Virtualized)
 // ============================================================================
 
@@ -2071,6 +2182,44 @@ const DiffViewer = memo(function DiffViewer({
     commentsHidden,
   ]);
 
+  // Max character count across all lines — used for horizontal scroll sizing
+  const maxLineChars = useMemo(() => {
+    let maxChars = 0;
+    let maxLeftChars = 0;
+    let maxRightChars = 0;
+
+    for (const row of staticRows) {
+      if (row.type === "line") {
+        const len = row.line.content.reduce(
+          (s, seg) => s + seg.value.length,
+          0
+        );
+        if (len > maxChars) maxChars = len;
+      } else if (row.type === "split-line") {
+        if (row.pair.left) {
+          const len = row.pair.left.content.reduce(
+            (s, seg) => s + seg.value.length,
+            0
+          );
+          if (len > maxLeftChars) maxLeftChars = len;
+        }
+        if (row.pair.right) {
+          const len = row.pair.right.content.reduce(
+            (s, seg) => s + seg.value.length,
+            0
+          );
+          if (len > maxRightChars) maxRightChars = len;
+        }
+      }
+    }
+
+    const maxPerSide = Math.max(maxLeftChars, maxRightChars);
+    return { maxChars, maxLeftChars, maxRightChars, maxPerSide };
+  }, [staticRows]);
+
+  const isSplit = viewMode === "split";
+  const contentWidthPx = maxLineChars.maxPerSide * 8 + 16;
+
   // Dynamic: Insert comment form into the correct position (only changes when commentingOnLine changes)
   const virtualRows = useMemo((): VirtualRowType[] => {
     if (!commentingOnLine) return staticRows;
@@ -2203,6 +2352,72 @@ const DiffViewer = memo(function DiffViewer({
       window.removeEventListener("pr-review:scroll-to-bottom", onBottom);
     };
   }, [virtualizer, virtualRows.length]);
+
+  // Horizontal scroll state for split view
+  const [hScroll, setHScroll] = useState(0);
+  const [containerPixelWidth, setContainerPixelWidth] = useState(0);
+
+  // Reset hScroll when switching modes or files
+  useEffect(() => {
+    setHScroll(0);
+  }, [viewMode, selectedFile]);
+
+  // Track container width for scrollbar sizing
+  useEffect(() => {
+    const el = parentRef.current;
+    if (!el) return;
+
+    const updateWidth = () => setContainerPixelWidth(el.clientWidth);
+    updateWidth();
+
+    const ro = new ResizeObserver(updateWidth);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [viewMode]);
+
+  // Set CSS variable on containerRef for translateX in split rows
+  useLayoutEffect(() => {
+    if (containerRef.current) {
+      containerRef.current.style.setProperty("--h-scroll", `${hScroll}px`);
+    }
+  }, [hScroll]);
+
+  // Memoized scroll limits for reuse across effects
+  const halfViewport = useMemo(
+    () => Math.max(1, containerPixelWidth / 2 - 53),
+    [containerPixelWidth]
+  );
+  const maxScroll = useMemo(
+    () => Math.max(0, contentWidthPx - halfViewport),
+    [contentWidthPx, halfViewport]
+  );
+
+  // Clamp hScroll when viewport shrinks
+  useEffect(() => {
+    if (!isSplit) return;
+    if (hScroll > maxScroll) {
+      setHScroll(maxScroll);
+    }
+  }, [isSplit, maxScroll, hScroll]);
+
+  // Non-passive wheel listener for horizontal touchpad scroll anywhere in the diff area
+  useEffect(() => {
+    const el = parentRef.current;
+    if (!el || !isSplit) return;
+
+    const handler = (e: WheelEvent) => {
+      if (e.deltaX !== 0) {
+        e.preventDefault();
+        setHScroll((prev) => {
+          const newScroll = prev + e.deltaX;
+          return Math.max(0, Math.min(maxScroll, Math.round(newScroll)));
+        });
+      }
+    };
+
+    el.addEventListener("wheel", handler, { passive: false });
+    return () => el.removeEventListener("wheel", handler);
+  }, [isSplit, maxScroll]);
 
   const onDragStart = useCallback(
     (lineNum: number, side: "old" | "new", shiftKey?: boolean) => {
@@ -2537,46 +2752,69 @@ const DiffViewer = memo(function DiffViewer({
 
   return (
     <LineDragContext.Provider value={dragValue}>
-      <div ref={parentRef} className="flex-1 overflow-auto themed-scrollbar">
-        <div className="p-4">
-          <div className="border border-border rounded-lg overflow-hidden">
-            <div
-              ref={containerRef}
-              className="relative w-full font-mono text-[0.8rem] [--code-added:theme(colors.green.500)] [--code-removed:theme(colors.orange.600)] [--code-changed:theme(colors.blue.500)] diff-line-container"
-              style={{ height: `${virtualizer.getTotalSize()}px` }}
-            >
-              {virtualizer.getVirtualItems().map((virtualRow) => {
-                const row = virtualRows[virtualRow.index];
-                if (!row) return null;
+      <div className="flex flex-col flex-1 min-h-0">
+        <div
+          ref={parentRef}
+          className={cn(
+            "flex-1 themed-scrollbar",
+            isSplit ? "overflow-y-auto overflow-x-hidden" : "overflow-auto"
+          )}
+        >
+          <div className="p-4">
+            <div className="border border-border rounded-lg">
+              <div
+                ref={containerRef}
+                className="relative font-mono text-[0.8rem] [--code-added:theme(colors.green.500)] [--code-removed:theme(colors.orange.600)] [--code-changed:theme(colors.blue.500)] diff-line-container"
+                style={{
+                  height: `${virtualizer.getTotalSize()}px`,
+                  minWidth:
+                    !isSplit && maxLineChars.maxChars > 0
+                      ? `max(100%, ${maxLineChars.maxChars * 8.5 + 150}px)`
+                      : "100%",
+                }}
+              >
+                {virtualizer.getVirtualItems().map((virtualRow) => {
+                  const row = virtualRows[virtualRow.index];
+                  if (!row) return null;
 
-                return (
-                  <div
-                    key={virtualRow.key}
-                    className="absolute left-0 w-full"
-                    style={{
-                      top: `${virtualRow.start}px`,
-                    }}
-                    data-index={virtualRow.index}
-                    ref={virtualizer.measureElement}
-                  >
-                    <VirtualRowRenderer
-                      row={row}
-                      commentsHidden={commentsHidden}
-                      focusedSkipBlockIndex={focusedSkipBlockIndex}
-                      focusedCommentId={focusedCommentId}
-                      focusedPendingCommentId={focusedPendingCommentId}
-                      editingCommentId={editingCommentId}
-                      editingPendingCommentId={editingPendingCommentId}
-                      replyingToCommentId={replyingToCommentId}
-                      expandSkipBlock={expandSkipBlock}
-                      isExpanding={isExpanding}
-                    />
-                  </div>
-                );
-              })}
+                  return (
+                    <div
+                      key={virtualRow.key}
+                      className="absolute left-0 w-full"
+                      style={{
+                        top: `${virtualRow.start}px`,
+                      }}
+                      data-index={virtualRow.index}
+                      ref={virtualizer.measureElement}
+                    >
+                      <VirtualRowRenderer
+                        row={row}
+                        commentsHidden={commentsHidden}
+                        focusedSkipBlockIndex={focusedSkipBlockIndex}
+                        focusedCommentId={focusedCommentId}
+                        focusedPendingCommentId={focusedPendingCommentId}
+                        editingCommentId={editingCommentId}
+                        editingPendingCommentId={editingPendingCommentId}
+                        replyingToCommentId={replyingToCommentId}
+                        expandSkipBlock={expandSkipBlock}
+                        isExpanding={isExpanding}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
         </div>
+        {isSplit && (
+          <HorizontalScrollBar
+            maxChars={maxLineChars.maxPerSide}
+            contentWidthPx={contentWidthPx}
+            containerWidth={containerPixelWidth}
+            hScroll={hScroll}
+            onScroll={setHScroll}
+          />
+        )}
       </div>
     </LineDragContext.Provider>
   );
@@ -2884,7 +3122,7 @@ const DiffLineRow = memo(function DiffLineRow({
   return (
     <div
       className={cn(
-        "flex h-5 min-h-5 whitespace-pre box-border group contain-layout diff-line-row relative",
+        "flex h-5 min-h-5 whitespace-pre box-border group diff-line-row relative",
         isRebaseArtifact && "opacity-40"
       )}
       style={styles}
@@ -2956,7 +3194,7 @@ const DiffLineRow = memo(function DiffLineRow({
       </div>
       {/* Code content - click to focus line (unless selecting text) */}
       <div
-        className="flex-1 whitespace-pre pr-6 overflow-hidden pl-2 cursor-text"
+        className="flex-1 whitespace-pre pr-6 pl-2 cursor-text"
         onMouseDown={handleContentMouseDown}
         onClick={handleContentClick}
       >
@@ -3160,35 +3398,43 @@ const SplitDiffLineRow = memo(function SplitDiffLineRow({
           onMouseDown={handleContentMouseDown}
           onClick={handleContentClick}
         >
-          <Tag className="no-underline">
-            {line.content.map((seg, i) => {
-              // In split view, only show relevant segment types per side
-              // Left (old) side: only highlight deletes, not inserts
-              // Right (new) side: only highlight inserts, not deletes
-              const showInsert = side === "new" && seg.type === "insert";
-              const showDelete = side === "old" && seg.type === "delete";
-              const isTinyChange =
-                (showInsert || showDelete) && seg.value.length <= 2;
-              return (
-                <span
-                  key={i}
-                  className={cn(
-                    showInsert &&
-                      "bg-[var(--code-added)]/20 text-[var(--diff-insert-fg)]",
-                    showDelete &&
-                      "bg-[var(--code-removed)]/20 text-[var(--diff-delete-fg)] line-through decoration-orange-500/50",
-                    isTinyChange &&
+          <div
+            style={
+              {
+                transform: "translateX(calc(-1 * var(--h-scroll)))",
+              } as React.CSSProperties
+            }
+          >
+            <Tag className="no-underline">
+              {line.content.map((seg, i) => {
+                // In split view, only show relevant segment types per side
+                // Left (old) side: only highlight deletes, not inserts
+                // Right (new) side: only highlight inserts, not deletes
+                const showInsert = side === "new" && seg.type === "insert";
+                const showDelete = side === "old" && seg.type === "delete";
+                const isTinyChange =
+                  (showInsert || showDelete) && seg.value.length <= 2;
+                return (
+                  <span
+                    key={i}
+                    className={cn(
                       showInsert &&
-                      "bg-[var(--code-added)]/40 font-semibold",
-                    isTinyChange &&
+                        "bg-[var(--code-added)]/20 text-[var(--diff-insert-fg)]",
                       showDelete &&
-                      "bg-[var(--code-removed)]/40 font-semibold"
-                  )}
-                  dangerouslySetInnerHTML={{ __html: seg.html }}
-                />
-              );
-            })}
-          </Tag>
+                        "bg-[var(--code-removed)]/20 text-[var(--diff-delete-fg)] line-through decoration-orange-500/50",
+                      isTinyChange &&
+                        showInsert &&
+                        "bg-[var(--code-added)]/40 font-semibold",
+                      isTinyChange &&
+                        showDelete &&
+                        "bg-[var(--code-removed)]/40 font-semibold"
+                    )}
+                    dangerouslySetInnerHTML={{ __html: seg.html }}
+                  />
+                );
+              })}
+            </Tag>
+          </div>
         </div>
       </div>
     );
