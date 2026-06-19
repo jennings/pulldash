@@ -2761,7 +2761,16 @@ const DiffViewer = memo(function DiffViewer({
           )}
         >
           <div className="p-4">
-            <div className="border border-border rounded-lg">
+            <div
+              className="border border-border rounded-lg overflow-hidden"
+              style={
+                !isSplit && maxLineChars.maxChars > 0
+                  ? {
+                      minWidth: `max(100%, ${maxLineChars.maxChars * 8.5 + 150}px)`,
+                    }
+                  : undefined
+              }
+            >
               <div
                 ref={containerRef}
                 className="relative font-mono text-[0.8rem] [--code-added:theme(colors.green.500)] [--code-removed:theme(colors.orange.600)] [--code-changed:theme(colors.blue.500)] diff-line-container"
