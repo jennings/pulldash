@@ -825,17 +825,12 @@ function createGitHubStore() {
       if (abortController.signal.aborted) return;
 
       // Cache the result (persist for instant load next time)
-      // Use combined.length instead of total to reflect deduplicated count
-      cache.set(
-        cacheKey,
-        { items: combined, totalCount: combined.length },
-        true
-      );
+      cache.set(cacheKey, { items: combined, totalCount: total }, true);
 
       setState({
         prList: {
           items: combined,
-          totalCount: combined.length,
+          totalCount: total,
           loading: false,
           error: null,
           lastFetchedAt: Date.now(),
