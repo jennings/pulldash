@@ -3279,10 +3279,19 @@ const SplitDiffLineRow = memo(function SplitDiffLineRow({
     if (!line) {
       // Empty cell
       return (
-        <div className="flex flex-1 min-w-0 bg-muted/30 split-diff-side">
-          <div className="w-0.5 shrink-0" />
-          <div className="w-10 shrink-0 tabular-nums text-right opacity-30 pr-2 text-xs select-none pt-0.5 border-r border-border/30" />
-          <div className="flex-1" />
+        <div className="flex flex-1 min-w-0 overflow-hidden bg-muted/30 split-diff-side">
+          <div
+            className="flex"
+            style={
+              {
+                transform: "translateX(calc(-1 * var(--h-scroll)))",
+              } as React.CSSProperties
+            }
+          >
+            <div className="w-0.5 shrink-0" />
+            <div className="w-10 shrink-0 tabular-nums text-right opacity-30 pr-2 text-xs select-none pt-0.5 border-r border-border/30" />
+            <div className="flex-1" />
+          </div>
         </div>
       );
     }
@@ -3358,52 +3367,53 @@ const SplitDiffLineRow = memo(function SplitDiffLineRow({
 
     return (
       <div
-        className="flex flex-1 min-w-0 split-diff-side"
+        className="flex flex-1 min-w-0 overflow-hidden split-diff-side"
         style={bgStyle}
         data-line-num={lineNumber}
         data-line-side={side}
       >
-        {/* Left border indicator */}
         <div
-          className={cn(
-            "w-0.5 shrink-0 border-l-2 border-transparent",
-            isInsert && "!border-[var(--code-added)]/60",
-            isDelete && "!border-[var(--code-removed)]/80"
-          )}
-        />
-        {/* Dotted line for comment-associated lines */}
-        {hasCommentRange && (
-          <div className="w-0.5 shrink-0 border-l-2 border-dotted border-blue-500/50" />
-        )}
-        {/* Line number */}
-        <div
-          data-line-gutter
-          className="w-10 shrink-0 tabular-nums text-right opacity-50 pr-2 text-xs select-none pt-0.5 cursor-pointer hover:bg-blue-500/20 border-r border-border/30 relative"
-          onMouseDown={handleMouseDown}
-          onMouseUp={handleMouseUp}
-          onMouseEnter={handleMouseEnter}
-          onClick={handleClick}
+          className="flex"
+          style={
+            {
+              transform: "translateX(calc(-1 * var(--h-scroll)))",
+            } as React.CSSProperties
+          }
         >
-          {lineNumber || ""}
-          {rowCommentsHidden && hasCommentAnchor && (
-            <span
-              className="absolute left-0 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-blue-500 ring-1 ring-background z-10"
-              title="Has comment"
-            />
-          )}
-        </div>
-        {/* Code content */}
-        <div
-          className="flex-1 whitespace-pre pr-2 overflow-hidden pl-2 cursor-text"
-          onMouseDown={handleContentMouseDown}
-          onClick={handleContentClick}
-        >
+          {/* Left border indicator */}
           <div
-            style={
-              {
-                transform: "translateX(calc(-1 * var(--h-scroll)))",
-              } as React.CSSProperties
-            }
+            className={cn(
+              "w-0.5 shrink-0 border-l-2 border-transparent",
+              isInsert && "!border-[var(--code-added)]/60",
+              isDelete && "!border-[var(--code-removed)]/80"
+            )}
+          />
+          {/* Dotted line for comment-associated lines */}
+          {hasCommentRange && (
+            <div className="w-0.5 shrink-0 border-l-2 border-dotted border-blue-500/50" />
+          )}
+          {/* Line number */}
+          <div
+            data-line-gutter
+            className="w-10 shrink-0 tabular-nums text-right opacity-50 pr-2 text-xs select-none pt-0.5 cursor-pointer hover:bg-blue-500/20 border-r border-border/30 relative"
+            onMouseDown={handleMouseDown}
+            onMouseUp={handleMouseUp}
+            onMouseEnter={handleMouseEnter}
+            onClick={handleClick}
+          >
+            {lineNumber || ""}
+            {rowCommentsHidden && hasCommentAnchor && (
+              <span
+                className="absolute left-0 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-blue-500 ring-1 ring-background z-10"
+                title="Has comment"
+              />
+            )}
+          </div>
+          {/* Code content */}
+          <div
+            className="whitespace-pre pr-2 pl-2 cursor-text"
+            onMouseDown={handleContentMouseDown}
+            onClick={handleContentClick}
           >
             <Tag className="no-underline">
               {line.content.map((seg, i) => {
