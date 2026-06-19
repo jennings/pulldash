@@ -3360,6 +3360,41 @@ function createGitHubStore() {
     );
   }
 
+  async function updateIssueComment(
+    owner: string,
+    repo: string,
+    commentId: number,
+    body: string
+  ): Promise<ReviewComment> {
+    if (!octokit) throw new Error("Not initialized");
+    const { data } = await octokit.request(
+      "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}",
+      {
+        owner,
+        repo,
+        comment_id: commentId,
+        body,
+      }
+    );
+    return data as unknown as ReviewComment;
+  }
+
+  async function deleteIssueComment(
+    owner: string,
+    repo: string,
+    commentId: number
+  ): Promise<void> {
+    if (!octokit) throw new Error("Not initialized");
+    await octokit.request(
+      "DELETE /repos/{owner}/{repo}/issues/comments/{comment_id}",
+      {
+        owner,
+        repo,
+        comment_id: commentId,
+      }
+    );
+  }
+
   async function getUserProfile(login: string): Promise<UserProfile> {
     if (!octokit) throw new Error("Not initialized");
 
@@ -3475,6 +3510,8 @@ function createGitHubStore() {
     submitPendingReview,
     updateComment,
     deleteComment,
+    updateIssueComment,
+    deleteIssueComment,
     getUserProfile,
     invalidateCache,
   };

@@ -31,6 +31,7 @@ import {
   Milestone,
   Link,
   Trash2,
+  Pencil,
   FileEdit,
   Files,
   Lock,
@@ -60,6 +61,7 @@ import {
   getTimeAgo,
 } from "../contexts/pr-review";
 import { parseDiffCached, type ParsedDiff } from "../lib/diff";
+import type { ReviewComment } from "@/api/types";
 import {
   useGitHub,
   useCurrentUser,
@@ -974,6 +976,50 @@ export const PROverview = memo(function PROverview() {
     [github, store]
   );
 
+  const refreshConversation = useCallback(async () => {
+    const [newComments, newTimeline] = await Promise.all([
+      github.getPRComments(owner, repo, pr.number).catch(() => []),
+      github.getPRTimeline(owner, repo, pr.number).catch(() => []),
+    ]);
+    store.setComments(newComments as ReviewComment[]);
+    store.setTimeline(newTimeline);
+  }, [github, owner, repo, pr.number, store]);
+
+  const handleEditComment = useCallback(
+    async (commentId: number, body: string) => {
+      await github.updateIssueComment(owner, repo, commentId, body);
+      await refreshConversation();
+    },
+    [github, owner, repo, refreshConversation]
+  );
+
+  const handleDeleteComment = useCallback(
+    async (commentId: number) => {
+      await github.deleteIssueComment(owner, repo, commentId);
+      await refreshConversation();
+    },
+    [github, owner, repo, refreshConversation]
+  );
+
+  const handleEditReviewComment = useCallback(
+    async (commentId: number, body: string) => {
+      await github.updateComment(owner, repo, commentId, body);
+      // Refresh threads to show updated comment
+      const result = await github.getReviewThreads(owner, repo, pr.number);
+      store.setReviewThreads(result.threads);
+    },
+    [github, owner, repo, pr.number, store]
+  );
+
+  const handleDeleteReviewComment = useCallback(
+    async (commentId: number) => {
+      await github.deleteComment(owner, repo, commentId);
+      const result = await github.getReviewThreads(owner, repo, pr.number);
+      store.setReviewThreads(result.threads);
+    },
+    [github, owner, repo, pr.number, store]
+  );
+
   // Calculate check status
   const checkStatus = calculateCheckStatus(
     checks,
@@ -1626,6 +1672,7 @@ export const PROverview = memo(function PROverview() {
                             commentUrl={comment.html_url}
                             body={comment.body ?? null}
                             bodyHtml={comment.body_html}
+                            isAuthor={comment.user?.login === currentUser}
                             reactions={reactions[`comment-${comment.id}`]}
                             onAddReaction={
                               canWrite
@@ -1650,6 +1697,16 @@ export const PROverview = memo(function PROverview() {
                             onQuote={
                               canWrite
                                 ? handleQuoteConversationComment
+                                : undefined
+                            }
+                            onEdit={
+                              canWrite && comment.user?.login === currentUser
+                                ? (body) => handleEditComment(comment.id, body)
+                                : undefined
+                            }
+                            onDelete={
+                              canWrite && comment.user?.login === currentUser
+                                ? () => handleDeleteComment(comment.id)
                                 : undefined
                             }
                           />
@@ -1694,6 +1751,8 @@ export const PROverview = memo(function PROverview() {
                                   autoFocusReply={
                                     replyingToOverviewItem === threadId
                                   }
+                                  onEditComment={handleEditReviewComment}
+                                  onDeleteComment={handleDeleteReviewComment}
                                 />
                               );
                             })}
@@ -1778,6 +1837,8 @@ export const PROverview = memo(function PROverview() {
                             )}
                             isFocused={focusedOverviewItemId === threadId}
                             autoFocusReply={replyingToOverviewItem === threadId}
+                            onEditComment={handleEditReviewComment}
+                            onDeleteComment={handleDeleteReviewComment}
                           />
                         );
                       }
@@ -2710,6 +2771,8 @@ function CommentBox({
   currentUser,
   isFocused,
   onQuote,
+  onEdit,
+  onDelete,
 }: {
   id?: string;
   user: { login: string; avatar_url: string } | null;
@@ -2726,7 +2789,43 @@ function CommentBox({
   currentUser?: string | null;
   isFocused?: boolean;
   onQuote?: (body: string) => void;
+  onEdit?: (body: string) => Promise<void>;
+  onDelete?: () => Promise<void>;
 }) {
+  const [editing, setEditing] = useState(false);
+  const [editText, setEditText] = React.useState("");
+  const [saving, setSaving] = useState(false);
+
+  const handleStartEdit = useCallback(() => {
+    setEditText(body ?? "");
+    setEditing(true);
+  }, [body]);
+
+  const handleCancelEdit = useCallback(() => {
+    setEditing(false);
+    setEditText("");
+  }, []);
+
+  const handleSave = useCallback(async () => {
+    if (!editText.trim() || !onEdit) return;
+    setSaving(true);
+    try {
+      await onEdit(editText.trim());
+      setEditing(false);
+    } finally {
+      setSaving(false);
+    }
+  }, [editText, onEdit]);
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === "Escape") {
+        handleCancelEdit();
+      }
+    },
+    [handleCancelEdit]
+  );
+
   if (!user) return null;
 
   return (
@@ -2784,7 +2883,34 @@ function CommentBox({
       </div>
       {/* Body */}
       <div className="p-4 bg-card">
-        {body || bodyHtml ? (
+        {editing ? (
+          <div className="space-y-3">
+            <MarkdownEditor
+              value={editText}
+              onChange={setEditText}
+              onKeyDown={handleKeyDown}
+              placeholder="Edit your comment..."
+              minHeight="60px"
+              autoFocus
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={handleCancelEdit}
+                className="px-3 py-1.5 text-sm rounded-md hover:bg-muted transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={!editText.trim() || saving}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+              >
+                <Check className="w-3.5 h-3.5" />
+                Save
+              </button>
+            </div>
+          </div>
+        ) : body || bodyHtml ? (
           <Markdown
             html={bodyHtml}
             emptyState={
@@ -2801,8 +2927,11 @@ function CommentBox({
           </p>
         )}
       </div>
-      {/* Reactions */}
-      {reactions || onAddReaction || onQuote ? (
+      {/* Reactions + Actions */}
+      {reactions ||
+      onAddReaction ||
+      onQuote ||
+      (isAuthor && (onEdit || onDelete)) ? (
         <div className="px-4 py-2 border-t border-border bg-card flex items-center gap-1">
           <EmojiReactions
             reactions={reactions || []}
@@ -2810,15 +2939,37 @@ function CommentBox({
             onRemoveReaction={onRemoveReaction}
             currentUser={currentUser}
           />
-          {onQuote && (
-            <button
-              onClick={() => onQuote(body ?? "")}
-              title="Quote reply"
-              className="ml-auto text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <Reply className="w-3.5 h-3.5" />
-            </button>
-          )}
+          <div className="ml-auto flex items-center gap-3">
+            {isAuthor && onEdit && !editing && (
+              <button
+                onClick={handleStartEdit}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                title="Edit"
+              >
+                <Pencil className="w-3 h-3" />
+                Edit
+              </button>
+            )}
+            {isAuthor && onDelete && !editing && (
+              <button
+                onClick={onDelete}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-destructive transition-colors"
+                title="Delete"
+              >
+                <Trash2 className="w-3 h-3" />
+                Delete
+              </button>
+            )}
+            {onQuote && (
+              <button
+                onClick={() => onQuote(body ?? "")}
+                title="Quote reply"
+                className="text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <Reply className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
         </div>
       ) : null}
     </div>
@@ -3101,6 +3252,8 @@ function ReviewThreadBox({
   reactions,
   isFocused,
   autoFocusReply,
+  onEditComment,
+  onDeleteComment,
 }: {
   thread: ReviewThread;
   owner: string;
@@ -3122,6 +3275,8 @@ function ReviewThreadBox({
   reactions?: Record<number, Reaction[]>;
   isFocused?: boolean;
   autoFocusReply?: boolean;
+  onEditComment?: (commentId: number, body: string) => Promise<void>;
+  onDeleteComment?: (commentId: number) => Promise<void>;
 }) {
   const [replyText, setReplyText] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -3129,6 +3284,9 @@ function ReviewThreadBox({
   const [showReplyBox, setShowReplyBox] = useState(false);
   const [showResolved, setShowResolved] = useState(false);
   const [parsedDiff, setParsedDiff] = useState<ParsedDiff | null>(null);
+  const [editingCommentId, setEditingCommentId] = useState<number | null>(null);
+  const [editText, setEditText] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
   const comments = thread.comments.nodes;
   const firstComment = comments[0];
   const filePath = firstComment?.path;
@@ -3386,87 +3544,162 @@ function ReviewThreadBox({
 
       {/* All comments in thread (no nesting - all at same level) */}
       <div>
-        {comments.map((comment, idx) => (
-          <div
-            key={comment.id}
-            className={cn(
-              "p-4",
-              idx < comments.length - 1 && "border-b border-border"
-            )}
-          >
-            <div className="flex items-center gap-2 mb-2 text-sm">
-              {comment.author && (
-                <>
-                  <UserHoverCard login={comment.author.login}>
-                    <img
-                      src={comment.author.avatarUrl}
-                      alt={comment.author.login}
-                      className="w-6 h-6 rounded-full cursor-pointer"
-                    />
-                  </UserHoverCard>
-                  <UserHoverCard login={comment.author.login}>
-                    <span className="font-semibold hover:text-blue-400 hover:underline cursor-pointer">
-                      {comment.author.login}
-                    </span>
-                  </UserHoverCard>
-                </>
+        {comments.map((comment, idx) => {
+          const isCommentAuthor = comment.author?.login === currentUser;
+          const isEditing = editingCommentId === comment.databaseId;
+
+          const handleStartEdit = () => {
+            setEditText(comment.body);
+            setEditingCommentId(comment.databaseId);
+          };
+
+          const handleCancelEdit = () => {
+            setEditingCommentId(null);
+            setEditText("");
+          };
+
+          const handleSave = async () => {
+            if (!editText.trim() || !onEditComment) return;
+            setSavingEdit(true);
+            try {
+              await onEditComment(comment.databaseId, editText.trim());
+              setEditingCommentId(null);
+            } finally {
+              setSavingEdit(false);
+            }
+          };
+
+          return (
+            <div
+              key={comment.id}
+              className={cn(
+                "p-4",
+                idx < comments.length - 1 && "border-b border-border"
               )}
-              <a
-                href={`https://github.com/${owner}/${repo}/pull/${prNumber}#discussion_r${comment.databaseId}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-muted-foreground hover:underline"
-              >
-                {getTimeAgo(new Date(comment.createdAt))}
-              </a>
-              {comment.updatedAt && comment.updatedAt !== comment.createdAt && (
-                <span className="text-muted-foreground">
-                  · edited {getTimeAgo(new Date(comment.updatedAt))}
-                </span>
-              )}
-            </div>
-            <div className="mt-2">
-              {isMetadataComment ? (
-                <Markdown>{stripCommitMetadataPrefix(comment.body)}</Markdown>
-              ) : (
-                <Markdown html={comment.bodyHTML}>{comment.body}</Markdown>
-              )}
-            </div>
-            {/* Emoji reactions */}
-            <div className="mt-3 flex items-center gap-1">
-              <EmojiReactions
-                reactions={reactions?.[comment.databaseId] || []}
-                onAddReaction={
-                  canWrite && onAddReaction
-                    ? (content) => onAddReaction(comment.databaseId, content)
-                    : undefined
-                }
-                onRemoveReaction={
-                  canWrite && onRemoveReaction
-                    ? (reactionId) =>
-                        onRemoveReaction(comment.databaseId, reactionId)
-                    : undefined
-                }
-                currentUser={currentUser}
-              />
-              {canWrite && (
-                <button
-                  onClick={() =>
-                    handleQuoteReply(
-                      isMetadataComment
-                        ? stripCommitMetadataPrefix(comment.body)
-                        : comment.body
-                    )
-                  }
-                  title="Quote reply"
-                  className="ml-auto text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <div className="flex items-center gap-2 mb-2 text-sm">
+                {comment.author && (
+                  <>
+                    <UserHoverCard login={comment.author.login}>
+                      <img
+                        src={comment.author.avatarUrl}
+                        alt={comment.author.login}
+                        className="w-6 h-6 rounded-full cursor-pointer"
+                      />
+                    </UserHoverCard>
+                    <UserHoverCard login={comment.author.login}>
+                      <span className="font-semibold hover:text-blue-400 hover:underline cursor-pointer">
+                        {comment.author.login}
+                      </span>
+                    </UserHoverCard>
+                  </>
+                )}
+                <a
+                  href={`https://github.com/${owner}/${repo}/pull/${prNumber}#discussion_r${comment.databaseId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-muted-foreground hover:underline"
                 >
-                  <Reply className="w-3.5 h-3.5" />
-                </button>
-              )}
+                  {getTimeAgo(new Date(comment.createdAt))}
+                </a>
+                {comment.updatedAt &&
+                  comment.updatedAt !== comment.createdAt && (
+                    <span className="text-muted-foreground">
+                      · edited {getTimeAgo(new Date(comment.updatedAt))}
+                    </span>
+                  )}
+              </div>
+              <div className="mt-2">
+                {isEditing ? (
+                  <div className="space-y-3">
+                    <MarkdownEditor
+                      value={editText}
+                      onChange={setEditText}
+                      placeholder="Edit your comment..."
+                      minHeight="60px"
+                      autoFocus
+                    />
+                    <div className="flex justify-end gap-2">
+                      <button
+                        onClick={handleCancelEdit}
+                        className="px-3 py-1.5 text-sm rounded-md hover:bg-muted transition-colors"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={handleSave}
+                        disabled={!editText.trim() || savingEdit}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        Save
+                      </button>
+                    </div>
+                  </div>
+                ) : isMetadataComment ? (
+                  <Markdown>{stripCommitMetadataPrefix(comment.body)}</Markdown>
+                ) : (
+                  <Markdown html={comment.bodyHTML}>{comment.body}</Markdown>
+                )}
+              </div>
+              {/* Emoji reactions + actions */}
+              <div className="mt-3 flex items-center gap-1">
+                <EmojiReactions
+                  reactions={reactions?.[comment.databaseId] || []}
+                  onAddReaction={
+                    canWrite && onAddReaction
+                      ? (content) => onAddReaction(comment.databaseId, content)
+                      : undefined
+                  }
+                  onRemoveReaction={
+                    canWrite && onRemoveReaction
+                      ? (reactionId) =>
+                          onRemoveReaction(comment.databaseId, reactionId)
+                      : undefined
+                  }
+                  currentUser={currentUser}
+                />
+                <div className="ml-auto flex items-center gap-3">
+                  {isCommentAuthor && onEditComment && !isEditing && (
+                    <button
+                      onClick={handleStartEdit}
+                      className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                      title="Edit"
+                    >
+                      <Pencil className="w-3 h-3" />
+                      Edit
+                    </button>
+                  )}
+                  {isCommentAuthor && onDeleteComment && !isEditing && (
+                    <button
+                      onClick={() => onDeleteComment(comment.databaseId)}
+                      className="flex items-center gap-1 text-xs text-muted-foreground hover:text-destructive transition-colors"
+                      title="Delete"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                      Delete
+                    </button>
+                  )}
+                  {canWrite && (
+                    <button
+                      onClick={() =>
+                        handleQuoteReply(
+                          isMetadataComment
+                            ? stripCommitMetadataPrefix(comment.body)
+                            : comment.body
+                        )
+                      }
+                      title="Quote reply"
+                      className="text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      <Reply className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Reply box and actions */}
