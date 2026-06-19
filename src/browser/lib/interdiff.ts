@@ -16,10 +16,14 @@
  *      A-only insert  → DELETE (v1 added a line v2 doesn't have)
  *      A-only delete  → INSERT (v1 removed a line v2 still has)
  *      *-only context → skip (rebase noise — patch window only)
- *      equal pair, same kind          → equal (skip if both delete)
+ *      equal pair, same kind          → equal
  *      equal pair, insertA/deleteB    → DELETE (v1 added it; v2 removed it)
  *      equal pair, deleteA/insertB    → INSERT (v1 removed it; v2 re-added it)
- *      equal pair, other kind mismatch → equal
+ *      equal pair, both delete        → skip
+ *      equal pair, both insert        → equal (rebase noise)
+ *      equal pair, contextA/deleteB   → DELETE (v2 removed it)
+ *      equal pair, deleteA/contextB   → INSERT (v2 kept it)
+ *      equal pair, other kind mismatch→ equal (LCS misalignment)
  * 5. Group into hunks with CONTEXT_LINES of surrounding context.
  *
  * Content-based alignment (step 3) handles the line-number-shift case: when v2
@@ -168,7 +172,32 @@ export function computeInterdiff(patch1: string, patch2: string): ParsedDiff {
         } else if (ea.kind === "delete" && eb.kind === "delete") {
           // Both versions remove the same line — equal, but not part of either
           // post-image, so skip rather than emitting a context line.
+        } else if (ea.kind === "insert" && eb.kind === "insert") {
+          // Both patches add the same line — equal, rebase noise.
+          flat.push({
+            type: "equal",
+            content,
+            oldLineNumber: ea.newLineNumber,
+            newLineNumber: eb.newLineNumber,
+          });
+        } else if (ea.kind === "context" && eb.kind === "delete") {
+          // v1 kept it as context; v2 deleted it → DELETE.
+          flat.push({
+            type: "delete",
+            content,
+            oldLineNumber: eb.oldLineNumber,
+          });
+        } else if (ea.kind === "delete" && eb.kind === "context") {
+          // v1 deleted it; v2 kept it as context → INSERT.
+          flat.push({
+            type: "insert",
+            content,
+            newLineNumber: eb.newLineNumber,
+          });
         } else {
+          // Other pairs (context/insert, insert/context) are typically LCS
+          // misalignment — same content matched from different file positions.
+          // Emit as equal to avoid spurious changes.
           flat.push({
             type: "equal",
             content,

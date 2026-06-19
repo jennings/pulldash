@@ -527,4 +527,132 @@ describe("computeInterdiff", () => {
     expect(deleteHunk).toBeDefined();
     expect(deleteHunk!.newStart).toBeGreaterThan(0);
   });
+
+  test("context/delete in equal LCS: v1 has line as context, v2 deletes it", () => {
+    const patch1 = [
+      "@@ -1,5 +1,5 @@",
+      " ctx_a",
+      "-old_line",
+      "+new_line_v1",
+      " kept_line",
+      " ctx_b",
+      " ctx_c",
+    ].join("\n");
+    const patch2 = [
+      "@@ -1,6 +1,5 @@",
+      " ctx_a",
+      "-old_line",
+      "+new_line_v2",
+      " kept_line",
+      " ctx_b",
+      "-ctx_c",
+      " ctx_d",
+    ].join("\n");
+    const result = computeInterdiff(patch1, patch2);
+    const hunks = result.hunks.filter((h) => h.type === "hunk") as DiffHunk[];
+    expect(hunks.length).toBeGreaterThan(0);
+    const allLines = hunks.flatMap((h) => h.lines);
+    const deletes = allLines.filter((l) => l.type === "delete");
+    const inserts = allLines.filter((l) => l.type === "insert");
+    // "ctx_c" was context in v1, deleted in v2 → must show as DELETE
+    expect(
+      deletes.some((l) => l.content.some((s) => s.value.includes("ctx_c")))
+    ).toBe(true);
+    // "new_line_v1" was inserted in v1, not in v2 → must show as DELETE
+    expect(
+      deletes.some((l) =>
+        l.content.some((s) => s.value.includes("new_line_v1"))
+      )
+    ).toBe(true);
+    // "new_line_v2" was inserted in v2, not in v1 → must show as INSERT
+    expect(
+      inserts.some((l) =>
+        l.content.some((s) => s.value.includes("new_line_v2"))
+      )
+    ).toBe(true);
+    // "kept_line" is context in both patches → EQUAL (not in deletes or inserts)
+    expect(
+      deletes.some((l) => l.content.some((s) => s.value.includes("kept_line")))
+    ).toBe(false);
+  });
+
+  test("delete/context in equal LCS: v1 deletes line, v2 keeps as context", () => {
+    // Both patches modify the same shared lines. "X" appears as delete in
+    // patch1 (v1 removed it) and as context in patch2 (v2 kept it).
+    // The LCS matches "X" as equal → delete/context → INSERT.
+    const patch1 = [
+      "@@ -1,3 +1,2 @@",
+      "-before",
+      "+before_v1",
+      "-X",
+      " after",
+    ].join("\n");
+    const patch2 = [
+      "@@ -1,3 +1,3 @@",
+      "-before",
+      "+before_v2",
+      " X",
+      "-after",
+      "+after_v2",
+    ].join("\n");
+    const result = computeInterdiff(patch1, patch2);
+    const allLines = (
+      result.hunks.filter((h) => h.type === "hunk") as DiffHunk[]
+    ).flatMap((h) => h.lines);
+    const inserts = allLines.filter((l) => l.type === "insert");
+    const deletes = allLines.filter((l) => l.type === "delete");
+    // "X" was deleted in v1, kept as context in v2 → INSERT
+    expect(
+      inserts.some((l) => l.content.some((s) => s.value.includes("X")))
+    ).toBe(true);
+    // "after" was context in v1, deleted in v2 → DELETE
+    expect(
+      deletes.some((l) => l.content.some((s) => s.value.includes("after")))
+    ).toBe(true);
+    // "before_v1" was inserted in v1 only → DELETE
+    expect(
+      deletes.some((l) => l.content.some((s) => s.value.includes("before_v1")))
+    ).toBe(true);
+    // "before_v2" was inserted in v2 only → INSERT
+    expect(
+      inserts.some((l) => l.content.some((s) => s.value.includes("before_v2")))
+    ).toBe(true);
+    // "after_v2" was inserted in v2 only → INSERT
+    expect(
+      inserts.some((l) => l.content.some((s) => s.value.includes("after_v2")))
+    ).toBe(true);
+  });
+
+  test("both patches add same line: insert/insert equals to equal", () => {
+    const patch1 = [
+      "@@ -1,3 +1,4 @@",
+      " ctx_a",
+      "+common_addition",
+      " ctx_b",
+      " ctx_c",
+    ].join("\n");
+    const patch2 = [
+      "@@ -10,3 +10,4 @@",
+      " ctx_x",
+      "+common_addition",
+      " ctx_y",
+      " ctx_z",
+    ].join("\n");
+    const result = computeInterdiff(patch1, patch2);
+    const allLines = (
+      result.hunks.filter((h) => h.type === "hunk") as DiffHunk[]
+    ).flatMap((h) => h.lines);
+    const inserts = allLines.filter((l) => l.type === "insert");
+    const deletes = allLines.filter((l) => l.type === "delete");
+    expect(
+      inserts.some((l) =>
+        l.content.some((s) => s.value.includes("common_addition"))
+      )
+    ).toBe(false);
+    expect(
+      deletes.some((l) =>
+        l.content.some((s) => s.value.includes("common_addition"))
+      )
+    ).toBe(false);
+  });
 });
