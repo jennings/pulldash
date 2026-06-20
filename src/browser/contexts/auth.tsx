@@ -7,21 +7,18 @@ import {
   type ReactNode,
 } from "react";
 
-// ============================================================================
-// GitHub OAuth App Configuration
-// ============================================================================
-
-// OAuth App Client ID - enables simple user authentication like GitHub CLI.
-// Users just authorize and get access to their repos based on scopes.
-// No app installation required on repos/orgs.
-// Set via build-time define (__GITHUB_CLIENT_ID__) from src/auth.config.ts.
-// Falls back to "FIXME" when the define is absent (e.g., in tests).
-export const GITHUB_CLIENT_ID =
-  typeof __GITHUB_CLIENT_ID__ !== "undefined" ? __GITHUB_CLIENT_ID__ : "FIXME";
-
 // Storage keys
 const TOKEN_STORAGE_KEY = "pulldash_github_token";
 const TOKEN_EXPIRY_KEY = "pulldash_github_token_expiry";
+const REFRESH_TOKEN_KEY = "pulldash_github_refresh_token";
+const AUTH_FLOW_KEY = "pulldash_auth_flow";
+
+type AuthFlow = "pat" | "device" | "web";
+
+interface AuthConfig {
+  flows: AuthFlow[];
+  clientId: string;
+}
 
 // ============================================================================
 // Types
@@ -39,6 +36,9 @@ interface TokenResponse {
   access_token: string;
   token_type: string;
   scope: string;
+  expires_in?: number;
+  refresh_token?: string;
+  refresh_token_expires_in?: number;
   error?: string;
   error_description?: string;
 }
@@ -56,15 +56,21 @@ interface AuthState {
   token: string | null;
   deviceAuth: DeviceAuthState;
   isRateLimited: boolean;
+  authConfig: AuthConfig | null;
+  authFlow: AuthFlow | null;
 }
 
 interface AuthContextValue extends AuthState {
   startDeviceAuth: () => Promise<void>;
   cancelDeviceAuth: () => void;
   loginWithPAT: (token: string) => Promise<void>;
+  startWebAuth: () => Promise<void>;
+  exchangeCode: (code: string) => Promise<void>;
+  refreshAccessToken: () => Promise<boolean>;
   logout: () => void;
   canWrite: boolean;
   setRateLimited: (limited: boolean) => void;
+  fetchAuthConfig: () => Promise<void>;
 }
 
 // ============================================================================
@@ -81,19 +87,15 @@ function getStoredToken(): string | null {
   try {
     const token = localStorage.getItem(TOKEN_STORAGE_KEY);
     const expiry = localStorage.getItem(TOKEN_EXPIRY_KEY);
-
-    // Check if token exists and hasn't expired
     if (token) {
       if (expiry) {
         const expiryDate = new Date(expiry);
         if (expiryDate > new Date()) {
           return token;
         }
-        // Token expired, clear it
         clearStoredToken();
         return null;
       }
-      // No expiry set, token is valid (GitHub tokens don't expire unless revoked)
       return token;
     }
     return null;
@@ -102,12 +104,49 @@ function getStoredToken(): string | null {
   }
 }
 
-function storeToken(token: string, expiresIn?: number): void {
+function getStoredRefreshToken(): string | null {
   try {
-    localStorage.setItem(TOKEN_STORAGE_KEY, token);
-    if (expiresIn) {
-      const expiryDate = new Date(Date.now() + expiresIn * 1000);
-      localStorage.setItem(TOKEN_EXPIRY_KEY, expiryDate.toISOString());
+    return localStorage.getItem(REFRESH_TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function getStoredAuthFlow(): AuthFlow | null {
+  try {
+    const flow = localStorage.getItem(AUTH_FLOW_KEY);
+    if (flow === "pat" || flow === "device" || flow === "web") return flow;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function storeTokens(
+  token: string,
+  expiresIn?: number,
+  refreshToken?: string,
+  flow?: AuthFlow
+): void {
+  try {
+    if (refreshToken) {
+      // GitHub App: persist refresh token only; access token stays in memory
+      localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
+      localStorage.removeItem(TOKEN_STORAGE_KEY);
+      localStorage.removeItem(TOKEN_EXPIRY_KEY);
+    } else {
+      // OAuth App or PAT: persist access token
+      localStorage.setItem(TOKEN_STORAGE_KEY, token);
+      if (expiresIn) {
+        const expiryDate = new Date(Date.now() + expiresIn * 1000);
+        localStorage.setItem(TOKEN_EXPIRY_KEY, expiryDate.toISOString());
+      } else {
+        localStorage.removeItem(TOKEN_EXPIRY_KEY);
+      }
+      localStorage.removeItem(REFRESH_TOKEN_KEY);
+    }
+    if (flow) {
+      localStorage.setItem(AUTH_FLOW_KEY, flow);
     }
   } catch {
     console.error("Failed to store token in localStorage");
@@ -118,9 +157,30 @@ function clearStoredToken(): void {
   try {
     localStorage.removeItem(TOKEN_STORAGE_KEY);
     localStorage.removeItem(TOKEN_EXPIRY_KEY);
+    localStorage.removeItem(REFRESH_TOKEN_KEY);
   } catch {
     // Ignore
   }
+}
+
+// Track in-memory access token ref (for web flow only, cleared on tab close)
+let inMemoryToken: string | null = null;
+
+function setInMemoryToken(token: string | null) {
+  inMemoryToken = token;
+}
+
+export function getEffectiveToken(): string | null {
+  if (inMemoryToken) return inMemoryToken;
+  return getStoredToken();
+}
+
+export function hasRefreshToken(): boolean {
+  return !!getStoredRefreshToken();
+}
+
+function hasRefreshTokenValue(refreshToken?: string): boolean {
+  return !!refreshToken;
 }
 
 // ============================================================================
@@ -129,9 +189,32 @@ function clearStoredToken(): void {
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>(() => {
-    const token = getStoredToken();
+    const storedFlow = getStoredAuthFlow();
+    const storedToken = getStoredToken();
+    const storedRefreshToken = getStoredRefreshToken();
+    let token: string | null = null;
+    let isAuthenticated = false;
+
+    // If a refresh token exists, we can keep the access token in memory
+    if (storedRefreshToken && storedToken) {
+      setInMemoryToken(storedToken);
+      token = storedToken;
+      isAuthenticated = true;
+      try {
+        localStorage.removeItem(TOKEN_STORAGE_KEY);
+        localStorage.removeItem(TOKEN_EXPIRY_KEY);
+      } catch {}
+    } else if (storedRefreshToken && !storedToken) {
+      // Have refresh token but no access token — will refresh on mount
+      isAuthenticated = false;
+    } else if (storedToken) {
+      // No refresh token — access token in localStorage (OAuth App or PAT)
+      token = storedToken;
+      isAuthenticated = true;
+    }
+
     return {
-      isAuthenticated: !!token,
+      isAuthenticated,
       isLoading: false,
       token,
       deviceAuth: {
@@ -141,10 +224,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         error: null,
       },
       isRateLimited: false,
+      authConfig: null,
+      authFlow: storedFlow,
     };
   });
 
-  // Track polling abort controller
   const [abortController, setAbortController] =
     useState<AbortController | null>(null);
 
@@ -159,8 +243,66 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [abortController]);
 
+  const fetchAuthConfig = useCallback(async () => {
+    try {
+      const res = await fetch("/api/auth/config");
+      if (res.ok) {
+        const config: AuthConfig = await res.json();
+        setState((prev) => ({ ...prev, authConfig: config }));
+      }
+    } catch {
+      // server may not be available
+    }
+  }, []);
+
+  // On mount, try to refresh if we have a refresh token but no in-memory token
+  useEffect(() => {
+    if (getStoredRefreshToken() && !state.isAuthenticated) {
+      refreshAccessToken();
+    }
+    fetchAuthConfig();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const refreshAccessToken = useCallback(async (): Promise<boolean> => {
+    const refreshToken = getStoredRefreshToken();
+    if (!refreshToken) return false;
+
+    try {
+      const res = await fetch("/api/auth/refresh", {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      });
+
+      if (!res.ok) return false;
+
+      const data: TokenResponse = await res.json();
+      if (data.access_token) {
+        setInMemoryToken(data.access_token);
+        storeTokens(
+          data.access_token,
+          data.expires_in,
+          data.refresh_token || refreshToken,
+          state.authFlow ?? undefined
+        );
+        setState((prev) => ({
+          ...prev,
+          isAuthenticated: true,
+          token: data.access_token,
+          isLoading: false,
+        }));
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  }, []);
+
   const startDeviceAuth = useCallback(async () => {
-    // Cancel any existing auth flow
     abortController?.abort();
     const newController = new AbortController();
     setAbortController(newController);
@@ -177,7 +319,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }));
 
     try {
-      // Step 1: Request device code via our API (GitHub doesn't support CORS)
       const deviceCodeRes = await fetch("/api/auth/device/code", {
         method: "POST",
         headers: {
@@ -205,26 +346,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         },
       }));
 
-      // Step 2: Poll for token
       const pollInterval = (deviceCode.interval || 5) * 1000;
       const expiresAt = Date.now() + deviceCode.expires_in * 1000;
 
       while (Date.now() < expiresAt) {
-        // Check if cancelled
         if (newController.signal.aborted) {
           return;
         }
 
-        // Wait before polling
         await new Promise((resolve) => setTimeout(resolve, pollInterval));
 
-        // Check again after waiting
         if (newController.signal.aborted) {
           return;
         }
 
         try {
-          // Poll for token via our API (GitHub doesn't support CORS)
           const tokenRes = await fetch("/api/auth/device/token", {
             method: "POST",
             headers: {
@@ -241,10 +377,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
           if (tokenData.error) {
             if (tokenData.error === "authorization_pending") {
-              // User hasn't completed auth yet, keep polling
               continue;
             } else if (tokenData.error === "slow_down") {
-              // We're polling too fast, increase interval
               await new Promise((resolve) => setTimeout(resolve, 5000));
               continue;
             } else if (tokenData.error === "expired_token") {
@@ -257,7 +391,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
 
           if (tokenData.access_token) {
-            storeToken(tokenData.access_token);
+            const useMemory = hasRefreshTokenValue(tokenData.refresh_token);
+            if (useMemory) {
+              setInMemoryToken(tokenData.access_token);
+            } else {
+              setInMemoryToken(null);
+            }
+            storeTokens(
+              tokenData.access_token,
+              tokenData.expires_in,
+              tokenData.refresh_token,
+              "device"
+            );
             setState({
               isAuthenticated: true,
               isLoading: false,
@@ -269,6 +414,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 error: null,
               },
               isRateLimited: false,
+              authConfig: state.authConfig,
+              authFlow: "device",
             });
             return;
           }
@@ -280,7 +427,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      // Expired
       throw new Error("Authorization expired. Please try again.");
     } catch (err) {
       if ((err as Error).name === "AbortError") {
@@ -324,13 +470,75 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }));
   }, [abortController]);
 
+  const startWebAuth = useCallback(async () => {
+    const config = state.authConfig;
+    if (!config) return;
+
+    const redirectUri = `${window.location.origin}/api/auth/callback`;
+    const url = `https://github.com/login/oauth/authorize?client_id=${config.clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=repo%20read:user`;
+    window.location.href = url;
+  }, [state.authConfig]);
+
+  const exchangeCode = useCallback(async (code: string) => {
+    setState((prev) => ({ ...prev, isLoading: true }));
+
+    try {
+      const res = await fetch("/api/auth/callback", {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ code }),
+      });
+
+      const data: TokenResponse = await res.json();
+
+      if (data.access_token) {
+        const useMemory = hasRefreshTokenValue(data.refresh_token);
+        if (useMemory) {
+          setInMemoryToken(data.access_token);
+        } else {
+          setInMemoryToken(null);
+        }
+        storeTokens(
+          data.access_token,
+          data.expires_in,
+          data.refresh_token,
+          "web"
+        );
+        setState({
+          isAuthenticated: true,
+          isLoading: false,
+          token: data.access_token,
+          deviceAuth: {
+            status: "idle",
+            userCode: null,
+            verificationUri: null,
+            error: null,
+          },
+          isRateLimited: false,
+          authConfig: null,
+          authFlow: "web",
+        });
+      } else {
+        throw new Error(data.error_description || "Failed to authenticate");
+      }
+    } catch (err) {
+      setState((prev) => ({
+        ...prev,
+        isLoading: false,
+      }));
+      throw err;
+    }
+  }, []);
+
   const loginWithPAT = useCallback(async (token: string): Promise<void> => {
     const trimmedToken = token.trim();
     if (!trimmedToken) {
       throw new Error("Token cannot be empty");
     }
 
-    // Validate token format (GitHub PAT prefixes)
     if (
       !trimmedToken.startsWith("ghp_") &&
       !trimmedToken.startsWith("github_pat_")
@@ -340,7 +548,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       );
     }
 
-    // Validate token directly with GitHub API (CORS is supported)
     const response = await fetch("https://api.github.com/user", {
       headers: {
         Authorization: `Bearer ${trimmedToken}`,
@@ -357,17 +564,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const userData = await response.json();
 
-    // Check token scopes from response headers
     const scopes = response.headers.get("x-oauth-scopes") || "";
-    const hasRepoScope = scopes.includes("repo");
+    const hasRepoScope =
+      scopes.includes("repo") || scopes.includes("public_repo");
 
     if (!hasRepoScope) {
       throw new Error(
-        'Token is missing the required "repo" scope. Please create a new token with the repo scope.'
+        'Token is missing the required "repo" or "public_repo" scope. Please create a token with the repo scope (for private repos) or public_repo scope (for public repos only).'
       );
     }
 
-    storeToken(trimmedToken);
+    setInMemoryToken(null);
+    storeTokens(trimmedToken, undefined, undefined, "pat");
     setState({
       isAuthenticated: true,
       isLoading: false,
@@ -379,12 +587,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         error: null,
       },
       isRateLimited: false,
+      authConfig: state.authConfig,
+      authFlow: "pat",
     });
 
     console.log("Successfully authenticated with PAT as:", userData.login);
   }, []);
 
   const logout = useCallback(() => {
+    setInMemoryToken(null);
     clearStoredToken();
     setState({
       isAuthenticated: false,
@@ -397,6 +608,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         error: null,
       },
       isRateLimited: false,
+      authConfig: state.authConfig,
+      authFlow: null,
     });
   }, []);
 
@@ -405,9 +618,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     startDeviceAuth,
     cancelDeviceAuth,
     loginWithPAT,
+    startWebAuth,
+    exchangeCode,
+    refreshAccessToken,
     logout,
     canWrite: state.isAuthenticated,
     setRateLimited,
+    fetchAuthConfig,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -426,8 +643,7 @@ export function useAuth(): AuthContextValue {
 }
 
 export function useToken(): string | null {
-  const { token } = useAuth();
-  return token;
+  return getEffectiveToken();
 }
 
 export function useIsAuthenticated(): boolean {

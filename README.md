@@ -48,11 +48,110 @@ GitHub's API supports [CORS](https://docs.github.com/en/rest/using-the-rest-api/
 
 - **Virtualized rendering**: Diffs, file lists, and the command palette only render visible rows.
 
+## Setup (self-hosted)
+
+### 1. Choose the application type
+
+| App type       | Flow   | Server config            | Token storage                                           |
+| -------------- | ------ | ------------------------ | ------------------------------------------------------- |
+| **PAT**        | —      | Static                   | `localStorage`                                          |
+| **OAuth App**  | Device | `GITHUB_CLIENT_ID`       | `localStorage`                                          |
+|                | Web    | + `GITHUB_CLIENT_SECRET` | `localStorage`                                          |
+| **GitHub App** | Device | `GITHUB_CLIENT_ID`       | Access token in memory, refresh token in `localStorage` |
+|                | Web    | + `GITHUB_CLIENT_SECRET` | Access token in memory, refresh token in `localStorage` |
+
+**PAT** — The user generates a [classic GitHub PAT](https://github.com/settings/tokens) on github and paste it in the UI.
+
+Use the `repo` scope for private repos, or `public_repo` for public repos only.
+
+Only a static server is required.
+
+**Device flow** — The user is presented with a code to copy/paste on github.
+
+No client secret needed. The device flow is ideal for admins who don't want to manage a client secret.
+
+**Web flow** — The user is redirected to github to authorize the application.
+
+Requires a client secret on the server.
+
+The token storage depends on the application type (OAuth App vs GitHub App), not on the flow.
+
+### 2. Create an application
+
+**PAT** — No setup needed.
+
+**OAuth App (device flow)**
+
+1. Go to **GitHub Settings → Developer settings → [New OAuth App](https://github.com/settings/applications/new)**
+2. Fill in:
+   - **Application name**: `pulldash` (or any name)
+   - **Homepage URL**: your pulldash URL (e.g. `http://localhost:3002`)
+   - **Authorization callback URL**: `{your-url}/api/auth/callback` (e.g. `http://localhost:3002/api/auth/callback`)
+   - **Enable Device Flow**: check this box
+3. Click **Register application**
+4. Copy the **Client ID**
+
+**OAuth App (web flow)**
+
+1. Go to **GitHub Settings → Developer settings → [New OAuth App](https://github.com/settings/applications/new)**
+2. Fill in:
+   - **Application name**: `pulldash` (or any name)
+   - **Homepage URL**: your pulldash URL (e.g. `http://localhost:3002`)
+   - **Authorization callback URL**: `{your-url}/api/auth/callback` (e.g. `http://localhost:3002/api/auth/callback`)
+3. Click **Register application**
+4. Copy the **Client ID**
+5. Generate a **Client Secret** and copy it
+
+**GitHub App (recommended)**
+
+Use the creation script:
+
+```bash
+bun run scripts/create-github-app.ts
+```
+
+It will ask for your pulldash URL, open a pre-configured GitHub App creation
+page, and print the environment variables to set on your server.
+
+### 3. Run the server
+
+**PAT**
+
+Just serve the files with you preferred web server.
+
+**Device flow**
+
+```bash
+export GITHUB_CLIENT_ID=your_client_id
+bun run src/node/main.ts
+```
+
+**Web flow**
+
+```bash
+export GITHUB_CLIENT_ID=your_client_id
+export GITHUB_CLIENT_SECRET=your_secret
+bun run src/node/main.ts
+```
+
+The frontend fetches the Client ID and available flows from the
+server's `GET /api/auth/config` endpoint at runtime — no rebuild
+needed when changing the OAuth App configuration.
+
 ## Development
 
 ```bash
 bun install
 bun dev
+```
+
+Then open `http://localhost:3002` (or the next available port if 3002 is in use).
+
+To run the server without the build watcher:
+
+```bash
+bun run build:browser
+bun run src/node/main.ts
 ```
 
 ## License

@@ -2,14 +2,12 @@ import tailwind from "bun-plugin-tailwind";
 import { watch } from "fs";
 import { cp } from "fs/promises";
 import { resolve } from "path";
-import { GITHUB_CLIENT_ID } from "../src/auth.config";
 
 const isWatch = process.argv.includes("--watch");
 
 const REPO_URL = process.env.REPO_URL ?? "https://github.com/jennings/pulldash";
 const define = {
   __REPO_URL__: JSON.stringify(REPO_URL),
-  __GITHUB_CLIENT_ID__: JSON.stringify(GITHUB_CLIENT_ID),
 };
 
 async function build() {

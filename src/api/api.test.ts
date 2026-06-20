@@ -137,3 +137,11 @@ describe("POST /api/auth/device/token", () => {
     expect(capturedBody.client_id).toBeDefined();
   });
 });
+
+test("GET /api/auth/config returns available flows", async () => {
+  const res = await app.request("/api/auth/config");
+  expect(res.status).toBe(200);
+  const data = (await res.json()) as any;
+  expect(data.flows).toBeDefined();
+  expect(Array.isArray(data.flows)).toBe(true);
+});

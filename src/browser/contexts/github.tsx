@@ -3615,7 +3615,14 @@ const GitHubContext = createContext<GitHubStore | null>(null);
 // ============================================================================
 
 export function GitHubProvider({ children }: { children: ReactNode }) {
-  const { token, isAuthenticated, logout, setRateLimited } = useAuth();
+  const {
+    token,
+    isAuthenticated,
+    logout,
+    setRateLimited,
+    refreshAccessToken,
+    authFlow,
+  } = useAuth();
   const storeRef = useRef<GitHubStore | null>(null);
 
   if (!storeRef.current) {
@@ -3624,10 +3631,21 @@ export function GitHubProvider({ children }: { children: ReactNode }) {
 
   const store = storeRef.current;
 
-  // Set up unauthorized handler to logout when token is revoked
+  // Set up unauthorized handler: try refresh for web flow before logging out
   useEffect(() => {
-    store.setOnUnauthorized(logout);
-  }, [store, logout]);
+    store.setOnUnauthorized(async () => {
+      if (authFlow === "web") {
+        const refreshed = await refreshAccessToken();
+        if (refreshed) {
+          const { getEffectiveToken } = await import("./auth");
+          const newToken = getEffectiveToken();
+          if (newToken) store.initialize(newToken);
+          return;
+        }
+      }
+      logout();
+    });
+  }, [store, logout, refreshAccessToken, authFlow]);
 
   // Set up rate limit handler
   useEffect(() => {

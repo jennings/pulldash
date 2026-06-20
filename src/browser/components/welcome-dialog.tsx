@@ -43,7 +43,6 @@ import {
 import { Button } from "../ui/button";
 import { useAuth } from "../contexts/auth";
 import { useCurrentUser } from "../contexts/github";
-import { GITHUB_CLIENT_ID } from "../contexts/auth";
 import { cn } from "../cn";
 import { isMac } from "../ui/keycap";
 import { useTheme } from "../contexts/theme";
@@ -1001,11 +1000,12 @@ export function WelcomeDialog() {
     deviceAuth,
     startDeviceAuth,
     cancelDeviceAuth,
+    startWebAuth,
+    authConfig,
   } = useAuth();
 
   const [copied, setCopied] = useState(false);
 
-  // Copy user code to clipboard
   const copyCode = useCallback(async () => {
     if (deviceAuth.userCode) {
       await navigator.clipboard.writeText(deviceAuth.userCode);
@@ -1014,14 +1014,12 @@ export function WelcomeDialog() {
     }
   }, [deviceAuth.userCode]);
 
-  // Open GitHub after user has copied the code
   const openGitHub = useCallback(() => {
     if (deviceAuth.verificationUri) {
       window.open(deviceAuth.verificationUri, "_blank");
     }
   }, [deviceAuth.verificationUri]);
 
-  // Copy and open GitHub
   const copyAndOpen = useCallback(async () => {
     if (deviceAuth.userCode) {
       await navigator.clipboard.writeText(deviceAuth.userCode);
@@ -1038,6 +1036,26 @@ export function WelcomeDialog() {
 
   if (!shouldShow) {
     return null;
+  }
+
+  // Web flow restoring session — show brief loading state
+  if (
+    !isAuthenticated &&
+    authConfig?.flows.includes("web") &&
+    localStorage.getItem("pulldash_github_refresh_token")
+  ) {
+    return (
+      <Dialog open={true}>
+        <DialogContent className="sm:max-w-md">
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+            <span className="ml-3 text-sm text-muted-foreground">
+              Restoring session...
+            </span>
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
   }
 
   const isPending = isLoading || deviceAuth.status === "polling";
@@ -1142,7 +1160,17 @@ export function WelcomeDialog() {
           ) : (
             /* Sign In State */
             <div className="space-y-4">
-              {GITHUB_CLIENT_ID !== "FIXME" && (
+              {authConfig?.flows.includes("web") ? (
+                <Button
+                  onClick={startWebAuth}
+                  disabled={isLoading}
+                  className="w-full h-10 gap-2"
+                  variant="secondary"
+                >
+                  <Github className="w-4 h-4" />
+                  Sign in with GitHub
+                </Button>
+              ) : authConfig?.flows.includes("device") ? (
                 <Button
                   onClick={startDeviceAuth}
                   disabled={isPending}
@@ -1160,9 +1188,14 @@ export function WelcomeDialog() {
                     </>
                   )}
                 </Button>
-              )}
+              ) : null}
 
-              <PATAuthSection defaultVisible={GITHUB_CLIENT_ID === "FIXME"} />
+              <PATAuthSection
+                defaultVisible={
+                  !authConfig?.flows.includes("web") &&
+                  !authConfig?.flows.includes("device")
+                }
+              />
 
               <p className="text-xs text-center text-muted-foreground">
                 All GitHub API calls are made directly from your device.
