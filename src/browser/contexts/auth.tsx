@@ -12,6 +12,7 @@ const TOKEN_STORAGE_KEY = "pulldash_github_token";
 const TOKEN_EXPIRY_KEY = "pulldash_github_token_expiry";
 const REFRESH_TOKEN_KEY = "pulldash_github_refresh_token";
 const AUTH_FLOW_KEY = "pulldash_auth_flow";
+const CODE_VERIFIER_KEY = "pulldash_code_verifier";
 
 type AuthFlow = "pat" | "device" | "web";
 
@@ -65,7 +66,7 @@ interface AuthContextValue extends AuthState {
   cancelDeviceAuth: () => void;
   loginWithPAT: (token: string) => Promise<void>;
   startWebAuth: () => Promise<void>;
-  exchangeCode: (code: string) => Promise<void>;
+  exchangeCode: (code: string, codeVerifier?: string) => Promise<void>;
   refreshAccessToken: () => Promise<boolean>;
   logout: () => void;
   canWrite: boolean;
@@ -163,6 +164,28 @@ function clearStoredToken(): void {
   }
 }
 
+// PKCE helpers
+function generateCodeVerifier(): string {
+  const chars =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
+  const array = new Uint8Array(64);
+  crypto.getRandomValues(array);
+  return Array.from(array, (b) => chars[b % chars.length]).join("");
+}
+
+function base64url(bytes: ArrayBuffer): string {
+  return btoa(String.fromCharCode(...new Uint8Array(bytes)))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+async function generateCodeChallenge(verifier: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const bytes = await crypto.subtle.digest("SHA-256", encoder.encode(verifier));
+  return base64url(bytes);
+}
+
 // Track in-memory access token ref (for web flow only, cleared on tab close)
 let inMemoryToken: string | null = null;
 
@@ -255,8 +278,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // On mount, try to refresh if we have a refresh token but no in-memory token
+  // On mount: handle OAuth callback, refresh token, fetch config
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("code");
+    const authError = params.get("auth_error");
+
+    if (code) {
+      // OAuth redirect — exchange code with PKCE verifier
+      let codeVerifier: string | null = null;
+      try {
+        codeVerifier = sessionStorage.getItem(CODE_VERIFIER_KEY);
+        sessionStorage.removeItem(CODE_VERIFIER_KEY);
+      } catch {
+        // sessionStorage may not be available
+      }
+
+      exchangeCode(code, codeVerifier ?? undefined)
+        .then(() => {
+          window.history.replaceState(null, "", window.location.pathname);
+        })
+        .catch(() => {
+          window.history.replaceState(null, "", window.location.pathname);
+        });
+      return;
+    }
+
+    if (authError) {
+      window.history.replaceState(null, "", window.location.pathname);
+      return;
+    }
+
     if (getStoredRefreshToken() && !state.isAuthenticated) {
       refreshAccessToken();
     }
@@ -474,64 +526,83 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const config = state.authConfig;
     if (!config) return;
 
+    const codeVerifier = generateCodeVerifier();
+    const codeChallenge = await generateCodeChallenge(codeVerifier);
+    try {
+      sessionStorage.setItem(CODE_VERIFIER_KEY, codeVerifier);
+    } catch {
+      // sessionStorage may not be available
+    }
+
     const redirectUri = `${window.location.origin}/api/auth/callback`;
-    const url = `https://github.com/login/oauth/authorize?client_id=${config.clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=repo%20read:user`;
-    window.location.href = url;
+    const params = new URLSearchParams({
+      client_id: config.clientId,
+      redirect_uri: redirectUri,
+      scope: "repo read:user",
+      code_challenge_method: "S256",
+      code_challenge: codeChallenge,
+    });
+    window.location.href = `https://github.com/login/oauth/authorize?${params}`;
   }, [state.authConfig]);
 
-  const exchangeCode = useCallback(async (code: string) => {
-    setState((prev) => ({ ...prev, isLoading: true }));
+  const exchangeCode = useCallback(
+    async (code: string, codeVerifier?: string) => {
+      setState((prev) => ({ ...prev, isLoading: true }));
 
-    try {
-      const res = await fetch("/api/auth/callback", {
-        method: "POST",
-        headers: {
-          Accept: "application/json",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ code }),
-      });
-
-      const data: TokenResponse = await res.json();
-
-      if (data.access_token) {
-        const useMemory = hasRefreshTokenValue(data.refresh_token);
-        if (useMemory) {
-          setInMemoryToken(data.access_token);
-        } else {
-          setInMemoryToken(null);
-        }
-        storeTokens(
-          data.access_token,
-          data.expires_in,
-          data.refresh_token,
-          "web"
-        );
-        setState({
-          isAuthenticated: true,
-          isLoading: false,
-          token: data.access_token,
-          deviceAuth: {
-            status: "idle",
-            userCode: null,
-            verificationUri: null,
-            error: null,
+      try {
+        const body: Record<string, string> = { code };
+        if (codeVerifier) body.code_verifier = codeVerifier;
+        const res = await fetch("/api/auth/callback", {
+          method: "POST",
+          headers: {
+            Accept: "application/json",
+            "Content-Type": "application/json",
           },
-          isRateLimited: false,
-          authConfig: null,
-          authFlow: "web",
+          body: JSON.stringify(body),
         });
-      } else {
-        throw new Error(data.error_description || "Failed to authenticate");
+
+        const data: TokenResponse = await res.json();
+
+        if (data.access_token) {
+          const useMemory = hasRefreshTokenValue(data.refresh_token);
+          if (useMemory) {
+            setInMemoryToken(data.access_token);
+          } else {
+            setInMemoryToken(null);
+          }
+          storeTokens(
+            data.access_token,
+            data.expires_in,
+            data.refresh_token,
+            "web"
+          );
+          setState({
+            isAuthenticated: true,
+            isLoading: false,
+            token: data.access_token,
+            deviceAuth: {
+              status: "idle",
+              userCode: null,
+              verificationUri: null,
+              error: null,
+            },
+            isRateLimited: false,
+            authConfig: null,
+            authFlow: "web",
+          });
+        } else {
+          throw new Error(data.error_description || "Failed to authenticate");
+        }
+      } catch (err) {
+        setState((prev) => ({
+          ...prev,
+          isLoading: false,
+        }));
+        throw err;
       }
-    } catch (err) {
-      setState((prev) => ({
-        ...prev,
-        isLoading: false,
-      }));
-      throw err;
-    }
-  }, []);
+    },
+    []
+  );
 
   const loginWithPAT = useCallback(async (token: string): Promise<void> => {
     const trimmedToken = token.trim();

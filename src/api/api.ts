@@ -96,12 +96,19 @@ const api = new Hono()
   // OAuth web flow: exchange authorization code for tokens
   .post("/auth/callback", async (c) => {
     try {
-      const { code } = await c.req.json();
+      const { code, code_verifier } = await c.req.json();
       const clientSecret = process.env.GITHUB_CLIENT_SECRET ?? "";
 
       if (!code) {
         return c.json({ error: "code is required" }, 400);
       }
+
+      const body: Record<string, string> = {
+        client_id: GITHUB_CLIENT_ID,
+        client_secret: clientSecret,
+        code,
+      };
+      if (code_verifier) body.code_verifier = code_verifier;
 
       const response = await fetch(
         "https://github.com/login/oauth/access_token",
@@ -111,11 +118,7 @@ const api = new Hono()
             Accept: "application/json",
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({
-            client_id: GITHUB_CLIENT_ID,
-            client_secret: clientSecret,
-            code,
-          }),
+          body: JSON.stringify(body),
         }
       );
 
@@ -127,47 +130,20 @@ const api = new Hono()
   })
 
   // OAuth web flow: GitHub redirects here after authorization.
-  // Serves an HTML page that passes the code to the client-side handler.
+  // Redirects to the SPA which handles the code exchange with PKCE.
   .get("/auth/callback", async (c) => {
     const code = c.req.query("code") || "";
     const error = c.req.query("error") || "";
     const errorDescription = c.req.query("error_description") || "";
 
     if (error) {
-      return c.html(
-        `<html><body><script>window.opener ? window.close() : location.href="/?auth_error=${encodeURIComponent(errorDescription || error)}"</script></body></html>`,
-        200,
-        { "Content-Type": "text/html" }
+      return c.redirect(
+        `/?auth_error=${encodeURIComponent(errorDescription || error)}`,
+        302
       );
     }
 
-    return c.html(
-      `<html><body><script>
-        const code = ${JSON.stringify(code)};
-        fetch("/api/auth/callback", {
-          method: "POST",
-          headers: {"Content-Type": "application/json"},
-          body: JSON.stringify({code})
-        }).then(r => r.json()).then(data => {
-          if (data.access_token) {
-            localStorage.setItem("pulldash_github_token", data.access_token);
-            if (data.expires_in) {
-              const exp = new Date(Date.now() + data.expires_in * 1000).toISOString();
-              localStorage.setItem("pulldash_github_token_expiry", exp);
-            }
-            if (data.refresh_token) {
-              localStorage.setItem("pulldash_github_refresh_token", data.refresh_token);
-              localStorage.removeItem("pulldash_github_token");
-              localStorage.removeItem("pulldash_github_token_expiry");
-            }
-            localStorage.setItem("pulldash_auth_flow", "web");
-          }
-          location.href = "/";
-        }).catch(() => { location.href = "/?auth_error=exchange_failed"; });
-      </script></body></html>`,
-      200,
-      { "Content-Type": "text/html" }
-    );
+    return c.redirect(`/?code=${encodeURIComponent(code)}`, 302);
   })
 
   // OAuth web flow: refresh an expired access token
