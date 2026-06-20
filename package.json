@@ -16,6 +16,7 @@
     "build:browser": "bun run ./scripts/build-browser.ts",
     "fmt": "prettier --write --cache .",
     "fmt:check": "prettier --check .",
+    "create-github-app": "bun run ./scripts/create-github-app.ts",
     "lint": "echo 'No linter configured yet'",
     "test": "bun test"
   },

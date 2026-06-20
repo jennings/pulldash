@@ -113,6 +113,9 @@ bun run scripts/create-github-app.ts
 It will ask for your pulldash URL, open a pre-configured GitHub App creation
 page, and print the environment variables to set on your server.
 
+GitHub Apps also support the device flow — after creation, go to the app's
+settings page and check **Enable Device Flow**.
+
 ### 3. Run the server
 
 **PAT**
