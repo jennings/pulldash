@@ -29,10 +29,15 @@ async function build() {
     return false;
   }
 
-  // Make paths absolute to root in index.html
+  // Make paths absolute to root in index.html and inject spa redirect script
   const indexPath = "./dist/browser/index.html";
   const indexHtml = await Bun.file(indexPath).text();
-  await Bun.write(indexPath, indexHtml.replaceAll("./", "/"));
+  await Bun.write(
+    indexPath,
+    indexHtml
+      .replaceAll("./", "/")
+      .replace("</head>", '<script src="/spa-redirect.js"></script></head>')
+  );
 
   await cp(
     resolve(process.cwd(), "src", "browser", "logo.svg"),
@@ -52,6 +57,11 @@ async function build() {
   await cp(
     resolve(process.cwd(), "src", "browser", "sw.js"),
     resolve(process.cwd(), "dist", "browser", "sw.js")
+  );
+
+  await cp(
+    resolve(process.cwd(), "src", "browser", "spa-redirect.js"),
+    resolve(process.cwd(), "dist", "browser", "spa-redirect.js")
   );
   await cp(
     resolve(process.cwd(), "src", "browser", "icons"),
