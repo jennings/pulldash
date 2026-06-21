@@ -146,7 +146,11 @@ export const PROverview = memo(function PROverview() {
   const deletingBranch = usePRReviewSelector((s) => s.deletingBranch);
   const restoringBranch = usePRReviewSelector((s) => s.restoringBranch);
   const convertingToDraft = usePRReviewSelector((s) => s.convertingToDraft);
+  const convertingToDraftError = usePRReviewSelector(
+    (s) => s.convertingToDraftError
+  );
   const markingReady = usePRReviewSelector((s) => s.markingReady);
+  const markingReadyError = usePRReviewSelector((s) => s.markingReadyError);
 
   // Viewer permissions from store
   const viewerPermission = usePRReviewSelector((s) => s.viewerPermission);
@@ -1892,6 +1896,7 @@ export const PROverview = memo(function PROverview() {
                       onUpdateBranch={handleUpdateBranch}
                       markingReady={markingReady}
                       onMarkReadyForReview={handleMarkReadyForReview}
+                      markingReadyError={markingReadyError}
                       workflowRunsAwaitingApproval={
                         workflowRunsAwaitingApproval
                       }
@@ -1914,6 +1919,11 @@ export const PROverview = memo(function PROverview() {
                               : "Convert to draft"}
                           </button>
                         </p>
+                        {convertingToDraftError && (
+                          <p className="text-sm text-destructive mt-1">
+                            {convertingToDraftError}
+                          </p>
+                        )}
                       </div>
                     )}
                   </>
@@ -3888,6 +3898,7 @@ function MergeSection({
   onUpdateBranch,
   markingReady,
   onMarkReadyForReview,
+  markingReadyError,
   workflowRunsAwaitingApproval,
   approvingWorkflows,
   onApproveWorkflows,
@@ -3919,6 +3930,7 @@ function MergeSection({
   onUpdateBranch: () => void;
   markingReady?: boolean;
   onMarkReadyForReview?: () => void;
+  markingReadyError?: string | null;
   workflowRunsAwaitingApproval?: Array<{
     id: number;
     name: string;
@@ -4376,17 +4388,24 @@ function MergeSection({
               </p>
             </div>
             {canMergeRepo && onMarkReadyForReview && (
-              <button
-                onClick={onMarkReadyForReview}
-                disabled={markingReady}
-                className="px-3 py-1.5 border border-border rounded-md hover:bg-muted transition-colors text-sm font-medium disabled:opacity-50"
-              >
-                {markingReady ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  "Ready for review"
+              <>
+                <button
+                  onClick={onMarkReadyForReview}
+                  disabled={markingReady}
+                  className="px-3 py-1.5 border border-border rounded-md hover:bg-muted transition-colors text-sm font-medium disabled:opacity-50"
+                >
+                  {markingReady ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    "Ready for review"
+                  )}
+                </button>
+                {markingReadyError && (
+                  <p className="text-sm text-destructive mt-1">
+                    {markingReadyError}
+                  </p>
                 )}
-              </button>
+              </>
             )}
           </div>
         </div>

@@ -246,7 +246,9 @@ interface PRReviewState {
   deletingBranch: boolean;
   restoringBranch: boolean;
   convertingToDraft: boolean;
+  convertingToDraftError: string | null;
   markingReady: boolean;
+  markingReadyError: string | null;
   approvingWorkflows: boolean;
   updatingPR: boolean;
 
@@ -630,7 +632,9 @@ export class PRReviewStore {
       deletingBranch: false,
       restoringBranch: false,
       convertingToDraft: false,
+      convertingToDraftError: null,
       markingReady: false,
+      markingReadyError: null,
       approvingWorkflows: false,
       updatingPR: false,
 
@@ -3818,7 +3822,7 @@ export class PRReviewStore {
   convertToDraft = async (): Promise<boolean> => {
     const { owner, repo, pr } = this.state;
 
-    this.set({ convertingToDraft: true });
+    this.set({ convertingToDraft: true, convertingToDraftError: null });
 
     try {
       // 1. Request GitHub to convert to draft
@@ -3842,7 +3846,11 @@ export class PRReviewStore {
       return true;
     } catch (e) {
       console.error("Failed to convert to draft:", e);
-      this.set({ convertingToDraft: false });
+      this.set({
+        convertingToDraft: false,
+        convertingToDraftError:
+          e instanceof Error ? e.message : "Failed to convert to draft",
+      });
       return false;
     }
   };
@@ -3853,7 +3861,7 @@ export class PRReviewStore {
   markReadyForReview = async (): Promise<boolean> => {
     const { owner, repo, pr } = this.state;
 
-    this.set({ markingReady: true });
+    this.set({ markingReady: true, markingReadyError: null });
 
     try {
       // 1. Request GitHub to mark ready
@@ -3877,7 +3885,11 @@ export class PRReviewStore {
       return true;
     } catch (e) {
       console.error("Failed to mark ready:", e);
-      this.set({ markingReady: false });
+      this.set({
+        markingReady: false,
+        markingReadyError:
+          e instanceof Error ? e.message : "Failed to mark ready for review",
+      });
       return false;
     }
   };

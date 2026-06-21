@@ -448,6 +448,29 @@ class GraphQLBatcher {
           const result = await this.octokit.graphql(query, variables);
           resolve(result);
         } catch (error) {
+          if (
+            error &&
+            typeof error === "object" &&
+            "errors" in error &&
+            Array.isArray((error as Record<string, unknown>).errors)
+          ) {
+            const oauthError = (
+              error as { errors: Array<{ message: string }> }
+            ).errors.find((e) =>
+              e.message?.includes("OAuth App access restrictions")
+            );
+            if (oauthError) {
+              const match = oauthError.message.match(/`([^`]+)`/);
+              const org = match ? match[1] : "this organization";
+              reject(
+                new Error(
+                  `Blocked by ${org}'s OAuth App access restrictions. ` +
+                    `Visit https://docs.github.com/articles/restricting-access-to-your-organization-s-data/ to learn how to grant access.`
+                )
+              );
+              return;
+            }
+          }
           reject(error instanceof Error ? error : new Error(String(error)));
         }
       })
