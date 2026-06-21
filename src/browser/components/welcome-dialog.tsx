@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
+import { GithubIcon } from "../ui/github-icon";
 import {
-  Github,
   Copy,
   Check,
   ExternalLink,
@@ -1167,7 +1167,7 @@ export function WelcomeDialog() {
                   className="w-full h-10 gap-2"
                   variant="secondary"
                 >
-                  <Github className="w-4 h-4" />
+                  <GithubIcon className="w-4 h-4" />
                   Sign in with GitHub
                 </Button>
               ) : authConfig?.flows.includes("device") ? (
@@ -1183,7 +1183,7 @@ export function WelcomeDialog() {
                     </>
                   ) : (
                     <>
-                      <Github className="w-4 h-4" />
+                      <GithubIcon className="w-4 h-4" />
                       Sign in with GitHub
                     </>
                   )}
@@ -1330,7 +1330,7 @@ export function UserMenuButton({ className }: { className?: string }) {
                 onClick={() => setBookmarkletOpen(true)}
                 className="cursor-pointer"
               >
-                <Github className="w-4 h-4" />
+                <GithubIcon className="w-4 h-4" />
                 Redirect Bookmark
               </DropdownMenuItem>
               <DropdownMenuSeparator />

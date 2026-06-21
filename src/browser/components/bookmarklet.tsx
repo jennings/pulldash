@@ -6,7 +6,8 @@ import {
   DialogDescription,
 } from "../ui/dialog";
 import { cn } from "../cn";
-import { ArrowRight, Github } from "lucide-react";
+import { ArrowRight } from "lucide-react";
+import { GithubIcon } from "../ui/github-icon";
 
 const DISMISSED_KEY = "pulldash-bookmarklet-dismissed";
 
@@ -159,7 +160,7 @@ export function BookmarkletDialog({
         <div className="p-6 pb-4">
           <div className="flex items-center gap-3 mb-3">
             <div className="w-10 h-10 rounded-lg bg-[#24292e] flex items-center justify-center">
-              <Github className="w-5 h-5 text-white" />
+              <GithubIcon className="w-5 h-5 text-white" />
             </div>
             <div>
               <h2 className="text-lg font-semibold text-foreground">
