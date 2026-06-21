@@ -41,6 +41,13 @@ function tryServe(port: number): void {
       throw err;
     }
   });
+
+  function shutdown() {
+    server.close();
+    process.exit(0);
+  }
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
 }
 
 tryServe(DEFAULT_PORT);

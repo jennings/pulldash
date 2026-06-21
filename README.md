@@ -157,6 +157,18 @@ bun run build:browser
 bun run src/node/main.ts
 ```
 
+## Docker
+
+Build and run with Docker:
+
+```bash
+docker build -t pulldash .
+docker run -p 3002:3002 \
+  -e GITHUB_CLIENT_ID=your_client_id \
+  -e GITHUB_CLIENT_SECRET=your_secret \
+  pulldash
+```
+
 ## License
 
 [AGPL](./LICENSE)

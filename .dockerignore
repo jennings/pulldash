@@ -1,0 +1,7 @@
+node_modules
+dist
+.jj
+.git
+.DS_Store
+*.md
+docs/
