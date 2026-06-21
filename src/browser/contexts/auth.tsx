@@ -164,6 +164,60 @@ function clearStoredToken(): void {
   }
 }
 
+const STORAGE_KEYS_TO_CLEAR: string[] = [
+  "pulldash_auth_flow",
+  "pulldash-theme",
+  "pulldash_diff_view_mode",
+  "pulldash_conversations_filters",
+  "pulldash_notifications_enabled",
+  "pulldash_notified_timestamps",
+  "pulldash_filter_config",
+  "pulldash_show_updated_only",
+  "pulldash_tabs",
+  "pulldash-bookmarklet-dismissed",
+  "pulldash_viewed_prs",
+];
+
+function clearAllStorage(): void {
+  try {
+    // Remove known preference keys
+    for (const key of STORAGE_KEYS_TO_CLEAR) {
+      localStorage.removeItem(key);
+    }
+
+    // Remove gh_cache:* keys
+    const toRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k?.startsWith("gh_cache:") || k?.startsWith("pr-")) {
+        toRemove.push(k);
+      }
+    }
+    for (const k of toRemove) {
+      localStorage.removeItem(k);
+    }
+
+    // Clear sessionStorage (PKCE verifier, etc.)
+    sessionStorage.clear();
+
+    // Delete IndexedDB cache
+    try {
+      indexedDB.deleteDatabase("pulldash");
+    } catch {
+      // IndexedDB may not be available
+    }
+
+    // Delete Service Worker cache
+    try {
+      caches.delete("pulldash-v1");
+    } catch {
+      // Cache API may not be available
+    }
+  } catch {
+    // Ignore storage errors
+  }
+}
+
 // PKCE helpers
 function generateCodeVerifier(): string {
   const chars =
@@ -668,6 +722,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(() => {
     setInMemoryToken(null);
     clearStoredToken();
+    clearAllStorage();
     setState((prev) => ({
       ...prev,
       isAuthenticated: false,
