@@ -15,7 +15,7 @@ import {
   type Tab,
   type TabStatus,
 } from "../contexts/tabs";
-import { useGitHubStore } from "../contexts/github";
+import { useGitHubStore, type PREnrichment } from "../contexts/github";
 import { getLastViewed, setLastViewed } from "../lib/waiting-prs";
 import {
   getEnabled as notifsEnabled,
@@ -170,6 +170,17 @@ export function AppShell() {
 
     const isInBackground = () => document.hidden || !document.hasFocus();
 
+    const getBaseline = (
+      viewerLastViewedAt: string | null,
+      enrichment: PREnrichment | null
+    ): string | null => {
+      const dates: string[] = [];
+      if (viewerLastViewedAt) dates.push(viewerLastViewedAt);
+      if (enrichment?.isReadByViewer && enrichment.updatedAt)
+        dates.push(enrichment.updatedAt);
+      return dates.length > 0 ? dates.reduce((a, b) => (a > b ? a : b)) : null;
+    };
+
     const checkPRs = async () => {
       const prTabs = tabs.filter(
         (t): t is Tab & { owner: string; repo: string; number: number } =>
@@ -178,9 +189,27 @@ export function AppShell() {
           t.repo !== undefined &&
           t.number !== undefined
       );
-      const enrichmentMap = await githubStore.getPREnrichment(
-        prTabs.map((t) => ({ owner: t.owner, repo: t.repo, number: t.number }))
-      );
+
+      const involvedPRs = await githubStore.fetchInvolvedPRs();
+
+      // Collect all unique PRs to fetch enrichment for
+      const prSet = new Map<
+        string,
+        { owner: string; repo: string; number: number }
+      >();
+      const addPr = (owner: string, repo: string, number: number) => {
+        prSet.set(`${owner}/${repo}/${number}`, { owner, repo, number });
+      };
+      for (const tab of prTabs) addPr(tab.owner, tab.repo, tab.number);
+      for (const pr of involvedPRs) {
+        const match = pr.repository_url?.match(/repos\/([^/]+)\/([^/]+)/);
+        if (match && pr.number) addPr(match[1], match[2], pr.number);
+      }
+      if (prSet.size === 0) return;
+
+      const enrichmentMap = await githubStore.getPREnrichment([
+        ...prSet.values(),
+      ]);
 
       const tabPrIds = new Set(
         prTabs.map((t) => `${t.owner}/${t.repo}#${t.number}`)
@@ -192,13 +221,7 @@ export function AppShell() {
         const enrichment = enrichmentMap.get(key);
         if (!enrichment) continue;
         const viewerLastViewedAt = getLastViewed(prId);
-        const baselineDates: string[] = [];
-        if (viewerLastViewedAt) baselineDates.push(viewerLastViewedAt);
-        if (enrichment.isReadByViewer) baselineDates.push(enrichment.updatedAt);
-        const baseline =
-          baselineDates.length > 0
-            ? baselineDates.reduce((a, b) => (a > b ? a : b))
-            : null;
+        const baseline = getBaseline(viewerLastViewedAt, enrichment);
         if (baseline && enrichment.updatedAt > baseline) {
           markTabUpdated(tab.id);
           if (
@@ -212,8 +235,6 @@ export function AppShell() {
         }
       }
 
-      // Also check involved PRs (independent of current filter)
-      const involvedPRs = await githubStore.fetchInvolvedPRs();
       for (const pr of involvedPRs) {
         const match = pr.repository_url?.match(/repos\/([^/]+)\/([^/]+)/);
         if (!match || !pr.number) continue;
@@ -224,16 +245,18 @@ export function AppShell() {
         const prKey = `${owner}/${repo}/${number}`;
         if (tabPrIds.has(prId)) continue;
 
+        const enrichment = enrichmentMap.get(prKey);
+        if (!enrichment) continue;
         const viewerLastViewedAt = getLastViewed(prId);
-        const baseline = viewerLastViewedAt || null;
+        const baseline = getBaseline(viewerLastViewedAt, enrichment);
         if (
           notifsEnabled() &&
-          pr.updated_at > (getNotifiedAt(prId) ?? "") &&
-          (!baseline || pr.updated_at > baseline)
+          enrichment.updatedAt > (getNotifiedAt(prId) ?? "") &&
+          (!baseline || enrichment.updatedAt > baseline)
         ) {
           const prUrl = `/${owner}/${repo}/pull/${number}`;
           sendNotification(prKey, pr.title, prUrl);
-          setNotifiedAt(prId, pr.updated_at);
+          setNotifiedAt(prId, enrichment.updatedAt);
         }
       }
     };
