@@ -1,5 +1,16 @@
 const ENABLED_KEY = "pulldash_notifications_enabled";
 const TIMESTAMPS_KEY = "pulldash_notified_timestamps";
+const MAX_ENTRIES = 1000;
+const MAX_AGE_MS = 60 * 24 * 60 * 60 * 1000;
+
+function prune(data: Record<string, string>): void {
+  const cutoff = Date.now() - MAX_AGE_MS;
+  for (const [id, timestamp] of Object.entries(data)) {
+    if (new Date(timestamp).getTime() < cutoff) {
+      delete data[id];
+    }
+  }
+}
 
 export function isSupported(): boolean {
   return "Notification" in window;
@@ -71,6 +82,9 @@ export function setNotifiedAt(prId: string, updatedAt: string): void {
   try {
     const data = JSON.parse(localStorage.getItem(TIMESTAMPS_KEY) ?? "{}");
     data[prId] = updatedAt;
+    if (Object.keys(data).length > MAX_ENTRIES) {
+      prune(data);
+    }
     localStorage.setItem(TIMESTAMPS_KEY, JSON.stringify(data));
   } catch {
     // ignore
