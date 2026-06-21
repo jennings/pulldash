@@ -306,25 +306,40 @@ function extractCodeText(nodes: HtmlNode[]): string {
   return result;
 }
 
+const TABLE_ELEMENTS = new Set([
+  "table",
+  "thead",
+  "tbody",
+  "tfoot",
+  "tr",
+  "colgroup",
+  "col",
+]);
+
 function parseHtmlToNodes(html: string): HtmlNode[] {
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, "text/html");
   return parseNodeList(doc.body.childNodes);
 }
 
-function parseNodeList(nodes: NodeListOf<ChildNode>): HtmlNode[] {
+function parseNodeList(
+  nodes: NodeListOf<ChildNode>,
+  parentTag?: string
+): HtmlNode[] {
   const result: HtmlNode[] = [];
   nodes.forEach((node) => {
-    const parsed = parseNode(node);
+    const parsed = parseNode(node, parentTag);
     if (parsed) result.push(parsed);
   });
   return result;
 }
 
-function parseNode(node: Node): HtmlNode | null {
+function parseNode(node: Node, parentTag?: string): HtmlNode | null {
   if (node.nodeType === Node.TEXT_NODE) {
     const text = node.textContent || "";
     if (!text) return null;
+    if (parentTag && TABLE_ELEMENTS.has(parentTag) && text.trim().length === 0)
+      return null;
     return { type: "text", content: text };
   }
 
@@ -356,7 +371,7 @@ function parseNode(node: Node): HtmlNode | null {
       type: "element",
       tag,
       attributes,
-      children: parseNodeList(el.childNodes),
+      children: parseNodeList(el.childNodes, tag),
     };
   }
 
