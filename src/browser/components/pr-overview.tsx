@@ -2094,7 +2094,7 @@ export const PROverview = memo(function PROverview() {
                     {/* Avatar */}
                     {currentUser && (
                       <img
-                        src={`https://github.com/${currentUser}.png`}
+                        src={`https://avatars.githubusercontent.com/${currentUser}`}
                         alt={currentUser}
                         className="w-10 h-10 rounded-full shrink-0"
                       />
@@ -3722,7 +3722,7 @@ function ReviewThreadBox({
               <div className="flex items-start gap-3">
                 {currentUser && (
                   <img
-                    src={`https://github.com/${currentUser}.png`}
+                    src={`https://avatars.githubusercontent.com/${currentUser}`}
                     alt={currentUser}
                     className="w-6 h-6 rounded-full shrink-0 mt-1"
                   />
@@ -3799,7 +3799,7 @@ function ReviewThreadBox({
             <div className="flex items-center gap-3">
               {currentUser && (
                 <img
-                  src={`https://github.com/${currentUser}.png`}
+                  src={`https://avatars.githubusercontent.com/${currentUser}`}
                   alt={currentUser}
                   className="w-6 h-6 rounded-full shrink-0"
                 />

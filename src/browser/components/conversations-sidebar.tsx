@@ -409,7 +409,7 @@ export const ConversationsSidebar = memo(function ConversationsSidebar() {
                   {/* Author row */}
                   <div className="flex items-center gap-2 mb-1.5">
                     <img
-                      src={`https://github.com/${currentUser || "ghost"}.png`}
+                      src={`https://avatars.githubusercontent.com/${currentUser || "ghost"}`}
                       alt={currentUser || "You"}
                       className="w-5 h-5 rounded-full shrink-0"
                     />

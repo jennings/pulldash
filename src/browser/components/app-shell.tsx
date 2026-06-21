@@ -233,7 +233,7 @@ export function AppShell() {
               `New activity on ${tab.owner}/${tab.repo} PR #${tab.number}`,
               tab.prTitle || `#${tab.number}`,
               prUrl,
-              `https://github.com/${tab.owner}.png`
+              `https://avatars.githubusercontent.com/${tab.owner}`
             );
             setNotifiedAt(prId, enrichment.updatedAt);
           }
@@ -266,7 +266,7 @@ export function AppShell() {
             `New activity on ${owner}/${repo} PR #${number}`,
             pr.title,
             prUrl,
-            `https://github.com/${owner}.png`
+            `https://avatars.githubusercontent.com/${owner}`
           );
           setNotifiedAt(prId, enrichment.updatedAt);
         }

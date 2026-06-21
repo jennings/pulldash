@@ -97,7 +97,7 @@ export function useReviewActions() {
           id: Date.now(),
           user: {
             login: currentUser,
-            avatar_url: `https://github.com/${currentUser}.png`,
+            avatar_url: `https://avatars.githubusercontent.com/${currentUser}`,
           },
           state:
             event === "APPROVE"
@@ -114,7 +114,7 @@ export function useReviewActions() {
             event: "reviewed",
             actor: {
               login: currentUser,
-              avatar_url: `https://github.com/${currentUser}.png`,
+              avatar_url: `https://avatars.githubusercontent.com/${currentUser}`,
             },
             created_at: submittedAt,
           } as TimelineEvent);

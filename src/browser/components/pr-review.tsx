@@ -4432,7 +4432,7 @@ const PendingCommentItem = memo(function PendingCommentItem({
       >
         <div className="flex items-start gap-3">
           <img
-            src={`https://github.com/${currentUser || "ghost"}.png`}
+            src={`https://avatars.githubusercontent.com/${currentUser || "ghost"}`}
             alt={currentUser || "You"}
             className="w-6 h-6 rounded-full shrink-0"
             loading="lazy"

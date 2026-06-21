@@ -4114,7 +4114,8 @@ export function PRReviewProvider({
       seen.add(login.toLowerCase());
       users.push({
         login,
-        avatar_url: avatar_url || `https://github.com/${login}.png`,
+        avatar_url:
+          avatar_url || `https://avatars.githubusercontent.com/${login}`,
       });
     };
 

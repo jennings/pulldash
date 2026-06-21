@@ -1254,7 +1254,7 @@ export function UserMenuButton({ className }: { className?: string }) {
           >
             {currentUser ? (
               <img
-                src={`https://github.com/${currentUser}.png`}
+                src={`https://avatars.githubusercontent.com/${currentUser}`}
                 alt={currentUser}
                 className="w-5 h-5 rounded-full ring-1 ring-border"
               />
@@ -1269,7 +1269,7 @@ export function UserMenuButton({ className }: { className?: string }) {
               <DropdownMenuLabel className="font-normal">
                 <div className="flex items-center gap-2">
                   <img
-                    src={`https://github.com/${currentUser}.png`}
+                    src={`https://avatars.githubusercontent.com/${currentUser}`}
                     alt={currentUser}
                     className="w-8 h-8 rounded-full"
                   />
