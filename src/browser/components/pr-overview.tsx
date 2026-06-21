@@ -129,6 +129,7 @@ export const PROverview = memo(function PROverview() {
   const versionRebaseInfo = usePRReviewSelector((s) => s.versionRebaseInfo);
   const conversation = usePRReviewSelector((s) => s.conversation);
   const loading = usePRReviewSelector((s) => s.loading);
+  const overviewLoading = usePRReviewSelector((s) => s.overviewLoading);
   const branchDeleted = usePRReviewSelector((s) => s.branchDeleted);
 
   // Merge state from store
@@ -2085,6 +2086,13 @@ export const PROverview = memo(function PROverview() {
                         </button>
                       </div>
                     )}
+                  </div>
+                )}
+
+                {overviewLoading && (
+                  <div className="flex items-center justify-center gap-2 py-4 text-sm text-muted-foreground">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Loading timeline&hellip;
                   </div>
                 )}
 

@@ -223,6 +223,8 @@ interface PRReviewState {
   // Loading states
   loading: boolean;
   loadingChecks: boolean;
+  /** Whether overview data (reviews, conversation, timeline) is still loading */
+  overviewLoading: boolean;
   /** Whether deferred version/push data has been loaded */
   versionDataLoaded: boolean;
 
@@ -609,6 +611,7 @@ export class PRReviewStore {
       // Loading states
       loading: true,
       loadingChecks: false,
+      overviewLoading: true,
       versionDataLoaded: false,
 
       // Repository merge settings
@@ -3405,6 +3408,7 @@ export class PRReviewStore {
         conversation: conversationData,
         timeline: timelineData,
         branchDeleted: deleteCount > restoreCount,
+        overviewLoading: false,
       });
     } catch {
       // Silently fail - overview sections will remain empty
