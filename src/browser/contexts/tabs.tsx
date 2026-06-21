@@ -65,6 +65,7 @@ interface TabContextValue {
     repo: string,
     number: number
   ) => Tab | undefined;
+  resetTabs: () => void;
 }
 
 // ============================================================================
@@ -285,6 +286,10 @@ export function TabProvider({ children }: TabProviderProps) {
 
   const activeTab = state.tabs.find((t) => t.id === state.activeTabId);
 
+  const resetTabs = useCallback(() => {
+    setState({ ...DEFAULT_STATE });
+  }, []);
+
   const value: TabContextValue = {
     tabs: state.tabs,
     activeTabId: state.activeTabId,
@@ -297,6 +302,7 @@ export function TabProvider({ children }: TabProviderProps) {
     clearTabUpdated,
     updateTabMeta,
     getExistingPRTab,
+    resetTabs,
   };
 
   return <TabContext.Provider value={value}>{children}</TabContext.Provider>;

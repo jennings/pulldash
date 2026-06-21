@@ -49,6 +49,7 @@ export function AppShell() {
     getExistingPRTab,
     markTabUpdated,
     clearTabUpdated,
+    resetTabs,
   } = useTabContext();
   const { isAuthenticated } = useAuth();
   const params = useParams<{ owner: string; repo: string; number: string }>();
@@ -283,6 +284,13 @@ export function AppShell() {
       if (interval) clearInterval(interval);
     };
   }, [tabs, activeTab, githubStore, markTabUpdated, clearTabUpdated]);
+
+  // Clear tabs when user logs out
+  useEffect(() => {
+    if (!isAuthenticated) {
+      resetTabs();
+    }
+  }, [isAuthenticated, resetTabs]);
 
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-background">
