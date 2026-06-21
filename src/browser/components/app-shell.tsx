@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { GithubIcon } from "../ui/github-icon";
 import {
   X,
   Home as HomeIcon,
   GitMerge,
   GitPullRequest,
   ExternalLink,
-  Github,
 } from "lucide-react";
 import { cn } from "../cn";
 import {
@@ -350,7 +350,7 @@ export function AppShell() {
               className="flex items-center justify-center w-7 h-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors"
               title="View on GitHub"
             >
-              <Github className="w-4 h-4" />
+              <GithubIcon className="w-4 h-4" />
             </a>
           )}
           <UserMenuButton />
