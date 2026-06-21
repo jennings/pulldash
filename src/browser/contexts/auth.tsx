@@ -455,7 +455,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               tokenData.refresh_token,
               "device"
             );
-            setState({
+            setState((prev) => ({
+              ...prev,
               isAuthenticated: true,
               isLoading: false,
               token: tokenData.access_token,
@@ -466,9 +467,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 error: null,
               },
               isRateLimited: false,
-              authConfig: state.authConfig,
               authFlow: "device",
-            });
+            }));
             return;
           }
         } catch (err) {
@@ -576,7 +576,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             data.refresh_token,
             "web"
           );
-          setState({
+          setState((prev) => ({
+            ...prev,
             isAuthenticated: true,
             isLoading: false,
             token: data.access_token,
@@ -587,9 +588,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               error: null,
             },
             isRateLimited: false,
-            authConfig: null,
             authFlow: "web",
-          });
+          }));
         } else {
           throw new Error(data.error_description || "Failed to authenticate");
         }
@@ -647,7 +647,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     setInMemoryToken(null);
     storeTokens(trimmedToken, undefined, undefined, "pat");
-    setState({
+    setState((prev) => ({
+      ...prev,
       isAuthenticated: true,
       isLoading: false,
       token: trimmedToken,
@@ -658,9 +659,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         error: null,
       },
       isRateLimited: false,
-      authConfig: state.authConfig,
       authFlow: "pat",
-    });
+    }));
 
     console.log("Successfully authenticated with PAT as:", userData.login);
   }, []);
@@ -668,7 +668,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(() => {
     setInMemoryToken(null);
     clearStoredToken();
-    setState({
+    setState((prev) => ({
+      ...prev,
       isAuthenticated: false,
       isLoading: false,
       token: null,
@@ -679,10 +680,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         error: null,
       },
       isRateLimited: false,
-      authConfig: state.authConfig,
       authFlow: null,
-    });
-  }, []);
+    }));
+    fetchAuthConfig();
+  }, [fetchAuthConfig]);
 
   const value: AuthContextValue = {
     ...state,
