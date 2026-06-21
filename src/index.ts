@@ -1,6 +1,11 @@
 import { Hono } from "hono";
 import { readFileSync, readdirSync, existsSync } from "fs";
 import { resolve, dirname } from "path";
+
+function isWithinRoot(fullPath: string): boolean {
+  const root = resolve(".");
+  return resolve(fullPath).startsWith(root + "/") || resolve(fullPath) === root;
+}
 import api from "./api/api";
 import { serveStatic } from "@hono/node-server/serve-static";
 
@@ -18,12 +23,13 @@ app.get("/_debug", (c) => {
       }
       const entries = readdirSync(path, { withFileTypes: true });
       for (const entry of entries.slice(0, 50)) {
-        // Limit to 50 entries
         if (entry.isDirectory()) {
           results.push(`${indent}${entry.name}/`);
           if (depth < 2) {
-            // Limit depth
-            results.push(...listDir(resolve(path, entry.name), depth + 1));
+            const fullPath = resolve(path, entry.name);
+            if (isWithinRoot(fullPath)) {
+              results.push(...listDir(fullPath, depth + 1));
+            }
           }
         } else {
           results.push(`${indent}${entry.name}`);

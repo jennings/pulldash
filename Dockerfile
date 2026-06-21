@@ -19,4 +19,5 @@ ENV PORT=3002
 ENV GITHUB_CLIENT_ID=
 ENV GITHUB_CLIENT_SECRET=
 EXPOSE 3002
+USER bun
 CMD ["bun", "run", "src/node/main.ts"]
