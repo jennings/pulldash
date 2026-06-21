@@ -25,3 +25,5 @@ jobs:
           languages: javascript-typescript
 
       - uses: github/codeql-action/analyze@2f90a82ab7eece7aa899ce5d384db49efd7337ea
+        with:
+          fail-on: warning
