@@ -282,16 +282,24 @@ export const PROverview = memo(function PROverview() {
     [store]
   );
 
-  // Auto-refresh checks every 30 seconds when PR is open
+  const checkStatus = calculateCheckStatus(
+    checks,
+    workflowRunsAwaitingApproval
+  );
+
+  // Auto-refresh checks — poll faster while workflows are still running
   useEffect(() => {
     if (pr.state !== "open" || pr.merged) return;
 
-    const interval = setInterval(() => {
-      store.refreshChecks();
-    }, 30_000);
+    const interval = setInterval(
+      () => {
+        store.refreshChecks();
+      },
+      checkStatus === "pending" ? 10_000 : 30_000
+    );
 
     return () => clearInterval(interval);
-  }, [store, pr.state, pr.merged]);
+  }, [store, pr.state, pr.merged, checkStatus]);
 
   const handleMerge = useCallback(async () => {
     await store.mergePR();
@@ -1021,11 +1029,6 @@ export const PROverview = memo(function PROverview() {
     [github, owner, repo, pr.number, store]
   );
 
-  // Calculate check status
-  const checkStatus = calculateCheckStatus(
-    checks,
-    workflowRunsAwaitingApproval
-  );
   const latestReviews = getLatestReviewsByUser(reviews);
   const canMergePR = canMerge(pr, checkStatus);
 
