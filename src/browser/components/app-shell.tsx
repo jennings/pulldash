@@ -178,8 +178,6 @@ export function AppShell() {
           t.repo !== undefined &&
           t.number !== undefined
       );
-      if (prTabs.length === 0) return;
-
       const enrichmentMap = await githubStore.getPREnrichment(
         prTabs.map((t) => ({ owner: t.owner, repo: t.repo, number: t.number }))
       );
@@ -228,12 +226,14 @@ export function AppShell() {
 
         const viewerLastViewedAt = getLastViewed(prId);
         const baseline = viewerLastViewedAt || null;
-        if (baseline && pr.updated_at > baseline) {
-          if (notifsEnabled() && pr.updated_at > (getNotifiedAt(prId) ?? "")) {
-            const prUrl = `/${owner}/${repo}/pull/${number}`;
-            sendNotification(prKey, pr.title, prUrl);
-            setNotifiedAt(prId, pr.updated_at);
-          }
+        if (
+          notifsEnabled() &&
+          pr.updated_at > (getNotifiedAt(prId) ?? "") &&
+          (!baseline || pr.updated_at > baseline)
+        ) {
+          const prUrl = `/${owner}/${repo}/pull/${number}`;
+          sendNotification(prKey, pr.title, prUrl);
+          setNotifiedAt(prId, pr.updated_at);
         }
       }
     };
