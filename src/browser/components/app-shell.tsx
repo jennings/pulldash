@@ -211,6 +211,7 @@ export function AppShell() {
       const tabPrIds = new Set(
         prTabs.map((t) => `${t.owner}/${t.repo}#${t.number}`)
       );
+      const notifiedThisCycle = new Set<string>();
 
       for (const tab of prTabs) {
         const key = `${tab.owner}/${tab.repo}/${tab.number}`;
@@ -223,8 +224,10 @@ export function AppShell() {
           markTabUpdated(tab.id);
           if (
             notifsEnabled() &&
+            !notifiedThisCycle.has(prId) &&
             enrichment.updatedAt > (getNotifiedAt(prId) ?? "")
           ) {
+            notifiedThisCycle.add(prId);
             const prUrl = `/${tab.owner}/${tab.repo}/pull/${tab.number}`;
             sendNotification(
               `New activity on ${tab.owner}/${tab.repo} PR #${tab.number}`,
@@ -253,9 +256,11 @@ export function AppShell() {
         const baseline = getBaseline(viewerLastViewedAt, enrichment);
         if (
           notifsEnabled() &&
+          !notifiedThisCycle.has(prId) &&
           enrichment.updatedAt > (getNotifiedAt(prId) ?? "") &&
           (!baseline || enrichment.updatedAt > baseline)
         ) {
+          notifiedThisCycle.add(prId);
           const prUrl = `/${owner}/${repo}/pull/${number}`;
           sendNotification(
             `New activity on ${owner}/${repo} PR #${number}`,
