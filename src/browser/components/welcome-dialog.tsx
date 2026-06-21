@@ -1235,6 +1235,7 @@ export function UserMenuButton({ className }: { className?: string }) {
   const ctx = useTheme();
   const showBookmarklet = useShowBookmarklet();
   const [bookmarkletOpen, setBookmarkletOpen] = useState(false);
+  const [notifsOn, setNotifsOn] = useState(() => getEnabled());
 
   if (!isAuthenticated) {
     return null;
@@ -1301,19 +1302,24 @@ export function UserMenuButton({ className }: { className?: string }) {
                 onClick={async () => {
                   if (getPermission() !== "granted") {
                     const ok = await requestPermission();
-                    if (ok) setEnabled(true);
+                    if (ok) {
+                      setEnabled(true);
+                      setNotifsOn(true);
+                    }
                   } else {
-                    setEnabled(!getEnabled());
+                    const next = !getEnabled();
+                    setEnabled(next);
+                    setNotifsOn(next);
                   }
                 }}
                 className="cursor-pointer"
               >
-                {getEnabled() ? (
+                {notifsOn ? (
                   <Bell className="w-4 h-4" />
                 ) : (
                   <BellOff className="w-4 h-4" />
                 )}
-                {getEnabled() ? "Notifications on" : "Notifications off"}
+                {notifsOn ? "Notifications on" : "Notifications off"}
               </DropdownMenuItem>
             </>
           )}
