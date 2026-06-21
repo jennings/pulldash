@@ -163,12 +163,10 @@ export function AppShell() {
     }
   }, [activeTabId, isAuthenticated]);
 
-  // Background detection: poll PR timestamps when tab or window is not focused
+  // Poll PR activity every 60s
   useEffect(() => {
-    const POLL_INTERVAL = 60000; // 60 seconds
+    const POLL_INTERVAL = 60000;
     let interval: ReturnType<typeof setInterval> | null = null;
-
-    const isInBackground = () => document.hidden || !document.hasFocus();
 
     const getBaseline = (
       viewerLastViewedAt: string | null,
@@ -192,7 +190,6 @@ export function AppShell() {
 
       const involvedPRs = await githubStore.fetchInvolvedPRs();
 
-      // Collect all unique PRs to fetch enrichment for
       const prSet = new Map<
         string,
         { owner: string; repo: string; number: number }
@@ -229,7 +226,12 @@ export function AppShell() {
             enrichment.updatedAt > (getNotifiedAt(prId) ?? "")
           ) {
             const prUrl = `/${tab.owner}/${tab.repo}/pull/${tab.number}`;
-            sendNotification(key, tab.prTitle || `#${tab.number}`, prUrl);
+            sendNotification(
+              `New activity on ${tab.owner}/${tab.repo} PR #${tab.number}`,
+              tab.prTitle || `#${tab.number}`,
+              prUrl,
+              `https://github.com/${tab.owner}.png`
+            );
             setNotifiedAt(prId, enrichment.updatedAt);
           }
         }
@@ -255,52 +257,24 @@ export function AppShell() {
           (!baseline || enrichment.updatedAt > baseline)
         ) {
           const prUrl = `/${owner}/${repo}/pull/${number}`;
-          sendNotification(prKey, pr.title, prUrl);
+          sendNotification(
+            `New activity on ${owner}/${repo} PR #${number}`,
+            pr.title,
+            prUrl,
+            `https://github.com/${owner}.png`
+          );
           setNotifiedAt(prId, enrichment.updatedAt);
         }
       }
     };
 
     const startPolling = () => {
-      if (!interval) {
-        checkPRs();
-        interval = setInterval(checkPRs, POLL_INTERVAL);
-      }
+      checkPRs();
+      interval = setInterval(checkPRs, POLL_INTERVAL);
     };
 
-    const stopPolling = () => {
-      if (interval) {
-        clearInterval(interval);
-        interval = null;
-      }
-      if (
-        activeTab?.type === "pr-review" &&
-        activeTab.owner &&
-        activeTab.repo &&
-        activeTab.number !== undefined
-      ) {
-        clearTabUpdated(activeTab.id);
-        setLastViewed(
-          `${activeTab.owner}/${activeTab.repo}#${activeTab.number}`
-        );
-      }
-    };
-
-    const onStateChange = () => {
-      if (isInBackground()) {
-        startPolling();
-      } else {
-        stopPolling();
-      }
-    };
-
-    document.addEventListener("visibilitychange", onStateChange);
-    window.addEventListener("blur", onStateChange);
-    window.addEventListener("focus", onStateChange);
+    startPolling();
     return () => {
-      document.removeEventListener("visibilitychange", onStateChange);
-      window.removeEventListener("blur", onStateChange);
-      window.removeEventListener("focus", onStateChange);
       if (interval) clearInterval(interval);
     };
   }, [tabs, activeTab, githubStore, markTabUpdated, clearTabUpdated]);
