@@ -37,15 +37,16 @@ export async function requestPermission(): Promise<boolean> {
 }
 
 export function sendNotification(
-  prId: string,
   title: string,
-  url: string
+  body: string,
+  url: string,
+  icon?: string
 ): void {
   if (!isSupported() || Notification.permission !== "granted") return;
   try {
     const n = new Notification(title, {
-      body: prId,
-      icon: "/favicon.svg",
+      body,
+      icon: icon ?? "/favicon.svg",
     });
     n.onclick = () => {
       n.close();
