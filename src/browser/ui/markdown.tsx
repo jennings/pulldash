@@ -23,6 +23,7 @@ import { isMac } from "./keycap";
 import { Popover, PopoverContent, PopoverAnchor } from "./popover";
 import { useGitHubStore, useGitHubSelector } from "../contexts/github";
 import { UserHoverCard } from "./user-hover-card";
+import { useNavigate } from "react-router-dom";
 import {
   Loader2,
   Bold,
@@ -56,6 +57,16 @@ interface MarkdownProps {
 
 // Pattern to match @mentions (GitHub-style: @username)
 const MENTION_REGEX = /@([a-zA-Z0-9](?:[a-zA-Z0-9]|-(?=[a-zA-Z0-9])){0,38})/g;
+
+const GITHUB_PR_URL_RE =
+  /^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)([/#?].*)?$/;
+
+function rewriteGitHubPRUrl(href: string): string | null {
+  const match = href.match(GITHUB_PR_URL_RE);
+  if (!match) return null;
+  const [, owner, repo, number, rest] = match;
+  return `/${owner}/${repo}/pull/${number}${rest || ""}`;
+}
 
 // ============================================================================
 // Image Preview Context & Modal
@@ -378,13 +389,19 @@ function parseNode(node: Node, parentTag?: string): HtmlNode | null {
   return null;
 }
 
-function HtmlWithMentions({ html }: { html: string }) {
+function HtmlWithMentions({
+  html,
+  navigate: nav,
+}: {
+  html: string;
+  navigate: (path: string) => void;
+}) {
   const nodes = useMemo(() => parseHtmlToNodes(html), [html]);
   const imagePreview = useImagePreview();
 
   const rendered = useMemo(
-    () => renderNodes(nodes, imagePreview?.openPreview),
-    [nodes, imagePreview]
+    () => renderNodes(nodes, imagePreview?.openPreview, nav),
+    [nodes, imagePreview, nav]
   );
 
   return <>{rendered}</>;
@@ -392,15 +409,19 @@ function HtmlWithMentions({ html }: { html: string }) {
 
 function renderNodes(
   nodes: HtmlNode[],
-  openPreview?: (src: string, alt?: string) => void
+  openPreview?: (src: string, alt?: string) => void,
+  navigate?: (path: string) => void
 ): React.ReactNode {
-  return nodes.map((node, index) => renderNode(node, index, openPreview));
+  return nodes.map((node, index) =>
+    renderNode(node, index, openPreview, navigate)
+  );
 }
 
 function renderNode(
   node: HtmlNode,
   key: number,
-  openPreview?: (src: string, alt?: string) => void
+  openPreview?: (src: string, alt?: string) => void,
+  navigate?: (path: string) => void
 ): React.ReactNode {
   if (node.type === "text") {
     return node.content;
@@ -550,7 +571,11 @@ function renderNode(
             const tree = refractor.highlight(codeText, lang);
             const html = tree.children.map(hastToHtml).join("");
             const highlightedNodes = parseHtmlToNodes(html);
-            const children = renderNodes(highlightedNodes, openPreview);
+            const children = renderNodes(
+              highlightedNodes,
+              openPreview,
+              navigate
+            );
             return createElement("code", { key, ...safeAttributes }, children);
           } catch {
             // Fall through to default rendering
@@ -560,8 +585,30 @@ function renderNode(
     }
 
     const children = node.children
-      ? renderNodes(node.children, openPreview)
+      ? renderNodes(node.children, openPreview, navigate)
       : null;
+
+    // Rewrite GitHub PR links to navigate within the app
+    if (node.tag === "a" && navigate) {
+      const href = (safeAttributes.href as string) || "";
+      const localHref = rewriteGitHubPRUrl(href);
+      if (localHref) {
+        return createElement(
+          "a",
+          {
+            key,
+            ...safeAttributes,
+            href: localHref,
+            onClick: (e: React.MouseEvent) => {
+              e.preventDefault();
+              navigate(localHref);
+            },
+          },
+          children
+        );
+      }
+    }
+
     return createElement(node.tag, { key, ...safeAttributes }, children);
   }
 
@@ -577,6 +624,7 @@ export const Markdown = memo(function Markdown({
 }: MarkdownProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isEmpty, setIsEmpty] = useState(false);
+  const navigate = useNavigate();
 
   // Check if rendered content is empty after mount
   useEffect(() => {
@@ -595,7 +643,7 @@ export const Markdown = memo(function Markdown({
           ref={containerRef}
           className={cn("markdown-body", className, isEmpty && "hidden")}
         >
-          <HtmlWithMentions html={html} />
+          <HtmlWithMentions html={html} navigate={navigate} />
         </div>
       </ImagePreviewProvider>
     );
@@ -650,6 +698,21 @@ export const Markdown = memo(function Markdown({
             components={{
               // Custom link handling - open external links in new tab
               a: ({ href, children, ...props }) => {
+                const localHref = href ? rewriteGitHubPRUrl(href) : null;
+                if (localHref) {
+                  return (
+                    <a
+                      href={localHref}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        navigate(localHref);
+                      }}
+                      {...props}
+                    >
+                      {children}
+                    </a>
+                  );
+                }
                 const isExternal = href?.startsWith("http");
                 return (
                   <a
@@ -692,6 +755,21 @@ export const Markdown = memo(function Markdown({
           components={{
             // Custom link handling - open external links in new tab
             a: ({ href, children, ...props }) => {
+              const localHref = href ? rewriteGitHubPRUrl(href) : null;
+              if (localHref) {
+                return (
+                  <a
+                    href={localHref}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      navigate(localHref);
+                    }}
+                    {...props}
+                  >
+                    {children}
+                  </a>
+                );
+              }
               const isExternal = href?.startsWith("http");
               return (
                 <a
