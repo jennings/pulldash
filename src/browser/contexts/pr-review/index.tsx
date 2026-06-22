@@ -751,8 +751,13 @@ export class PRReviewStore {
           const prev = prevFiles.find((f) => f.filename === filename)!;
           interdiffFiles.push({ ...prev, status: "removed" });
         } else {
-          interdiffFiles.push(currFiles.find((f) => f.filename === filename)!);
-          if (prevPatch !== undefined && prevPatch === currPatch) {
+          const currFile = currFiles.find((f) => f.filename === filename)!;
+          interdiffFiles.push(currFile);
+          if (
+            prevPatch !== undefined &&
+            prevPatch === currPatch &&
+            currFile.status !== "removed"
+          ) {
             noChangeFiles.push(filename);
           }
         }

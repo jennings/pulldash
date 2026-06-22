@@ -572,6 +572,7 @@ const FilePanel = memo(function FilePanel({
       for (const file of files) {
         if (
           file.patch &&
+          file.status !== "removed" &&
           interdiffLoadedDiffs[file.filename]?.hunks.length === 0
         )
           result.add(file.filename);
