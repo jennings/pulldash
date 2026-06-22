@@ -1093,14 +1093,37 @@ function createGitHubStore() {
   async function fetchInvolvedPRs(): Promise<PRSearchResult[]> {
     try {
       const teams = getCachedTeams();
-      const teamQualifiers = teams
-        .map((t) => `team-review-requested:${t.org}/${t.slug}`)
-        .join(" OR ");
-      const query = teamQualifiers
-        ? `is:pr (involves:@me OR ${teamQualifiers} ) sort:updated-desc`
-        : "is:pr involves:@me sort:updated-desc";
-      const data = await searchPRs(query, 1, 50);
-      return (data.items || []) as PRSearchResult[];
+      const MAX_OR = 5;
+      const batches: string[] = [];
+
+      for (let i = 0; i < teams.length; i += MAX_OR) {
+        const batch = teams.slice(i, i + MAX_OR);
+        const qualifiers = batch
+          .map((t) => `team-review-requested:${t.org}/${t.slug}`)
+          .join(" OR ");
+        batches.push(
+          `is:pr (involves:@me OR ${qualifiers} ) sort:updated-desc`
+        );
+      }
+
+      if (batches.length === 0) {
+        batches.push("is:pr involves:@me sort:updated-desc");
+      }
+
+      const results = await Promise.all(
+        batches.map((q) => searchPRs(q, 1, 50))
+      );
+      const seen = new Set<number>();
+      const allItems: PRSearchResult[] = [];
+      for (const r of results) {
+        for (const item of (r.items || []) as PRSearchResult[]) {
+          if (!seen.has(item.id)) {
+            seen.add(item.id);
+            allItems.push(item);
+          }
+        }
+      }
+      return allItems;
     } catch {
       return [];
     }
