@@ -8,6 +8,7 @@ import {
 } from ".";
 import type { PRCommit } from "@/browser/contexts/github";
 import { buildInlineDiffSegments, escapeHtml } from "@/shared/diff-utils";
+import { formatDateTime } from "@/browser/lib/dates";
 import { INLINE_MAX_CHAR_EDITS } from "@/diff-parse-constants";
 
 const EMPTY_DIFF: ParsedDiff = { hunks: [] };
@@ -56,7 +57,7 @@ function getCommitFields(
   if (author?.date) {
     fields.push({
       label: "Date",
-      value: new Date(author.date).toLocaleString(),
+      value: formatDateTime(new Date(author.date)),
       kind: "date",
     });
   }
@@ -72,7 +73,7 @@ function getCommitFields(
     if (committer.date) {
       fields.push({
         label: "Committed",
-        value: new Date(committer.date).toLocaleString(),
+        value: formatDateTime(new Date(committer.date)),
         kind: "date",
       });
     }

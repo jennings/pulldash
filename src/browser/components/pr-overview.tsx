@@ -55,11 +55,8 @@ import {
   TooltipTrigger,
 } from "../ui/tooltip";
 import { EmojiReactions } from "./emoji-reactions";
-import {
-  usePRReviewSelector,
-  usePRReviewStore,
-  getTimeAgo,
-} from "../contexts/pr-review";
+import { usePRReviewSelector, usePRReviewStore } from "../contexts/pr-review";
+import { getTimeAgo, formatDateTime } from "../lib/dates";
 import { parseDiffCached, type ParsedDiff } from "../lib/diff";
 import type { ReviewComment } from "@/api/types";
 import {
@@ -3139,7 +3136,7 @@ function ReviewBox({ review }: { review: Review }) {
           <span
             title={
               review.submitted_at
-                ? new Date(review.submitted_at).toLocaleString()
+                ? formatDateTime(new Date(review.submitted_at))
                 : undefined
             }
           >
@@ -5965,7 +5962,7 @@ function TimelineItem({
       <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
         {eventInfo.text}
         {displayDate && (
-          <span title={new Date(displayDate).toLocaleString()}>
+          <span title={formatDateTime(new Date(displayDate))}>
             {getTimeAgo(new Date(displayDate))}
           </span>
         )}

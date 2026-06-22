@@ -4,9 +4,9 @@ import { cn } from "../cn";
 import {
   usePRReviewSelector,
   usePRReviewStore,
-  getTimeAgo,
   equivalentShortShas,
 } from "../contexts/pr-review";
+import { getTimeAgo } from "../lib/dates";
 import type { LocalPendingComment } from "../contexts/pr-review";
 import type { ReviewThread } from "../contexts/github";
 import {

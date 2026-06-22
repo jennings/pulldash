@@ -87,7 +87,6 @@ import {
   useCommentingRange,
   useCommentRangeLookup,
   useCommentAnchorLookup,
-  getTimeAgo,
   type LocalPendingComment,
   type ParsedDiff,
   type DiffLine,
@@ -95,6 +94,7 @@ import {
   type DiffSkipBlock,
   type DiffViewMode,
 } from "../contexts/pr-review";
+import { getTimeAgo } from "../lib/dates";
 import {
   stripCommitMetadataPrefix,
   isMetadataComment,
