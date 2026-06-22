@@ -181,96 +181,100 @@ export function AppShell() {
     };
 
     const checkPRs = async () => {
-      const prTabs = tabs.filter(
-        (t): t is Tab & { owner: string; repo: string; number: number } =>
-          t.type === "pr-review" &&
-          t.owner !== undefined &&
-          t.repo !== undefined &&
-          t.number !== undefined
-      );
+      try {
+        const prTabs = tabs.filter(
+          (t): t is Tab & { owner: string; repo: string; number: number } =>
+            t.type === "pr-review" &&
+            t.owner !== undefined &&
+            t.repo !== undefined &&
+            t.number !== undefined
+        );
 
-      const involvedPRs = await githubStore.fetchInvolvedPRs();
+        const involvedPRs = await githubStore.fetchInvolvedPRs();
 
-      const prSet = new Map<
-        string,
-        { owner: string; repo: string; number: number }
-      >();
-      const addPr = (owner: string, repo: string, number: number) => {
-        prSet.set(`${owner}/${repo}/${number}`, { owner, repo, number });
-      };
-      for (const tab of prTabs) addPr(tab.owner, tab.repo, tab.number);
-      for (const pr of involvedPRs) {
-        const match = pr.repository_url?.match(/repos\/([^/]+)\/([^/]+)/);
-        if (match && pr.number) addPr(match[1], match[2], pr.number);
-      }
-      if (prSet.size === 0) return;
+        const prSet = new Map<
+          string,
+          { owner: string; repo: string; number: number }
+        >();
+        const addPr = (owner: string, repo: string, number: number) => {
+          prSet.set(`${owner}/${repo}/${number}`, { owner, repo, number });
+        };
+        for (const tab of prTabs) addPr(tab.owner, tab.repo, tab.number);
+        for (const pr of involvedPRs) {
+          const match = pr.repository_url?.match(/repos\/([^/]+)\/([^/]+)/);
+          if (match && pr.number) addPr(match[1], match[2], pr.number);
+        }
+        if (prSet.size === 0) return;
 
-      const enrichmentMap = await githubStore.getPREnrichment([
-        ...prSet.values(),
-      ]);
+        const enrichmentMap = await githubStore.getPREnrichment([
+          ...prSet.values(),
+        ]);
 
-      const tabPrIds = new Set(
-        prTabs.map((t) => `${t.owner}/${t.repo}#${t.number}`)
-      );
-      const notifiedThisCycle = new Set<string>();
+        const tabPrIds = new Set(
+          prTabs.map((t) => `${t.owner}/${t.repo}#${t.number}`)
+        );
+        const notifiedThisCycle = new Set<string>();
 
-      for (const tab of prTabs) {
-        const key = `${tab.owner}/${tab.repo}/${tab.number}`;
-        const prId = `${tab.owner}/${tab.repo}#${tab.number}`;
-        const enrichment = enrichmentMap.get(key);
-        if (!enrichment) continue;
-        const viewerLastViewedAt = getLastViewed(prId);
-        const baseline = getBaseline(viewerLastViewedAt, enrichment);
-        if (baseline && enrichment.updatedAt > baseline) {
-          markTabUpdated(tab.id);
+        for (const tab of prTabs) {
+          const key = `${tab.owner}/${tab.repo}/${tab.number}`;
+          const prId = `${tab.owner}/${tab.repo}#${tab.number}`;
+          const enrichment = enrichmentMap.get(key);
+          if (!enrichment) continue;
+          const viewerLastViewedAt = getLastViewed(prId);
+          const baseline = getBaseline(viewerLastViewedAt, enrichment);
+          if (baseline && enrichment.updatedAt > baseline) {
+            markTabUpdated(tab.id);
+            if (
+              notifsEnabled() &&
+              !notifiedThisCycle.has(prId) &&
+              enrichment.updatedAt > (getNotifiedAt(prId) ?? "")
+            ) {
+              notifiedThisCycle.add(prId);
+              const prUrl = `/${tab.owner}/${tab.repo}/pull/${tab.number}`;
+              sendNotification(
+                `New activity on ${tab.owner}/${tab.repo} PR #${tab.number}`,
+                tab.prTitle || `#${tab.number}`,
+                prUrl,
+                `https://avatars.githubusercontent.com/${tab.owner}`
+              );
+              setNotifiedAt(prId, enrichment.updatedAt);
+            }
+          }
+        }
+
+        for (const pr of involvedPRs) {
+          const match = pr.repository_url?.match(/repos\/([^/]+)\/([^/]+)/);
+          if (!match || !pr.number) continue;
+          const owner = match[1];
+          const repo = match[2];
+          const number = pr.number;
+          const prId = `${owner}/${repo}#${number}`;
+          const prKey = `${owner}/${repo}/${number}`;
+          if (tabPrIds.has(prId)) continue;
+
+          const enrichment = enrichmentMap.get(prKey);
+          if (!enrichment) continue;
+          const viewerLastViewedAt = getLastViewed(prId);
+          const baseline = getBaseline(viewerLastViewedAt, enrichment);
           if (
             notifsEnabled() &&
             !notifiedThisCycle.has(prId) &&
-            enrichment.updatedAt > (getNotifiedAt(prId) ?? "")
+            enrichment.updatedAt > (getNotifiedAt(prId) ?? "") &&
+            (!baseline || enrichment.updatedAt > baseline)
           ) {
             notifiedThisCycle.add(prId);
-            const prUrl = `/${tab.owner}/${tab.repo}/pull/${tab.number}`;
+            const prUrl = `/${owner}/${repo}/pull/${number}`;
             sendNotification(
-              `New activity on ${tab.owner}/${tab.repo} PR #${tab.number}`,
-              tab.prTitle || `#${tab.number}`,
+              `New activity on ${owner}/${repo} PR #${number}`,
+              pr.title,
               prUrl,
-              `https://avatars.githubusercontent.com/${tab.owner}`
+              `https://avatars.githubusercontent.com/${owner}`
             );
             setNotifiedAt(prId, enrichment.updatedAt);
           }
         }
-      }
-
-      for (const pr of involvedPRs) {
-        const match = pr.repository_url?.match(/repos\/([^/]+)\/([^/]+)/);
-        if (!match || !pr.number) continue;
-        const owner = match[1];
-        const repo = match[2];
-        const number = pr.number;
-        const prId = `${owner}/${repo}#${number}`;
-        const prKey = `${owner}/${repo}/${number}`;
-        if (tabPrIds.has(prId)) continue;
-
-        const enrichment = enrichmentMap.get(prKey);
-        if (!enrichment) continue;
-        const viewerLastViewedAt = getLastViewed(prId);
-        const baseline = getBaseline(viewerLastViewedAt, enrichment);
-        if (
-          notifsEnabled() &&
-          !notifiedThisCycle.has(prId) &&
-          enrichment.updatedAt > (getNotifiedAt(prId) ?? "") &&
-          (!baseline || enrichment.updatedAt > baseline)
-        ) {
-          notifiedThisCycle.add(prId);
-          const prUrl = `/${owner}/${repo}/pull/${number}`;
-          sendNotification(
-            `New activity on ${owner}/${repo} PR #${number}`,
-            pr.title,
-            prUrl,
-            `https://avatars.githubusercontent.com/${owner}`
-          );
-          setNotifiedAt(prId, enrichment.updatedAt);
-        }
+      } catch {
+        // Ignore transient network errors during polling
       }
     };
 
