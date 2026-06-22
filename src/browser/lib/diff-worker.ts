@@ -113,6 +113,7 @@ export type WorkerRequest =
       id: string;
       patch1: string;
       patch2: string;
+      filename?: string;
     };
 
 export type WorkerResponse =
@@ -653,7 +654,11 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
       }
 
       case "interdiff": {
-        const result = computeInterdiff(request.patch1, request.patch2);
+        const result = computeInterdiff(
+          request.patch1,
+          request.patch2,
+          request.filename
+        );
         self.postMessage({
           type: "interdiff-result",
           id: request.id,

@@ -129,7 +129,11 @@ export class DiffWorkerPool {
     });
   }
 
-  async interdiff(patch1: string, patch2: string): Promise<ParsedDiff> {
+  async interdiff(
+    patch1: string,
+    patch2: string,
+    filename?: string
+  ): Promise<ParsedDiff> {
     const id = this.generateId();
     const worker = this.getNextWorker();
 
@@ -141,6 +145,7 @@ export class DiffWorkerPool {
         id,
         patch1,
         patch2,
+        filename,
       } as WorkerRequest);
     });
   }

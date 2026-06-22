@@ -840,6 +840,79 @@ test("getPRFilesForRange is called with base.sha and compareToSha / headSha for 
   expect(calls).toContainEqual(["def456", "abc123"]);
 });
 
+test("removed files with identical patches are not added to versionCompareNoChangeFiles", async () => {
+  const patch = "@@ -1,3 +0,0 @@\n-removed\n-line1\n-line2";
+  const removedFile: PullRequestFile = {
+    ...createMockFile("old.py"),
+    status: "removed",
+    patch,
+    additions: 0,
+    deletions: 3,
+    changes: 3,
+  };
+
+  const store = createStoreWithVersions(() => [removedFile]);
+
+  await store.setCompareToSha("v1sha");
+
+  const state = store.getSnapshot();
+  expect(state.versionCompareNoChangeFiles).not.toContain("old.py");
+  // The removed file should still be in the file list
+  expect(
+    state.files.some((f) => f.filename === "old.py" && f.status === "removed")
+  ).toBe(true);
+});
+
+test("modified files with identical patches are still added to versionCompareNoChangeFiles", async () => {
+  const patch = "@@ -1,3 +1,4 @@\n line1\n+added\n line2";
+  const modifiedFile: PullRequestFile = {
+    ...createMockFile("same.py"),
+    status: "modified",
+    patch,
+  };
+
+  const store = createStoreWithVersions(() => [modifiedFile]);
+
+  await store.setCompareToSha("v1sha");
+
+  const state = store.getSnapshot();
+  expect(state.versionCompareNoChangeFiles).toContain("same.py");
+});
+
+test("files only in previous version get an interdiff entry via interdiff(prevPatch, '')", async () => {
+  const removedFile: PullRequestFile = {
+    ...createMockFile("removed.py"),
+    status: "removed",
+    patch: "@@ -1,2 +0,0 @@\n-removed\n-line",
+    additions: 0,
+    deletions: 2,
+    changes: 2,
+  };
+  const currFile: PullRequestFile = {
+    ...createMockFile("current.py"),
+    status: "modified",
+  };
+
+  // Return the removed file for the compare-to version, but only current.py for the head version
+  const store = createStoreWithVersions((_base: string, head: string) => {
+    if (head === "v1sha") return [removedFile, currFile];
+    return [currFile];
+  });
+
+  await store.setCompareToSha("v1sha");
+
+  const state = store.getSnapshot();
+  expect("removed.py" in state.interdiffLoadedDiffs).toBe(true);
+  // Should be in the file list with status removed
+  expect(
+    state.files.some(
+      (f) => f.filename === "removed.py" && f.status === "removed"
+    )
+  ).toBe(true);
+  // Should NOT be in noChangeFiles
+  expect(state.versionCompareNoChangeFiles).not.toContain("removed.py");
+});
+
 // ============================================================================
 // mergePR
 // ============================================================================

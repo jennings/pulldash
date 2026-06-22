@@ -1461,7 +1461,11 @@ export class PRReviewStore {
       headFiles.map(async (currFile) => {
         const prevFile = prevByFilename.get(currFile.filename);
         const diff = await diffService
-          .interdiff(prevFile?.patch ?? "", currFile.patch ?? "")
+          .interdiff(
+            prevFile?.patch ?? "",
+            currFile.patch ?? "",
+            currFile.filename
+          )
           .catch(() => ({ hunks: [] as ParsedDiff["hunks"] }));
         return [currFile.filename, diff] as const;
       })
@@ -1487,16 +1491,29 @@ export class PRReviewStore {
     ]);
 
     const prevByFilename = new Map(prevFiles.map((f) => [f.filename, f]));
+    const headByFilename = new Map(headFiles.map((f) => [f.filename, f]));
 
-    const interdiffEntries = await Promise.all(
-      headFiles.map(async (currFile) => {
-        const prevFile = prevByFilename.get(currFile.filename);
-        const diff = await diffService
-          .interdiff(prevFile?.patch ?? "", currFile.patch ?? "")
-          .catch(() => ({ hunks: [] as ParsedDiff["hunks"] }));
-        return [currFile.filename, diff] as const;
-      })
-    );
+    const interdiffEntries: Array<[string, ParsedDiff]> = [];
+
+    for (const currFile of headFiles) {
+      const prevFile = prevByFilename.get(currFile.filename);
+      const diff = await diffService
+        .interdiff(
+          prevFile?.patch ?? "",
+          currFile.patch ?? "",
+          currFile.filename
+        )
+        .catch(() => ({ hunks: [] as ParsedDiff["hunks"] }));
+      interdiffEntries.push([currFile.filename, diff]);
+    }
+
+    for (const prevFile of prevFiles) {
+      if (headByFilename.has(prevFile.filename) || !prevFile.patch) continue;
+      const diff = await diffService
+        .interdiff(prevFile.patch, "", prevFile.filename)
+        .catch(() => ({ hunks: [] as ParsedDiff["hunks"] }));
+      interdiffEntries.push([prevFile.filename, diff]);
+    }
 
     this.set({ interdiffLoadedDiffs: Object.fromEntries(interdiffEntries) });
   };

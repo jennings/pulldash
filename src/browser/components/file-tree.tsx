@@ -1,4 +1,4 @@
-import { useMemo, useState, useRef, useCallback } from "react";
+import { useMemo, useState, useRef, useCallback, useEffect } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   ChevronRight,
@@ -241,6 +241,25 @@ export function FileTree({
       return next;
     });
   }, []);
+
+  // Expand new directories when files list changes (e.g., after version comparison)
+  useEffect(() => {
+    setExpandedFolders((prev) => {
+      const next = new Set(prev);
+      let changed = false;
+      for (const file of files) {
+        const parts = file.filename.split("/");
+        for (let i = 1; i < parts.length; i++) {
+          const folder = parts.slice(0, i).join("/");
+          if (!next.has(folder)) {
+            next.add(folder);
+            changed = true;
+          }
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [files]);
 
   // Flatten tree for virtualization
   const flatItems = useMemo(

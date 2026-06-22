@@ -39,6 +39,7 @@
 
 import gitDiffParser from "gitdiff-parser";
 import { diffArrays } from "diff";
+import { refractor } from "refractor/all";
 import type {
   ParsedDiff,
   DiffHunk,
@@ -46,7 +47,45 @@ import type {
   DiffLine,
   LineSegment,
 } from "./diff-worker";
-import { escapeHtml } from "../../shared/diff-utils";
+import { escapeHtml, hastToHtml } from "../../shared/diff-utils";
+
+const extToLang: Record<string, string> = {
+  py: "python",
+  js: "javascript",
+  ts: "typescript",
+  tsx: "tsx",
+  jsx: "jsx",
+  go: "go",
+  rs: "rust",
+  rb: "ruby",
+  java: "java",
+  c: "c",
+  cpp: "cpp",
+  cs: "csharp",
+  sh: "bash",
+  bash: "bash",
+  yml: "yaml",
+  yaml: "yaml",
+  json: "json",
+  md: "markdown",
+  css: "css",
+  html: "markup",
+  xml: "markup",
+};
+
+function guessLang(filename: string): string {
+  const ext = filename.split(".").pop()?.toLowerCase() ?? "";
+  return extToLang[ext] ?? "tsx";
+}
+
+function highlightLine(code: string, lang: string): string {
+  try {
+    const tree = refractor.highlight(code, lang);
+    return tree.children.map(hastToHtml).join("");
+  } catch {
+    return escapeHtml(code);
+  }
+}
 
 const CONTEXT_LINES = 3;
 
@@ -120,7 +159,11 @@ export function buildPostImageLines(patch: string): string[] {
  * @param patch2 Unified diff patch for the new version of the commit
  * @returns ParsedDiff showing deliberate changes between versions
  */
-export function computeInterdiff(patch1: string, patch2: string): ParsedDiff {
+export function computeInterdiff(
+  patch1: string,
+  patch2: string,
+  filename?: string
+): ParsedDiff {
   const entriesA = buildPatchEntries(patch1);
   const entriesB = buildPatchEntries(patch2);
 
@@ -304,12 +347,14 @@ export function computeInterdiff(patch1: string, patch2: string): ParsedDiff {
       });
     }
 
+    const lang = filename ? guessLang(filename) : null;
     const hunkLines: DiffLine[] = [];
     for (let j = start; j <= end; j++) {
       const fl = flat[j];
-      const segs: LineSegment[] = [
-        { value: fl.content, html: escapeHtml(fl.content), type: "normal" },
-      ];
+      const html = lang
+        ? highlightLine(fl.content, lang)
+        : escapeHtml(fl.content);
+      const segs: LineSegment[] = [{ value: fl.content, html, type: "normal" }];
       if (fl.type === "equal") {
         hunkLines.push({
           type: "normal",
