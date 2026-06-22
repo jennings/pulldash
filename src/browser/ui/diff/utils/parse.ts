@@ -147,6 +147,7 @@ function findBestInsertForDelete(
     const add = changes[addIdx] as InsertChange;
 
     if (pairOfAdd[addIdx] !== UNPAIRED) continue;
+    if (addIdx <= delIdx) continue;
 
     if (add.lineNumber < lower) continue;
     if (add.lineNumber > upper) break;

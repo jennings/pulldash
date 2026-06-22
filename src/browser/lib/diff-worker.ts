@@ -274,7 +274,7 @@ function findBestInsertForDelete(
   options: ParseOptions
 ): number {
   const del = changes[delIdx] as DeleteChange;
-  const lower = delIdx - options.maxDiffDistance;
+  const lower = delIdx;
   const upper = delIdx + options.maxDiffDistance;
 
   let bestAddIdx = UNPAIRED;

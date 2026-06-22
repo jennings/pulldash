@@ -153,6 +153,50 @@ describe("parseDiffWithHighlighting", () => {
     expect(skip).toBeDefined();
     expect(skip?.type).toBe("skip");
   });
+
+  test("does not pair delete with insert from a different section that happens to have identical content", () => {
+    // Simulates the real-world case: a new function is inserted with param `x`,
+    // then an existing function has param `x` removed and `y` added.
+    // The delete of `x` must NOT pair with the insert of `x` in the new function.
+    const patch = `@@ -1,5 +1,11 @@
+  context1
+  context2
++def new_func(
++    x: str,
++):
++    pass
++
+ def existing_func(
+-    x: str,
++    y: str,
+     other: str,`;
+    const result = parseDiffWithHighlighting(patch, "test.py");
+    const hunk = result.hunks.find((h) => h.type === "hunk");
+    expect(hunk?.type).toBe("hunk");
+    if (hunk?.type === "hunk") {
+      // The `x: str` in the new function must remain as a separate insert
+      const insertX = hunk.lines.find(
+        (l) => l.type === "insert" && l.newLineNumber === 4
+      );
+      expect(insertX).toBeDefined();
+
+      // The delete of `x` (old:4) and insert of `y` (new:9) must be merged
+      const mergedLine = hunk.lines.find(
+        (l) =>
+          l.type === "normal" && l.oldLineNumber === 4 && l.newLineNumber === 9
+      );
+      expect(mergedLine).toBeDefined();
+      if (mergedLine) {
+        const segments = mergedLine.content;
+        expect(
+          segments.some((s) => s.type === "delete" && s.value === "x")
+        ).toBe(true);
+        expect(
+          segments.some((s) => s.type === "insert" && s.value === "y")
+        ).toBe(true);
+      }
+    }
+  });
 });
 
 describe("highlightFileLines", () => {
