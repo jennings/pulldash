@@ -524,11 +524,38 @@ ${patch}`;
       return hunk as DiffSkipBlock;
     }
 
+    // Pre-highlight blocks of lines together so that multi-line constructs
+    // (e.g. Python triple-quoted strings) are properly colored. Each line
+    // highlighted individually cannot match patterns that span lines.
+    const newBlockLines: string[] = [];
+    const newBlockIndices: number[] = [];
+    const oldBlockLines: string[] = [];
+    const oldBlockIndices: number[] = [];
+    for (let i = 0; i < hunk.lines.length; i++) {
+      const line = hunk.lines[i];
+      if (line.type === "normal" || line.type === "insert") {
+        newBlockLines.push(line.content[0]?.value ?? "");
+        newBlockIndices.push(i);
+      }
+      if (line.type === "normal" || line.type === "delete") {
+        oldBlockLines.push(line.content[0]?.value ?? "");
+        oldBlockIndices.push(i);
+      }
+    }
+    const newHighlightedLines = highlightFileByLines(
+      newBlockLines.join("\n"),
+      language
+    );
+    const oldHighlightedLines = highlightFileByLines(
+      oldBlockLines.join("\n"),
+      prevLanguage
+    );
+
     return {
       type: "hunk" as const,
       oldStart: hunk.oldStart,
       newStart: hunk.newStart,
-      lines: hunk.lines.map((line): DiffLine => {
+      lines: hunk.lines.map((line, i): DiffLine => {
         let oldNum: number | undefined;
         let newNum: number | undefined;
         if (line.type === "normal") {
@@ -540,8 +567,6 @@ ${patch}`;
           newNum = line.lineNumber;
         }
 
-        // For lines with a single segment (no inline diff), use pre-highlighted content
-        // For lines with multiple segments (inline diff), highlight each segment
         const hasSingleSegment = line.content.length === 1;
         const singleSegmentIsNormal =
           hasSingleSegment && line.content[0].type === "normal";
@@ -550,16 +575,24 @@ ${patch}`;
           type: line.type,
           oldLineNumber: oldNum,
           newLineNumber: newNum,
-          content: line.content.map((seg) => {
+          content: line.content.map((seg, segIdx) => {
             let html: string;
 
-            // Always highlight from the patch text. The full file content
-            // at the given line number may differ (e.g. when the patch is
-            // from a per-commit view but the file content was fetched from
-            // a different ref), so pre-highlighted content cannot be trusted.
             if (singleSegmentIsNormal) {
-              const segLang = line.type === "delete" ? prevLanguage : language;
-              html = highlight(seg.value, segLang);
+              // Use pre-highlighted block content for proper multi-line coloring
+              if (line.type === "delete") {
+                const idx = oldBlockIndices.indexOf(i);
+                html =
+                  idx >= 0 && idx < oldHighlightedLines.length
+                    ? oldHighlightedLines[idx]
+                    : highlight(seg.value, prevLanguage);
+              } else {
+                const idx = newBlockIndices.indexOf(i);
+                html =
+                  idx >= 0 && idx < newHighlightedLines.length
+                    ? newHighlightedLines[idx]
+                    : highlight(seg.value, language);
+              }
             } else {
               // Multiple segments (inline diff) - highlight each segment individually
               // This is acceptable since inline diffs are usually small

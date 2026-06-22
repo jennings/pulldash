@@ -39,7 +39,6 @@
 
 import gitDiffParser from "gitdiff-parser";
 import { diffArrays } from "diff";
-import { refractor } from "refractor/all";
 import type {
   ParsedDiff,
   DiffHunk,
@@ -47,7 +46,7 @@ import type {
   DiffLine,
   LineSegment,
 } from "./diff-worker";
-import { escapeHtml, hastToHtml } from "../../shared/diff-utils";
+import { escapeHtml, highlightFileByLines } from "../../shared/diff-utils";
 
 const extToLang: Record<string, string> = {
   py: "python",
@@ -76,15 +75,6 @@ const extToLang: Record<string, string> = {
 function guessLang(filename: string): string {
   const ext = filename.split(".").pop()?.toLowerCase() ?? "";
   return extToLang[ext] ?? "tsx";
-}
-
-function highlightLine(code: string, lang: string): string {
-  try {
-    const tree = refractor.highlight(code, lang);
-    return tree.children.map(hastToHtml).join("");
-  } catch {
-    return escapeHtml(code);
-  }
 }
 
 const CONTEXT_LINES = 3;
@@ -347,14 +337,20 @@ export function computeInterdiff(
       });
     }
 
-    const lang = filename ? guessLang(filename) : null;
     const hunkLines: DiffLine[] = [];
-    for (let j = start; j <= end; j++) {
-      const fl = flat[j];
-      const html = lang
-        ? highlightLine(fl.content, lang)
-        : escapeHtml(fl.content);
-      const segs: LineSegment[] = [{ value: fl.content, html, type: "normal" }];
+    const lang = filename ? guessLang(filename) : null;
+    const hunkBlock = flat.slice(start, end + 1);
+    const hunkHtml = lang
+      ? highlightFileByLines(hunkBlock.map((fl) => fl.content).join("\n"), lang)
+      : hunkBlock.map((fl) => escapeHtml(fl.content));
+    hunkBlock.forEach((fl, idx) => {
+      const segs: LineSegment[] = [
+        {
+          value: fl.content,
+          html: hunkHtml[idx] ?? escapeHtml(fl.content),
+          type: "normal",
+        },
+      ];
       if (fl.type === "equal") {
         hunkLines.push({
           type: "normal",
@@ -375,7 +371,7 @@ export function computeInterdiff(
           content: segs,
         });
       }
-    }
+    });
 
     const hunkStart =
       flat[start].newLineNumber ?? flat[start].oldLineNumber ?? 1;
