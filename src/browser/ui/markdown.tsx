@@ -593,6 +593,16 @@ function renderNode(
       const href = (safeAttributes.href as string) || "";
       const localHref = rewriteGitHubPRUrl(href);
       if (localHref) {
+        const hashOnly = localHref.startsWith(window.location.pathname)
+          ? localHref.slice(window.location.pathname.length)
+          : null;
+        if (hashOnly) {
+          return createElement(
+            "a",
+            { key, ...safeAttributes, href: hashOnly },
+            children
+          );
+        }
         return createElement(
           "a",
           {
@@ -700,6 +710,18 @@ export const Markdown = memo(function Markdown({
               a: ({ href, children, ...props }) => {
                 const localHref = href ? rewriteGitHubPRUrl(href) : null;
                 if (localHref) {
+                  const hashOnly = localHref.startsWith(
+                    window.location.pathname
+                  )
+                    ? localHref.slice(window.location.pathname.length)
+                    : null;
+                  if (hashOnly) {
+                    return (
+                      <a href={hashOnly} {...props}>
+                        {children}
+                      </a>
+                    );
+                  }
                   return (
                     <a
                       href={localHref}

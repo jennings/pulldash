@@ -246,13 +246,16 @@ export const PROverview = memo(function PROverview() {
         setTimeout(() => {
           element.classList.remove("ring-2", "ring-blue-500/50");
         }, 2000);
+        store.clearOverviewScrollTarget();
+      } else if (!loading && !overviewLoading) {
+        // Data is fully loaded but element wasn't found — give up
+        store.clearOverviewScrollTarget();
       }
-      // Clear the scroll target after scrolling
-      store.clearOverviewScrollTarget();
+      // If still loading, keep the target — effect re-runs when loading finishes
     }, 100);
 
     return () => clearTimeout(timer);
-  }, [overviewScrollTarget, store]);
+  }, [overviewScrollTarget, store, loading, overviewLoading]);
 
   // Manual refresh handler
   const handleRefreshChecks = useCallback(async () => {
