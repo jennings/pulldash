@@ -45,6 +45,7 @@ import {
   useGitHubReady,
   usePRList,
   usePRListActions,
+  getCachedTeams,
   type PRSearchResult,
 } from "../contexts/github";
 import { getLastViewed, setLastViewed } from "../lib/waiting-prs";
@@ -157,8 +158,14 @@ function getModeFilter(mode: FilterMode, authoredBy?: string): string {
       return "author:@me";
     case "authored-by":
       return authoredBy ? `author:${authoredBy}` : "";
-    case "involves":
-      return "involves:@me";
+    case "involves": {
+      const teams = getCachedTeams();
+      if (teams.length === 0) return "involves:@me";
+      const teamQualifiers = teams
+        .map((t) => `team-review-requested:${t.org}/${t.slug}`)
+        .join(" OR ");
+      return `(involves:@me OR ${teamQualifiers} )`;
+    }
     default:
       return "";
   }

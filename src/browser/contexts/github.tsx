@@ -12,6 +12,13 @@ import type { components } from "@octokit/openapi-types";
 import { useAuth } from "./auth";
 import * as PersistentCache from "../lib/persistent-cache";
 
+export type UserTeam = { org: string; slug: string };
+let userTeamsCache: UserTeam[] | null = null;
+
+export function getCachedTeams(): UserTeam[] {
+  return userTeamsCache ?? [];
+}
+
 // Re-export types
 // Extended PullRequest with body_html from GitHub's HTML media type
 export type PullRequest = components["schemas"]["pull-request"] & {
@@ -643,8 +650,9 @@ function createGitHubStore() {
 
     setState({ ready: true, error: null });
 
-    // Revalidate current user in background
+    // Revalidate current user and teams in background
     fetchCurrentUser();
+    fetchUserTeams();
   }
 
   function reset() {
@@ -1068,13 +1076,30 @@ function createGitHubStore() {
     return promise;
   }
 
+  async function fetchUserTeams() {
+    if (!octokit) return;
+    try {
+      const result = await octokit.request("GET /user/teams", {
+        per_page: 100,
+      });
+      userTeamsCache = (
+        result.data as Array<{ organization: { login: string }; slug: string }>
+      ).map((t) => ({ org: t.organization.login, slug: t.slug }));
+    } catch {
+      // Silently fail — teams are optional
+    }
+  }
+
   async function fetchInvolvedPRs(): Promise<PRSearchResult[]> {
     try {
-      const data = await searchPRs(
-        "is:pr involves:@me sort:updated-desc",
-        1,
-        50
-      );
+      const teams = getCachedTeams();
+      const teamQualifiers = teams
+        .map((t) => `team-review-requested:${t.org}/${t.slug}`)
+        .join(" OR ");
+      const query = teamQualifiers
+        ? `is:pr (involves:@me OR ${teamQualifiers} ) sort:updated-desc`
+        : "is:pr involves:@me sort:updated-desc";
+      const data = await searchPRs(query, 1, 50);
       return (data.items || []) as PRSearchResult[];
     } catch {
       return [];
@@ -3544,6 +3569,7 @@ function createGitHubStore() {
     // API methods
     searchPRs,
     fetchInvolvedPRs,
+    fetchUserTeams,
     searchRepos,
     searchUsers,
     getPR,
