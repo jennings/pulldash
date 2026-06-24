@@ -5249,7 +5249,10 @@ function TimelineItem({
   } | null => {
     switch (eventType) {
       case "review_requested": {
-        const requested = event as { requested_reviewer?: { login: string } };
+        const requested = event as {
+          requested_reviewer?: { login: string };
+          requested_team?: { name?: string; slug?: string };
+        };
         return {
           icon: <Eye className="w-4 h-4" />,
           text: (
@@ -5269,6 +5272,11 @@ function TimelineItem({
                   </span>
                 </UserHoverCard>
               )}
+              {requested.requested_team?.name && (
+                <span className="font-medium">
+                  {requested.requested_team.name}
+                </span>
+              )}
             </span>
           ),
           color: "text-muted-foreground",
@@ -5276,7 +5284,10 @@ function TimelineItem({
       }
 
       case "review_request_removed": {
-        const removed = event as { requested_reviewer?: { login: string } };
+        const removed = event as {
+          requested_reviewer?: { login: string };
+          requested_team?: { name?: string; slug?: string };
+        };
         return {
           icon: <Eye className="w-4 h-4" />,
           text: (
@@ -5295,6 +5306,11 @@ function TimelineItem({
                     {removed.requested_reviewer.login}
                   </span>
                 </UserHoverCard>
+              )}
+              {removed.requested_team?.name && (
+                <span className="font-medium">
+                  {removed.requested_team.name}
+                </span>
               )}
             </span>
           ),
