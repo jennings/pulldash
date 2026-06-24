@@ -8,6 +8,7 @@ const isWatch = process.argv.includes("--watch");
 const REPO_URL = process.env.REPO_URL ?? "https://github.com/jennings/pulldash";
 const define = {
   __REPO_URL__: JSON.stringify(REPO_URL),
+  __DEV__: JSON.stringify(isWatch),
 };
 
 async function build() {

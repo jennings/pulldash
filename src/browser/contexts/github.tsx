@@ -7,10 +7,13 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Octokit } from "@octokit/core";
 import type { components } from "@octokit/openapi-types";
 import { useAuth } from "./auth";
 import * as PersistentCache from "../lib/persistent-cache";
+import { setOctokit } from "../lib/github-client";
+import { queries } from "../lib/queries";
 
 export type UserTeam = { org: string; slug: string };
 let userTeamsCache: UserTeam[] | null = null;
@@ -518,7 +521,6 @@ export interface CurrentUserData {
 interface GitHubState {
   ready: boolean;
   error: string | null;
-  currentUser: CurrentUserData | null;
   prList: PRListState;
   prListQueries: string[];
   prListPage: number;
@@ -535,7 +537,6 @@ function createGitHubStore() {
   let state: GitHubState = {
     ready: false,
     error: null,
-    currentUser: null,
     prList: {
       items: [],
       totalCount: 0,
@@ -620,49 +621,26 @@ function createGitHubStore() {
   // Initialization
   // ---------------------------------------------------------------------------
 
-  function extractUserData(
-    user: components["schemas"]["private-user"]
-  ): CurrentUserData {
-    return {
-      id: user.id,
-      login: user.login,
-      name: user.name ?? null,
-      email: user.email ?? null,
-      avatar_url: user.avatar_url,
-      html_url: user.html_url,
-      bio: user.bio ?? null,
-      company: user.company ?? null,
-      location: user.location ?? null,
-    };
-  }
-
   function initialize(token: string) {
-    // Load cached user immediately for instant UI
-    const cachedUser =
-      cache.getStale<components["schemas"]["private-user"]>("user:current");
-    if (cachedUser) {
-      setState({ currentUser: extractUserData(cachedUser.data) });
-    }
-
     octokit = new Octokit({ auth: token });
     wrapOctokitWithHooks(octokit);
     batcher = new GraphQLBatcher(octokit);
+    setOctokit(octokit);
 
     setState({ ready: true, error: null });
 
-    // Revalidate current user and teams in background
-    fetchCurrentUser();
+    // Revalidate teams in background
     fetchUserTeams();
   }
 
   function reset() {
     octokit = null;
     batcher = null;
+    setOctokit(null);
     cache.invalidate();
     setState({
       ready: false,
       error: null,
-      currentUser: null,
       prList: {
         items: [],
         totalCount: 0,
@@ -674,55 +652,6 @@ function createGitHubStore() {
       prListPage: 1,
       prChecks: new Map(),
     });
-  }
-
-  // ---------------------------------------------------------------------------
-  // Current User (with SWR)
-  // ---------------------------------------------------------------------------
-
-  async function fetchCurrentUser() {
-    if (!octokit) return;
-
-    const cacheKey = "user:current";
-    const FRESH_TTL = 300_000; // 5 minutes
-
-    // Check for stale data - return immediately if we have any
-    const stale = cache.getStale<components["schemas"]["private-user"]>(
-      cacheKey,
-      FRESH_TTL
-    );
-    if (stale) {
-      setState({ currentUser: extractUserData(stale.data) });
-      // If fresh, don't revalidate
-      if (!stale.isStale) return;
-    }
-
-    // Check for pending request
-    const pending =
-      cache.getPending<components["schemas"]["private-user"]>(cacheKey);
-    if (pending) {
-      const user = await pending;
-      setState({ currentUser: extractUserData(user) });
-      return;
-    }
-
-    // Fetch fresh data (in background if we had stale data)
-    const promise = octokit.request("GET /user").then((r) => {
-      cache.set(cacheKey, r.data, true); // persist to localStorage
-      return r.data;
-    });
-    cache.setPending(cacheKey, promise);
-
-    try {
-      const user = await promise;
-      setState({
-        currentUser: extractUserData(
-          user as components["schemas"]["private-user"]
-        ),
-      });
-    } catch {
-      // Ignore - we may have stale data to show
-    }
   }
 
   // ---------------------------------------------------------------------------
@@ -3786,7 +3715,9 @@ export function useGitHubReady() {
 }
 
 export function useCurrentUser(): CurrentUserData | null {
-  return useGitHubSelector((s) => s.currentUser);
+  const { ready } = useGitHubReady();
+  const { data } = useQuery({ ...queries.currentUser(), enabled: ready });
+  return data ?? null;
 }
 
 export function usePRList() {

@@ -1,16 +1,15 @@
 import { useEffect } from "react";
-import { useGitHubStore, useGitHubSelector } from "@/browser/contexts/github";
+import { useGitHubSelector, useCurrentUser } from "@/browser/contexts/github";
 import { usePRReviewStore } from ".";
 
 export function useCurrentUserLoader() {
   const store = usePRReviewStore();
-  const github = useGitHubStore();
   const ready = useGitHubSelector((s) => s.ready);
-  const currentUser = github.getState().currentUser?.login ?? null;
+  const currentUser = useCurrentUser();
 
   useEffect(() => {
     if (ready && currentUser) {
-      store.setCurrentUser(currentUser);
+      store.setCurrentUser(currentUser.login);
     }
   }, [ready, currentUser, store]);
 }
