@@ -22,7 +22,14 @@
 
 import { keepPreviousData, queryOptions } from "@tanstack/react-query";
 import { getOctokit } from "./github-client";
-import type { CurrentUserData, PRSearchResult } from "../contexts/github";
+import type {
+  CurrentUserData,
+  PRSearchResult,
+  PullRequest,
+  PullRequestFile,
+  PushVersion,
+  UserProfile,
+} from "../contexts/github";
 import type { components } from "@octokit/openapi-types";
 
 type AnyUser =
@@ -189,6 +196,157 @@ export const queries = {
         return res.data;
       },
       staleTime: 60_000,
+    }),
+
+  pullRequest: (owner: string, repo: string, number: number) =>
+    queryOptions({
+      queryKey: ["pull-request", owner, repo, number],
+      queryFn: async ({ signal }) => {
+        const res = await getOctokit().request(
+          "GET /repos/{owner}/{repo}/pulls/{pull_number}",
+          {
+            owner,
+            repo,
+            pull_number: number,
+            headers: { accept: "application/vnd.github.full+json" },
+            request: { signal },
+          }
+        );
+        return res.data as PullRequest;
+      },
+      staleTime: 30_000,
+    }),
+
+  pullRequestFiles: (owner: string, repo: string, number: number) =>
+    queryOptions({
+      queryKey: ["pull-request", owner, repo, number, "files"],
+      queryFn: async ({ signal }) => {
+        const files: PullRequestFile[] = [];
+        let page = 1;
+        while (true) {
+          const { data } = await getOctokit().request(
+            "GET /repos/{owner}/{repo}/pulls/{pull_number}/files",
+            {
+              owner,
+              repo,
+              pull_number: number,
+              per_page: 100,
+              page,
+              request: { signal },
+            }
+          );
+          files.push(...data);
+          if (data.length < 100) break;
+          page++;
+        }
+        return files;
+      },
+      staleTime: 30_000,
+    }),
+
+  pullRequestCommits: (owner: string, repo: string, number: number) =>
+    queryOptions({
+      queryKey: ["pull-request", owner, repo, number, "commits"],
+      queryFn: async ({ signal }) => {
+        const res = await getOctokit().request(
+          "GET /repos/{owner}/{repo}/pulls/{pull_number}/commits",
+          {
+            owner,
+            repo,
+            pull_number: number,
+            per_page: 100,
+            request: { signal },
+          }
+        );
+        return res.data as components["schemas"]["commit"][];
+      },
+      staleTime: 30_000,
+    }),
+
+  pullRequestPushVersions: (owner: string, repo: string, number: number) =>
+    queryOptions({
+      queryKey: ["pull-request", owner, repo, number, "push-versions"],
+      queryFn: async () => {
+        interface ForcePushNode {
+          createdAt: string;
+          beforeCommit: { oid: string } | null;
+          afterCommit: { oid: string } | null;
+        }
+        const data = await getOctokit().graphql<{
+          repository: {
+            pullRequest: {
+              createdAt: string;
+              timelineItems: { nodes: ForcePushNode[] };
+            };
+          };
+        }>(
+          `query GetPushVersions($owner: String!, $repo: String!, $number: Int!) {
+            repository(owner: $owner, name: $repo) {
+              pullRequest(number: $number) {
+                createdAt
+                timelineItems(itemTypes: [HEAD_REF_FORCE_PUSHED_EVENT], first: 100) {
+                  nodes {
+                    ... on HeadRefForcePushedEvent {
+                      createdAt
+                      beforeCommit { oid }
+                      afterCommit { oid }
+                    }
+                  }
+                }
+              }
+            }
+          }`,
+          { owner, repo, number }
+        );
+
+        const prData = data.repository.pullRequest;
+        const events = (prData.timelineItems.nodes || [])
+          .filter((e) => e.createdAt)
+          .sort(
+            (a, b) =>
+              new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+          );
+
+        if (events.length === 0) return [] as PushVersion[];
+
+        const versions: PushVersion[] = [];
+
+        if (events[0].beforeCommit) {
+          versions.push({
+            version: 1,
+            sha: events[0].beforeCommit.oid,
+            pushedAt: prData.createdAt,
+          });
+        }
+
+        for (const event of events) {
+          if (event.afterCommit) {
+            versions.push({
+              version: versions.length + 1,
+              sha: event.afterCommit.oid,
+              pushedAt: event.createdAt,
+              beforeSha: event.beforeCommit?.oid,
+            });
+          }
+        }
+
+        return versions;
+      },
+      staleTime: 30_000,
+    }),
+
+  userByLogin: (login: string) =>
+    queryOptions({
+      queryKey: ["user", login],
+      queryFn: async ({ signal }) => {
+        const res = await getOctokit().request("GET /users/{username}", {
+          username: login,
+          request: { signal },
+        });
+        return res.data as UserProfile;
+      },
+      staleTime: 60 * 60_000,
+      meta: { persist: true },
     }),
 
   prList: (queryStrings: string[], page = 1, perPage = 30) =>

@@ -765,6 +765,14 @@ function createGitHubStore() {
   // API Methods (with caching and deduplication)
   // ---------------------------------------------------------------------------
 
+  function invalidatePR(owner: string, repo: string, number: number) {
+    queryClient.invalidateQueries({
+      queryKey: ["pull-request", owner, repo, number],
+    });
+    queryClient.invalidateQueries({ queryKey: ["pr-list"] });
+    cache.invalidate(`pr:${owner}/${repo}/${number}`);
+  }
+
   function searchPRs(query: string, page = 1, perPage = 30) {
     return queryClient.fetchQuery(queries.searchPRs(query, page, perPage));
   }
@@ -830,81 +838,24 @@ function createGitHubStore() {
     return queryClient.fetchQuery(queries.searchUsers(query));
   }
 
-  async function getPR(
+  function getPR(
     owner: string,
     repo: string,
     number: number
   ): Promise<PullRequest> {
     if (!octokit) throw new Error("Not initialized");
-
-    const cacheKey = `pr:${owner}/${repo}/${number}`;
-
-    const cached = cache.get<PullRequest>(cacheKey);
-    if (cached) return cached;
-
-    const pending = cache.getPending<PullRequest>(cacheKey);
-    if (pending) return pending;
-
-    const promise = octokit
-      .request("GET /repos/{owner}/{repo}/pulls/{pull_number}", {
-        owner,
-        repo,
-        pull_number: number,
-        headers: {
-          // Request full media type to get both body and body_html with signed attachment URLs
-          accept: "application/vnd.github.full+json",
-        },
-      })
-      .then((res) => {
-        cache.set(cacheKey, res.data as PullRequest);
-        return res.data as PullRequest;
-      });
-
-    cache.setPending(cacheKey, promise);
-    return promise;
+    return queryClient.fetchQuery(queries.pullRequest(owner, repo, number));
   }
 
-  async function getPRFiles(
+  function getPRFiles(
     owner: string,
     repo: string,
     number: number
   ): Promise<PullRequestFile[]> {
     if (!octokit) throw new Error("Not initialized");
-
-    const cacheKey = `pr:${owner}/${repo}/${number}:files`;
-
-    const cached = cache.get<PullRequestFile[]>(cacheKey);
-    if (cached) return cached;
-
-    const pending = cache.getPending<PullRequestFile[]>(cacheKey);
-    if (pending) return pending;
-
-    const promise = (async () => {
-      const files: PullRequestFile[] = [];
-      let page = 1;
-
-      while (true) {
-        const { data } = await octokit!.request(
-          "GET /repos/{owner}/{repo}/pulls/{pull_number}/files",
-          {
-            owner,
-            repo,
-            pull_number: number,
-            per_page: 100,
-            page,
-          }
-        );
-        files.push(...data);
-        if (data.length < 100) break;
-        page++;
-      }
-
-      cache.set(cacheKey, files);
-      return files;
-    })();
-
-    cache.setPending(cacheKey, promise);
-    return promise;
+    return queryClient.fetchQuery(
+      queries.pullRequestFiles(owner, repo, number)
+    );
   }
 
   async function getCommitFiles(
@@ -1286,7 +1237,7 @@ function createGitHubStore() {
       }
     );
 
-    cache.invalidate(`pr:${owner}/${repo}/${number}`);
+    invalidatePR(owner, repo, number);
     return data;
   }
 
@@ -1312,7 +1263,7 @@ function createGitHubStore() {
       }
     );
 
-    cache.invalidate(`pr:${owner}/${repo}/${number}`);
+    invalidatePR(owner, repo, number);
     return data;
   }
 
@@ -1333,7 +1284,7 @@ function createGitHubStore() {
         review_id: reviewId,
       }
     );
-    cache.invalidate(`pr:${owner}/${repo}/${number}`);
+    invalidatePR(owner, repo, number);
   }
 
   function getPRChecksForSha(owner: string, repo: string, sha: string) {
@@ -1391,7 +1342,7 @@ function createGitHubStore() {
       }
     );
 
-    cache.invalidate(`pr:${owner}/${repo}/${number}`);
+    invalidatePR(owner, repo, number);
     return data;
   }
 
@@ -1406,7 +1357,7 @@ function createGitHubStore() {
       `mutation ($input: DequeuePullRequestInput!) { dequeuePullRequest(input: $input) { mergeQueueEntry { id } } }`,
       { input: { id: prNodeId } }
     );
-    cache.invalidate(`pr:${owner}/${repo}/${number}`);
+    invalidatePR(owner, repo, number);
   }
 
   async function enqueuePullRequest(
@@ -1420,35 +1371,14 @@ function createGitHubStore() {
       `mutation ($input: EnqueuePullRequestInput!) { enqueuePullRequest(input: $input) { mergeQueueEntry { id } } }`,
       { input: { pullRequestId: prNodeId } }
     );
-    cache.invalidate(`pr:${owner}/${repo}/${number}`);
+    invalidatePR(owner, repo, number);
   }
 
-  async function getPRCommits(owner: string, repo: string, number: number) {
+  function getPRCommits(owner: string, repo: string, number: number) {
     if (!octokit) throw new Error("Not initialized");
-
-    const cacheKey = `pr:${owner}/${repo}/${number}:commits`;
-
-    const cached = cache.get<components["schemas"]["commit"][]>(cacheKey);
-    if (cached) return cached;
-
-    const pending =
-      cache.getPending<components["schemas"]["commit"][]>(cacheKey);
-    if (pending) return pending;
-
-    const promise = octokit
-      .request("GET /repos/{owner}/{repo}/pulls/{pull_number}/commits", {
-        owner,
-        repo,
-        pull_number: number,
-        per_page: 100,
-      })
-      .then((res) => {
-        cache.set(cacheKey, res.data);
-        return res.data;
-      });
-
-    cache.setPending(cacheKey, promise);
-    return promise;
+    return queryClient.fetchQuery(
+      queries.pullRequestCommits(owner, repo, number)
+    );
   }
 
   async function getCommitsForHeadSha(
@@ -1507,7 +1437,7 @@ function createGitHubStore() {
       }
     );
 
-    cache.invalidate(`pr:${owner}/${repo}/${number}`);
+    invalidatePR(owner, repo, number);
     return data;
   }
 
@@ -1529,7 +1459,7 @@ function createGitHubStore() {
       }
     );
 
-    cache.invalidate(`pr:${owner}/${repo}/${number}`);
+    invalidatePR(owner, repo, number);
   }
 
   function getRepoCollaborators(owner: string, repo: string) {
@@ -1555,7 +1485,7 @@ function createGitHubStore() {
       }
     );
 
-    cache.invalidate(`pr:${owner}/${repo}/${issueNumber}`);
+    invalidatePR(owner, repo, issueNumber);
     return data;
   }
 
@@ -1577,7 +1507,7 @@ function createGitHubStore() {
       }
     );
 
-    cache.invalidate(`pr:${owner}/${repo}/${issueNumber}`);
+    invalidatePR(owner, repo, issueNumber);
   }
 
   function getRepoLabels(owner: string, repo: string) {
@@ -1603,7 +1533,7 @@ function createGitHubStore() {
       }
     );
 
-    cache.invalidate(`pr:${owner}/${repo}/${issueNumber}`);
+    invalidatePR(owner, repo, issueNumber);
     return data;
   }
 
@@ -1625,7 +1555,7 @@ function createGitHubStore() {
       }
     );
 
-    cache.invalidate(`pr:${owner}/${repo}/${issueNumber}`);
+    invalidatePR(owner, repo, issueNumber);
   }
 
   async function convertToDraft(owner: string, repo: string, number: number) {
@@ -1643,7 +1573,7 @@ function createGitHubStore() {
       { input: { pullRequestId: prData.repository.pullRequest.id } }
     );
 
-    cache.invalidate(`pr:${owner}/${repo}/${number}`);
+    invalidatePR(owner, repo, number);
   }
 
   async function markReadyForReview(
@@ -1665,7 +1595,7 @@ function createGitHubStore() {
       { input: { pullRequestId: prData.repository.pullRequest.id } }
     );
 
-    cache.invalidate(`pr:${owner}/${repo}/${number}`);
+    invalidatePR(owner, repo, number);
   }
 
   async function updateBranch(owner: string, repo: string, number: number) {
@@ -1680,7 +1610,7 @@ function createGitHubStore() {
       }
     );
 
-    cache.invalidate(`pr:${owner}/${repo}/${number}`);
+    invalidatePR(owner, repo, number);
     return data;
   }
 
@@ -1952,7 +1882,11 @@ function createGitHubStore() {
       }
     );
 
-    cache.invalidate(`pr:${owner}/${repo}/${number}`);
+    queryClient.setQueryData(
+      queries.pullRequest(owner, repo, number).queryKey,
+      data as PullRequest
+    );
+    invalidatePR(owner, repo, number);
     return data;
   }
 
@@ -1976,7 +1910,11 @@ function createGitHubStore() {
       }
     );
 
-    cache.invalidate(`pr:${owner}/${repo}/${number}`);
+    queryClient.setQueryData(
+      queries.pullRequest(owner, repo, number).queryKey,
+      data as PullRequest
+    );
+    invalidatePR(owner, repo, number);
     return data as PullRequest;
   }
 
@@ -2008,7 +1946,11 @@ function createGitHubStore() {
       }
     );
 
-    cache.invalidate(`pr:${owner}/${repo}/${number}`);
+    queryClient.setQueryData(
+      queries.pullRequest(owner, repo, number).queryKey,
+      data as PullRequest
+    );
+    invalidatePR(owner, repo, number);
     return data;
   }
 
@@ -2196,95 +2138,15 @@ function createGitHubStore() {
     return promise;
   }
 
-  async function getPushVersions(
+  function getPushVersions(
     owner: string,
     repo: string,
     number: number
   ): Promise<PushVersion[]> {
-    if (!batcher) throw new Error("Not initialized");
-
-    const cacheKey = `pr:${owner}/${repo}/${number}:push-versions`;
-
-    const cached = cache.get<PushVersion[]>(cacheKey);
-    if (cached) return cached;
-
-    const pending = cache.getPending<PushVersion[]>(cacheKey);
-    if (pending) return pending;
-
-    interface ForcePushNode {
-      createdAt: string;
-      beforeCommit: { oid: string } | null;
-      afterCommit: { oid: string } | null;
-    }
-
-    const promise = batcher
-      .query<{
-        repository: {
-          pullRequest: {
-            createdAt: string;
-            timelineItems: { nodes: ForcePushNode[] };
-          };
-        };
-      }>(
-        `query GetPushVersions($owner: String!, $repo: String!, $number: Int!) {
-          repository(owner: $owner, name: $repo) {
-            pullRequest(number: $number) {
-              createdAt
-              timelineItems(itemTypes: [HEAD_REF_FORCE_PUSHED_EVENT], first: 100) {
-                nodes {
-                  ... on HeadRefForcePushedEvent {
-                    createdAt
-                    beforeCommit { oid }
-                    afterCommit { oid }
-                  }
-                }
-              }
-            }
-          }
-        }`,
-        { owner, repo, number }
-      )
-      .then((data) => {
-        const prData = data.repository.pullRequest;
-        const events = (prData.timelineItems.nodes || [])
-          .filter((e) => e.createdAt)
-          .sort(
-            (a, b) =>
-              new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-          );
-
-        if (events.length === 0) {
-          cache.set(cacheKey, []);
-          return [];
-        }
-
-        const versions: PushVersion[] = [];
-
-        if (events[0].beforeCommit) {
-          versions.push({
-            version: 1,
-            sha: events[0].beforeCommit.oid,
-            pushedAt: prData.createdAt,
-          });
-        }
-
-        for (const event of events) {
-          if (event.afterCommit) {
-            versions.push({
-              version: versions.length + 1,
-              sha: event.afterCommit.oid,
-              pushedAt: event.createdAt,
-              beforeSha: event.beforeCommit?.oid,
-            });
-          }
-        }
-
-        cache.set(cacheKey, versions);
-        return versions;
-      });
-
-    cache.setPending(cacheKey, promise);
-    return promise;
+    if (!octokit) throw new Error("Not initialized");
+    return queryClient.fetchQuery(
+      queries.pullRequestPushVersions(owner, repo, number)
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -2995,25 +2857,9 @@ function createGitHubStore() {
     );
   }
 
-  async function getUserProfile(login: string): Promise<UserProfile> {
+  function getUserProfile(login: string): Promise<UserProfile> {
     if (!octokit) throw new Error("Not initialized");
-
-    const cacheKey = `user:${login}`;
-    const cached = cache.get<UserProfile>(cacheKey);
-    if (cached) return cached;
-
-    const pending = cache.getPending<UserProfile>(cacheKey);
-    if (pending) return pending;
-
-    const promise = octokit
-      .request("GET /users/{username}", { username: login })
-      .then((res) => {
-        cache.set(cacheKey, res.data);
-        return res.data as UserProfile;
-      });
-
-    cache.setPending(cacheKey, promise);
-    return promise;
+    return queryClient.fetchQuery(queries.userByLogin(login));
   }
 
   function invalidateCache(pattern?: string) {
