@@ -11,7 +11,6 @@ import { useQuery } from "@tanstack/react-query";
 import { Octokit } from "@octokit/core";
 import type { components } from "@octokit/openapi-types";
 import { useAuth } from "./auth";
-import * as PersistentCache from "../lib/persistent-cache";
 import { setOctokit } from "../lib/github-client";
 import { queryClient } from "../lib/query-client";
 import { queries } from "../lib/queries";
@@ -382,8 +381,6 @@ function createGitHubStore() {
   };
 
   const listeners = new Set<Listener>();
-  // In-flight dedup for immutable (SHA-keyed) fetches that go directly to PersistentCache
-  const immutablePending = new Map<string, Promise<unknown>>();
   let octokit: Octokit | null = null;
   let batcher: GraphQLBatcher | null = null;
   let onUnauthorized: (() => void) | null = null;
@@ -706,220 +703,71 @@ function createGitHubStore() {
     );
   }
 
-  async function getCommitFiles(
+  function getCommitFiles(
     owner: string,
     repo: string,
     sha: string,
     prKey?: string
   ): Promise<PullRequestFile[]> {
-    if (!octokit) throw new Error("Not initialized");
-
-    const cacheKey = `commit:${owner}/${repo}/${sha}:files`;
-
-    const persistent = await PersistentCache.get<PullRequestFile[]>(cacheKey);
-    if (persistent) return persistent;
-
-    const pending = immutablePending.get(cacheKey) as
-      | Promise<PullRequestFile[]>
-      | undefined;
-    if (pending) return pending;
-
-    const promise = octokit
-      .request("GET /repos/{owner}/{repo}/commits/{ref}", {
-        owner,
-        repo,
-        ref: sha,
-      })
-      .then((res) => {
-        const files = (res.data.files ?? []) as PullRequestFile[];
-        if (prKey) PersistentCache.put(cacheKey, files, prKey);
-        return files;
-      })
-      .finally(() => immutablePending.delete(cacheKey));
-
-    immutablePending.set(cacheKey, promise);
-    return promise;
+    return queryClient.fetchQuery(queries.commitFiles(owner, repo, sha, prKey));
   }
 
-  async function getSingleCommit(
+  function getSingleCommit(
     owner: string,
     repo: string,
     ref: string,
     prKey?: string
   ): Promise<PRCommit> {
-    if (!octokit) throw new Error("Not initialized");
-
-    const cacheKey = `commit:${owner}/${repo}:${ref}`;
-
-    const persistent = await PersistentCache.get<PRCommit>(cacheKey);
-    if (persistent) return persistent;
-
-    const pending = immutablePending.get(cacheKey) as
-      | Promise<PRCommit>
-      | undefined;
-    if (pending) return pending;
-
-    const promise = octokit
-      .request("GET /repos/{owner}/{repo}/commits/{ref}", {
-        owner,
-        repo,
-        ref,
-      })
-      .then((res) => {
-        const data = res.data as PRCommit;
-        if (prKey) PersistentCache.put(cacheKey, data, prKey);
-        return data;
-      })
-      .finally(() => immutablePending.delete(cacheKey));
-
-    immutablePending.set(cacheKey, promise);
-    return promise;
+    return queryClient.fetchQuery(
+      queries.singleCommit(owner, repo, ref, prKey)
+    );
   }
 
-  async function getRawGitCommit(
+  function getRawGitCommit(
     owner: string,
     repo: string,
     ref: string,
     prKey?: string
-  ): Promise<{ verification: { payload: string } | null } | null> {
-    if (!octokit) throw new Error("Not initialized");
-
-    const cacheKey = `git-commit:${owner}/${repo}:${ref}`;
-    type RawCommit = { verification: { payload: string } | null };
-
-    const persistent = await PersistentCache.get<RawCommit>(cacheKey);
-    if (persistent) return persistent;
-
-    const pending = immutablePending.get(cacheKey) as
-      | Promise<RawCommit>
-      | undefined;
-    if (pending) return pending;
-
-    const promise = octokit
-      .request("GET /repos/{owner}/{repo}/git/commits/{ref}", {
-        owner,
-        repo,
-        ref,
-      })
-      .then((res) => {
-        const data = res.data as RawCommit;
-        if (prKey) PersistentCache.put(cacheKey, data, prKey);
-        return data;
-      })
-      .finally(() => immutablePending.delete(cacheKey));
-
-    immutablePending.set(cacheKey, promise);
-    return promise;
+  ): Promise<{ verification: { payload: string } | null }> {
+    return queryClient.fetchQuery(
+      queries.rawGitCommit(owner, repo, ref, prKey)
+    );
   }
 
-  async function getMergeCommitFiles(
+  function getMergeCommitFiles(
     owner: string,
     repo: string,
     mergeSha: string,
     parentSha: string,
     prKey?: string
   ): Promise<PullRequestFile[]> {
-    if (!octokit) throw new Error("Not initialized");
-
-    const cacheKey = `merge:${owner}/${repo}/${mergeSha}:${parentSha}:files`;
-
-    const persistent = await PersistentCache.get<PullRequestFile[]>(cacheKey);
-    if (persistent) return persistent;
-
-    const pending = immutablePending.get(cacheKey) as
-      | Promise<PullRequestFile[]>
-      | undefined;
-    if (pending) return pending;
-
-    const promise = octokit
-      .request("GET /repos/{owner}/{repo}/compare/{basehead}", {
-        owner,
-        repo,
-        basehead: `${parentSha}...${mergeSha}`,
-      })
-      .then((res) => {
-        const files = (res.data.files ?? []) as PullRequestFile[];
-        if (prKey) PersistentCache.put(cacheKey, files, prKey);
-        return files;
-      })
-      .finally(() => immutablePending.delete(cacheKey));
-
-    immutablePending.set(cacheKey, promise);
-    return promise;
+    return queryClient.fetchQuery(
+      queries.mergeCommitFiles(owner, repo, mergeSha, parentSha, prKey)
+    );
   }
 
-  async function getRawCompareDiff(
+  function getRawCompareDiff(
     owner: string,
     repo: string,
     baseSha: string,
     headSha: string,
     prKey?: string
   ): Promise<string> {
-    if (!octokit) throw new Error("Not initialized");
-
-    const cacheKey = `rawdiff:${owner}/${repo}/${baseSha}...${headSha}`;
-
-    const persistent = await PersistentCache.get<string>(cacheKey);
-    if (persistent) return persistent;
-
-    const pending = immutablePending.get(cacheKey) as
-      | Promise<string>
-      | undefined;
-    if (pending) return pending;
-
-    const promise = octokit
-      .request("GET /repos/{owner}/{repo}/compare/{basehead}", {
-        owner,
-        repo,
-        basehead: `${baseSha}...${headSha}`,
-        headers: { Accept: "application/vnd.github.diff" },
-      })
-      .then((res) => {
-        const text = res.data as unknown as string;
-        if (prKey) PersistentCache.put(cacheKey, text, prKey);
-        return text;
-      })
-      .finally(() => immutablePending.delete(cacheKey));
-
-    immutablePending.set(cacheKey, promise);
-    return promise;
+    return queryClient.fetchQuery(
+      queries.rawCompareDiff(owner, repo, baseSha, headSha, prKey)
+    );
   }
 
-  async function getPRFilesForRange(
+  function getPRFilesForRange(
     owner: string,
     repo: string,
     baseSha: string,
     headSha: string,
     prKey?: string
   ): Promise<PullRequestFile[]> {
-    if (!octokit) throw new Error("Not initialized");
-
-    const cacheKey = `compare:${owner}/${repo}/${baseSha}...${headSha}:files`;
-
-    const persistent = await PersistentCache.get<PullRequestFile[]>(cacheKey);
-    if (persistent) return persistent;
-
-    const pending = immutablePending.get(cacheKey) as
-      | Promise<PullRequestFile[]>
-      | undefined;
-    if (pending) return pending;
-
-    const promise = octokit
-      .request("GET /repos/{owner}/{repo}/compare/{basehead}", {
-        owner,
-        repo,
-        basehead: `${baseSha}...${headSha}`,
-        per_page: 100,
-      })
-      .then((res) => {
-        const files = (res.data.files ?? []) as PullRequestFile[];
-        if (prKey) PersistentCache.put(cacheKey, files, prKey);
-        return files;
-      })
-      .finally(() => immutablePending.delete(cacheKey));
-
-    immutablePending.set(cacheKey, promise);
-    return promise;
+    return queryClient.fetchQuery(
+      queries.prFilesForRange(owner, repo, baseSha, headSha, prKey)
+    );
   }
 
   function getPRComments(
@@ -1172,42 +1020,16 @@ function createGitHubStore() {
     );
   }
 
-  async function getCommitsForHeadSha(
+  function getCommitsForHeadSha(
     owner: string,
     repo: string,
     baseSha: string,
     headSha: string,
     prKey?: string
   ): Promise<components["schemas"]["commit"][]> {
-    if (!octokit) throw new Error("Not initialized");
-
-    const cacheKey = `compare:${owner}/${repo}/${baseSha}...${headSha}:commits`;
-    type CommitList = components["schemas"]["commit"][];
-
-    const persistent = await PersistentCache.get<CommitList>(cacheKey);
-    if (persistent) return persistent;
-
-    const pending = immutablePending.get(cacheKey) as
-      | Promise<CommitList>
-      | undefined;
-    if (pending) return pending;
-
-    const promise = octokit
-      .request("GET /repos/{owner}/{repo}/compare/{basehead}", {
-        owner,
-        repo,
-        basehead: `${baseSha}...${headSha}`,
-        per_page: 100,
-      })
-      .then((res) => {
-        const commits = res.data.commits as CommitList;
-        if (prKey) PersistentCache.put(cacheKey, commits, prKey);
-        return commits;
-      })
-      .finally(() => immutablePending.delete(cacheKey));
-
-    immutablePending.set(cacheKey, promise);
-    return promise;
+    return queryClient.fetchQuery(
+      queries.commitsForHeadSha(owner, repo, baseSha, headSha, prKey)
+    );
   }
 
   async function requestReviewers(
@@ -1739,56 +1561,16 @@ function createGitHubStore() {
     );
   }
 
-  async function getFileContent(
+  function getFileContent(
     owner: string,
     repo: string,
     path: string,
     ref: string,
     prKey?: string
   ): Promise<string> {
-    if (!octokit) throw new Error("Not initialized");
-
-    const cacheKey = `file:${owner}/${repo}/${ref}/${path}`;
-
-    const persistent = await PersistentCache.get<string>(cacheKey);
-    if (persistent !== null) return persistent;
-
-    const pending = immutablePending.get(cacheKey) as
-      | Promise<string>
-      | undefined;
-    if (pending) return pending;
-
-    const promise = (async () => {
-      try {
-        const response = await octokit!.request(
-          "GET /repos/{owner}/{repo}/contents/{path}",
-          {
-            owner,
-            repo,
-            path,
-            ref,
-            headers: { Accept: "application/vnd.github.raw+json" },
-          }
-        );
-        const content = response.data as unknown as string;
-        if (prKey) PersistentCache.put(cacheKey, content, prKey);
-        return content;
-      } catch (error: unknown) {
-        if (
-          error &&
-          typeof error === "object" &&
-          "status" in error &&
-          error.status === 404
-        ) {
-          if (prKey) PersistentCache.put(cacheKey, "", prKey);
-          return "";
-        }
-        throw error;
-      }
-    })().finally(() => immutablePending.delete(cacheKey));
-
-    immutablePending.set(cacheKey, promise);
-    return promise;
+    return queryClient.fetchQuery(
+      queries.fileContent(owner, repo, path, ref, prKey)
+    );
   }
 
   function getPushVersions(
