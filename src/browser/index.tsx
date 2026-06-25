@@ -8,6 +8,7 @@ import { CommandPaletteProvider } from "./components/command-palette";
 import { AppShell } from "./components/app-shell";
 import { WelcomeDialog } from "./components/welcome-dialog";
 import { ShortcutsDialog } from "./components/shortcuts-dialog";
+import { GlobalProgress } from "./components/global-progress";
 import { initTheme } from "./theme";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
@@ -32,6 +33,7 @@ createRoot(document.getElementById("app")!).render(
       },
     }}
   >
+    <GlobalProgress />
     <ThemeProvider>
       <AuthProvider>
         <GitHubProvider>
