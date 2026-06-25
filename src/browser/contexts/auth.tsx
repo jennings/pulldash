@@ -185,11 +185,11 @@ function clearAllStorage(): void {
       localStorage.removeItem(key);
     }
 
-    // Remove gh_cache:* keys
+    // Remove legacy pr-* preference keys
     const toRemove: string[] = [];
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
-      if (k?.startsWith("gh_cache:") || k?.startsWith("pr-")) {
+      if (k?.startsWith("pr-")) {
         toRemove.push(k);
       }
     }
@@ -205,13 +205,6 @@ function clearAllStorage(): void {
       indexedDB.deleteDatabase("pulldash");
     } catch {
       // IndexedDB may not be available
-    }
-
-    // Delete Service Worker cache
-    try {
-      caches.delete("pulldash-v1");
-    } catch {
-      // Cache API may not be available
     }
   } catch {
     // Ignore storage errors

@@ -3842,10 +3842,7 @@ export class PRReviewStore {
    * Invalidate all caches for a PR (main PR + all related data)
    */
   private invalidatePRCaches(owner: string, repo: string, prNumber: number) {
-    // Invalidate all PR-related caches (using pattern matching)
-    this.github.invalidateCache(`pr:${owner}/${repo}/${prNumber}`);
-    // Invalidate React Query PR-list caches so home page reflects state changes
-    queryClient.invalidateQueries({ queryKey: ["pr-list"] });
+    this.github.invalidatePR(owner, repo, prNumber);
     queryClient.invalidateQueries({ queryKey: ["search", "prs"] });
   }
 
@@ -3976,8 +3973,7 @@ export class PRReviewStore {
     try {
       await this.github.updateBranch(owner, repo, pr.number);
 
-      // Invalidate cache BEFORE refetch so we get fresh data
-      this.github.invalidateCache(`pr:${owner}/${repo}/${pr.number}`);
+      this.github.invalidatePR(owner, repo, pr.number);
 
       // Refetch PR to get updated state (branch update changes many fields)
       const updatedPR = await this.github.getPR(owner, repo, pr.number);

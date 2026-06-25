@@ -517,7 +517,7 @@ export const PROverview = memo(function PROverview() {
         });
 
         // 3. Invalidate cache so future fetches get fresh data
-        github.invalidateCache(`pr:${owner}/${repo}/${pr.number}`);
+        github.invalidatePR(owner, repo, pr.number);
 
         // 4. Refetch timeline (reviewer request creates event)
         refetchTimeline();
@@ -543,7 +543,7 @@ export const PROverview = memo(function PROverview() {
         });
 
         // 3. Invalidate cache so future fetches get fresh data
-        github.invalidateCache(`pr:${owner}/${repo}/${pr.number}`);
+        github.invalidatePR(owner, repo, pr.number);
 
         // 4. Refetch timeline
         refetchTimeline();
@@ -590,7 +590,7 @@ export const PROverview = memo(function PROverview() {
         });
 
         // 3. Invalidate cache so future fetches get fresh data
-        github.invalidateCache(`pr:${owner}/${repo}/${pr.number}`);
+        github.invalidatePR(owner, repo, pr.number);
 
         // 4. Refetch timeline (assignee change creates event)
         refetchTimeline();
@@ -614,7 +614,7 @@ export const PROverview = memo(function PROverview() {
         });
 
         // 3. Invalidate cache so future fetches get fresh data
-        github.invalidateCache(`pr:${owner}/${repo}/${pr.number}`);
+        github.invalidatePR(owner, repo, pr.number);
 
         // 4. Refetch timeline
         refetchTimeline();
@@ -661,7 +661,7 @@ export const PROverview = memo(function PROverview() {
       });
 
       // 3. Invalidate cache so future fetches get fresh data
-      github.invalidateCache(`pr:${owner}/${repo}/${pr.number}`);
+      github.invalidatePR(owner, repo, pr.number);
 
       // 4. Refetch timeline
       refetchTimeline();
@@ -2489,7 +2489,7 @@ export const PROverview = memo(function PROverview() {
                   store.setPr({ ...pr, labels: newLabels });
 
                   // 3. Invalidate cache so future fetches get fresh data
-                  github.invalidateCache(`pr:${owner}/${repo}/${pr.number}`);
+                  github.invalidatePR(owner, repo, pr.number);
 
                   // 4. Refetch timeline (label change creates event)
                   github
