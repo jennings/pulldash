@@ -3572,6 +3572,13 @@ export class PRReviewStore {
 
     this.set({ loadingChecks: true });
 
+    queryClient.invalidateQueries({
+      queryKey: ["checks", owner, repo, sha],
+    });
+    queryClient.invalidateQueries({
+      queryKey: ["workflow-runs", owner, repo, sha],
+    });
+
     try {
       const [checksData, workflowRunsData] = await Promise.all([
         this.github.getPRChecks(owner, repo, sha).catch(() => null),
