@@ -1903,18 +1903,12 @@ function createGitHubStore() {
 
     const cacheKey = `file:${owner}/${repo}/${ref}/${path}`;
 
-    const cached = cache.get<string>(cacheKey, 300_000);
-    if (cached) return cached;
+    const persistent = await PersistentCache.get<string>(cacheKey);
+    if (persistent !== null) return persistent;
 
-    if (prKey) {
-      const persistent = await PersistentCache.get<string>(cacheKey);
-      if (persistent !== null) {
-        cache.set(cacheKey, persistent);
-        return persistent;
-      }
-    }
-
-    const pending = cache.getPending<string>(cacheKey);
+    const pending = immutablePending.get(cacheKey) as
+      | Promise<string>
+      | undefined;
     if (pending) return pending;
 
     const promise = (async () => {
@@ -1930,7 +1924,6 @@ function createGitHubStore() {
           }
         );
         const content = response.data as unknown as string;
-        cache.set(cacheKey, content);
         if (prKey) PersistentCache.put(cacheKey, content, prKey);
         return content;
       } catch (error: unknown) {
@@ -1940,15 +1933,14 @@ function createGitHubStore() {
           "status" in error &&
           error.status === 404
         ) {
-          cache.set(cacheKey, "");
           if (prKey) PersistentCache.put(cacheKey, "", prKey);
           return "";
         }
         throw error;
       }
-    })();
+    })().finally(() => immutablePending.delete(cacheKey));
 
-    cache.setPending(cacheKey, promise);
+    immutablePending.set(cacheKey, promise);
     return promise;
   }
 
