@@ -551,6 +551,8 @@ function createGitHubStore() {
 
   const listeners = new Set<Listener>();
   const cache = new RequestCache();
+  // In-flight dedup for immutable (SHA-keyed) fetches that go directly to PersistentCache
+  const immutablePending = new Map<string, Promise<unknown>>();
   let octokit: Octokit | null = null;
   let batcher: GraphQLBatcher | null = null;
   let onUnauthorized: (() => void) | null = null;
@@ -1210,18 +1212,12 @@ function createGitHubStore() {
 
     const cacheKey = `commit:${owner}/${repo}/${sha}:files`;
 
-    const cached = cache.get<PullRequestFile[]>(cacheKey);
-    if (cached) return cached;
+    const persistent = await PersistentCache.get<PullRequestFile[]>(cacheKey);
+    if (persistent) return persistent;
 
-    if (prKey) {
-      const persistent = await PersistentCache.get<PullRequestFile[]>(cacheKey);
-      if (persistent) {
-        cache.set(cacheKey, persistent);
-        return persistent;
-      }
-    }
-
-    const pending = cache.getPending<PullRequestFile[]>(cacheKey);
+    const pending = immutablePending.get(cacheKey) as
+      | Promise<PullRequestFile[]>
+      | undefined;
     if (pending) return pending;
 
     const promise = octokit
@@ -1232,12 +1228,12 @@ function createGitHubStore() {
       })
       .then((res) => {
         const files = (res.data.files ?? []) as PullRequestFile[];
-        cache.set(cacheKey, files);
         if (prKey) PersistentCache.put(cacheKey, files, prKey);
         return files;
-      });
+      })
+      .finally(() => immutablePending.delete(cacheKey));
 
-    cache.setPending(cacheKey, promise);
+    immutablePending.set(cacheKey, promise);
     return promise;
   }
 
@@ -1251,16 +1247,13 @@ function createGitHubStore() {
 
     const cacheKey = `commit:${owner}/${repo}:${ref}`;
 
-    const cached = cache.get<PRCommit>(cacheKey);
-    if (cached) return cached;
+    const persistent = await PersistentCache.get<PRCommit>(cacheKey);
+    if (persistent) return persistent;
 
-    if (prKey) {
-      const persistent = await PersistentCache.get<PRCommit>(cacheKey);
-      if (persistent) {
-        cache.set(cacheKey, persistent);
-        return persistent;
-      }
-    }
+    const pending = immutablePending.get(cacheKey) as
+      | Promise<PRCommit>
+      | undefined;
+    if (pending) return pending;
 
     const promise = octokit
       .request("GET /repos/{owner}/{repo}/commits/{ref}", {
@@ -1270,12 +1263,12 @@ function createGitHubStore() {
       })
       .then((res) => {
         const data = res.data as PRCommit;
-        cache.set(cacheKey, data);
         if (prKey) PersistentCache.put(cacheKey, data, prKey);
         return data;
-      });
+      })
+      .finally(() => immutablePending.delete(cacheKey));
 
-    cache.setPending(cacheKey, promise);
+    immutablePending.set(cacheKey, promise);
     return promise;
   }
 
@@ -1288,25 +1281,14 @@ function createGitHubStore() {
     if (!octokit) throw new Error("Not initialized");
 
     const cacheKey = `git-commit:${owner}/${repo}:${ref}`;
+    type RawCommit = { verification: { payload: string } | null };
 
-    const cached = cache.get<{ verification: { payload: string } | null }>(
-      cacheKey
-    );
-    if (cached) return cached;
+    const persistent = await PersistentCache.get<RawCommit>(cacheKey);
+    if (persistent) return persistent;
 
-    if (prKey) {
-      const persistent = await PersistentCache.get<{
-        verification: { payload: string } | null;
-      }>(cacheKey);
-      if (persistent) {
-        cache.set(cacheKey, persistent);
-        return persistent;
-      }
-    }
-
-    const pending = cache.getPending<{
-      verification: { payload: string } | null;
-    }>(cacheKey);
+    const pending = immutablePending.get(cacheKey) as
+      | Promise<RawCommit>
+      | undefined;
     if (pending) return pending;
 
     const promise = octokit
@@ -1316,15 +1298,13 @@ function createGitHubStore() {
         ref,
       })
       .then((res) => {
-        const data = res.data as {
-          verification: { payload: string } | null;
-        };
-        cache.set(cacheKey, data);
+        const data = res.data as RawCommit;
         if (prKey) PersistentCache.put(cacheKey, data, prKey);
         return data;
-      });
+      })
+      .finally(() => immutablePending.delete(cacheKey));
 
-    cache.setPending(cacheKey, promise);
+    immutablePending.set(cacheKey, promise);
     return promise;
   }
 
@@ -1339,18 +1319,12 @@ function createGitHubStore() {
 
     const cacheKey = `merge:${owner}/${repo}/${mergeSha}:${parentSha}:files`;
 
-    const cached = cache.get<PullRequestFile[]>(cacheKey);
-    if (cached) return cached;
+    const persistent = await PersistentCache.get<PullRequestFile[]>(cacheKey);
+    if (persistent) return persistent;
 
-    if (prKey) {
-      const persistent = await PersistentCache.get<PullRequestFile[]>(cacheKey);
-      if (persistent) {
-        cache.set(cacheKey, persistent);
-        return persistent;
-      }
-    }
-
-    const pending = cache.getPending<PullRequestFile[]>(cacheKey);
+    const pending = immutablePending.get(cacheKey) as
+      | Promise<PullRequestFile[]>
+      | undefined;
     if (pending) return pending;
 
     const promise = octokit
@@ -1361,12 +1335,12 @@ function createGitHubStore() {
       })
       .then((res) => {
         const files = (res.data.files ?? []) as PullRequestFile[];
-        cache.set(cacheKey, files);
         if (prKey) PersistentCache.put(cacheKey, files, prKey);
         return files;
-      });
+      })
+      .finally(() => immutablePending.delete(cacheKey));
 
-    cache.setPending(cacheKey, promise);
+    immutablePending.set(cacheKey, promise);
     return promise;
   }
 
@@ -1381,18 +1355,12 @@ function createGitHubStore() {
 
     const cacheKey = `rawdiff:${owner}/${repo}/${baseSha}...${headSha}`;
 
-    const cached = cache.get<string>(cacheKey);
-    if (cached) return cached;
+    const persistent = await PersistentCache.get<string>(cacheKey);
+    if (persistent) return persistent;
 
-    if (prKey) {
-      const persistent = await PersistentCache.get<string>(cacheKey);
-      if (persistent) {
-        cache.set(cacheKey, persistent);
-        return persistent;
-      }
-    }
-
-    const pending = cache.getPending<string>(cacheKey);
+    const pending = immutablePending.get(cacheKey) as
+      | Promise<string>
+      | undefined;
     if (pending) return pending;
 
     const promise = octokit
@@ -1404,12 +1372,12 @@ function createGitHubStore() {
       })
       .then((res) => {
         const text = res.data as unknown as string;
-        cache.set(cacheKey, text);
         if (prKey) PersistentCache.put(cacheKey, text, prKey);
         return text;
-      });
+      })
+      .finally(() => immutablePending.delete(cacheKey));
 
-    cache.setPending(cacheKey, promise);
+    immutablePending.set(cacheKey, promise);
     return promise;
   }
 
@@ -1424,18 +1392,12 @@ function createGitHubStore() {
 
     const cacheKey = `compare:${owner}/${repo}/${baseSha}...${headSha}:files`;
 
-    const cached = cache.get<PullRequestFile[]>(cacheKey);
-    if (cached) return cached;
+    const persistent = await PersistentCache.get<PullRequestFile[]>(cacheKey);
+    if (persistent) return persistent;
 
-    if (prKey) {
-      const persistent = await PersistentCache.get<PullRequestFile[]>(cacheKey);
-      if (persistent) {
-        cache.set(cacheKey, persistent);
-        return persistent;
-      }
-    }
-
-    const pending = cache.getPending<PullRequestFile[]>(cacheKey);
+    const pending = immutablePending.get(cacheKey) as
+      | Promise<PullRequestFile[]>
+      | undefined;
     if (pending) return pending;
 
     const promise = octokit
@@ -1447,12 +1409,12 @@ function createGitHubStore() {
       })
       .then((res) => {
         const files = (res.data.files ?? []) as PullRequestFile[];
-        cache.set(cacheKey, files);
         if (prKey) PersistentCache.put(cacheKey, files, prKey);
         return files;
-      });
+      })
+      .finally(() => immutablePending.delete(cacheKey));
 
-    cache.setPending(cacheKey, promise);
+    immutablePending.set(cacheKey, promise);
     return promise;
   }
 
@@ -1865,21 +1827,14 @@ function createGitHubStore() {
     if (!octokit) throw new Error("Not initialized");
 
     const cacheKey = `compare:${owner}/${repo}/${baseSha}...${headSha}:commits`;
+    type CommitList = components["schemas"]["commit"][];
 
-    const cached = cache.get<components["schemas"]["commit"][]>(cacheKey);
-    if (cached) return cached;
+    const persistent = await PersistentCache.get<CommitList>(cacheKey);
+    if (persistent) return persistent;
 
-    if (prKey) {
-      const persistent =
-        await PersistentCache.get<components["schemas"]["commit"][]>(cacheKey);
-      if (persistent) {
-        cache.set(cacheKey, persistent);
-        return persistent;
-      }
-    }
-
-    const pending =
-      cache.getPending<components["schemas"]["commit"][]>(cacheKey);
+    const pending = immutablePending.get(cacheKey) as
+      | Promise<CommitList>
+      | undefined;
     if (pending) return pending;
 
     const promise = octokit
@@ -1890,13 +1845,13 @@ function createGitHubStore() {
         per_page: 100,
       })
       .then((res) => {
-        const commits = res.data.commits as components["schemas"]["commit"][];
-        cache.set(cacheKey, commits);
+        const commits = res.data.commits as CommitList;
         if (prKey) PersistentCache.put(cacheKey, commits, prKey);
         return commits;
-      });
+      })
+      .finally(() => immutablePending.delete(cacheKey));
 
-    cache.setPending(cacheKey, promise);
+    immutablePending.set(cacheKey, promise);
     return promise;
   }
 

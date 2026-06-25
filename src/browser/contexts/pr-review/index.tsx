@@ -717,6 +717,7 @@ export class PRReviewStore {
 
   private async refreshFiles(): Promise<void> {
     const { owner, repo, pr, selectedHeadSha, compareToSha } = this.state;
+    const prKey = `${owner}/${repo}/${pr.number}`;
 
     const resetBase = {
       loadedDiffs: {},
@@ -730,10 +731,10 @@ export class PRReviewStore {
 
       const [prevFiles, currFiles] = await Promise.all([
         this.github
-          .getPRFilesForRange(owner, repo, pr.base.sha, compareToSha)
+          .getPRFilesForRange(owner, repo, pr.base.sha, compareToSha, prKey)
           .catch(() => [] as PullRequestFile[]),
         this.github
-          .getPRFilesForRange(owner, repo, pr.base.sha, headSha)
+          .getPRFilesForRange(owner, repo, pr.base.sha, headSha, prKey)
           .catch(() => [] as PullRequestFile[]),
       ]);
 
@@ -770,7 +771,7 @@ export class PRReviewStore {
       });
     } else if (selectedHeadSha) {
       const files = await this.github
-        .getPRFilesForRange(owner, repo, pr.base.sha, selectedHeadSha)
+        .getPRFilesForRange(owner, repo, pr.base.sha, selectedHeadSha, prKey)
         .catch(() => [] as PullRequestFile[]);
       this.set({
         ...resetBase,
@@ -3497,7 +3498,13 @@ export class PRReviewStore {
         const filesByVersion = await Promise.all(
           mergedVersions.map(async (pv) => {
             const files = await this.github
-              .getPRFilesForRange(owner, repo, pr.base.sha, pv.sha)
+              .getPRFilesForRange(
+                owner,
+                repo,
+                pr.base.sha,
+                pv.sha,
+                `${owner}/${repo}/${pr.number}`
+              )
               .catch(() => [] as PullRequestFile[]);
             return {
               version: pv.version,
