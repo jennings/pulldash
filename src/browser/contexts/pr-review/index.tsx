@@ -35,6 +35,7 @@ import {
   groupCommitsIntoVersions,
 } from "@/browser/contexts/github";
 import { diffService } from "@/browser/lib/diff";
+import { queryClient } from "@/browser/lib/query-client";
 
 // ============================================================================
 // File Sorting (match file tree order)
@@ -3843,6 +3844,9 @@ export class PRReviewStore {
   private invalidatePRCaches(owner: string, repo: string, prNumber: number) {
     // Invalidate all PR-related caches (using pattern matching)
     this.github.invalidateCache(`pr:${owner}/${repo}/${prNumber}`);
+    // Invalidate React Query PR-list caches so home page reflects state changes
+    queryClient.invalidateQueries({ queryKey: ["pr-list"] });
+    queryClient.invalidateQueries({ queryKey: ["search", "prs"] });
   }
 
   /**

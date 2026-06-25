@@ -493,14 +493,6 @@ class GraphQLBatcher {
 // State Types
 // ============================================================================
 
-interface PRListState {
-  items: PRSearchResult[];
-  totalCount: number;
-  loading: boolean;
-  error: string | null;
-  lastFetchedAt: number | null;
-}
-
 interface PRCheckState {
   status: CheckStatus | null;
   loading: boolean;
@@ -522,9 +514,6 @@ export interface CurrentUserData {
 interface GitHubState {
   ready: boolean;
   error: string | null;
-  prList: PRListState;
-  prListQueries: string[];
-  prListPage: number;
   prChecks: Map<string, PRCheckState>;
 }
 
@@ -538,15 +527,6 @@ function createGitHubStore() {
   let state: GitHubState = {
     ready: false,
     error: null,
-    prList: {
-      items: [],
-      totalCount: 0,
-      loading: false,
-      error: null,
-      lastFetchedAt: null,
-    },
-    prListQueries: [],
-    prListPage: 1,
     prChecks: new Map(),
   };
 
@@ -557,7 +537,6 @@ function createGitHubStore() {
   let octokit: Octokit | null = null;
   let batcher: GraphQLBatcher | null = null;
   let onUnauthorized: (() => void) | null = null;
-  let prListAbortController: AbortController | null = null;
   let onRateLimited: (() => void) | null = null;
 
   function setOnUnauthorized(callback: () => void) {
@@ -641,190 +620,12 @@ function createGitHubStore() {
     batcher = null;
     setOctokit(null);
     cache.invalidate();
+    queryClient.removeQueries({ queryKey: ["pr-list"] });
     setState({
       ready: false,
       error: null,
-      prList: {
-        items: [],
-        totalCount: 0,
-        loading: false,
-        error: null,
-        lastFetchedAt: null,
-      },
-      prListQueries: [],
-      prListPage: 1,
       prChecks: new Map(),
     });
-  }
-
-  // ---------------------------------------------------------------------------
-  // PR List
-  // ---------------------------------------------------------------------------
-
-  async function fetchPRList(
-    queries: string[],
-    page = 1,
-    perPage = 30,
-    options?: { backgroundRefresh?: boolean }
-  ) {
-    if (!octokit || !batcher) return;
-
-    const { backgroundRefresh = false } = options ?? {};
-
-    // Abort any in-flight request
-    prListAbortController?.abort();
-    const abortController = new AbortController();
-    prListAbortController = abortController;
-
-    if (queries.length === 0) {
-      setState({
-        prList: {
-          items: [],
-          totalCount: 0,
-          loading: false,
-          error: null,
-          lastFetchedAt: Date.now(),
-        },
-        prListQueries: queries,
-        prListPage: page,
-      });
-      return;
-    }
-
-    const cacheKey = `prlist:${queries.sort().join("|")}:${page}:${perPage}`;
-    const FRESH_TTL = 30_000; // 30 seconds
-
-    // Check for stale data - show immediately if we have any
-    const stale = cache.getStale<{
-      items: PRSearchResult[];
-      totalCount: number;
-    }>(cacheKey, FRESH_TTL);
-    if (stale) {
-      setState({
-        prList: {
-          ...stale.data,
-          // Don't show loading state for background refreshes
-          loading: backgroundRefresh ? false : stale.isStale,
-          error: null,
-          lastFetchedAt: Date.now(),
-        },
-        prListQueries: queries,
-        prListPage: page,
-      });
-      // If fresh, don't revalidate
-      if (!stale.isStale) return;
-    } else if (!backgroundRefresh) {
-      // Only show loading state if this is not a background refresh
-      setState((s) => ({
-        prList: { ...s.prList, loading: true, error: null },
-        prListQueries: queries,
-        prListPage: page,
-      }));
-    }
-
-    try {
-      // Fetch PRs with caching, passing the abort signal
-      const results = await Promise.all(
-        queries.map((q) => searchPRs(q, page, perPage, abortController.signal))
-      );
-
-      // Check if aborted before processing results
-      if (abortController.signal.aborted) return;
-
-      // Combine and dedupe by PR id
-      const seen = new Set<number>();
-      const combined: PRSearchResult[] = [];
-      let total = 0;
-
-      for (const data of results) {
-        total += data.total_count || 0;
-        for (const pr of data.items || []) {
-          if (!seen.has(pr.id)) {
-            seen.add(pr.id);
-            combined.push(pr as PRSearchResult);
-          }
-        }
-      }
-
-      // Sort by updated_at descending
-      combined.sort(
-        (a, b) =>
-          new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
-      );
-
-      // Enrich with GraphQL data
-      const prIdentifiers = combined
-        .map((item) => {
-          const match = item.repository_url?.match(/repos\/([^/]+)\/([^/]+)/);
-          if (match && item.number) {
-            return { owner: match[1], repo: match[2], number: item.number };
-          }
-          return null;
-        })
-        .filter(
-          (x): x is { owner: string; repo: string; number: number } =>
-            x !== null
-        );
-
-      if (prIdentifiers.length > 0) {
-        try {
-          const enrichmentMap = await getPREnrichment(prIdentifiers);
-
-          // Check if aborted after enrichment
-          if (abortController.signal.aborted) return;
-
-          for (const item of combined) {
-            const match = item.repository_url?.match(/repos\/([^/]+)\/([^/]+)/);
-            if (match && item.number) {
-              const key = `${match[1]}/${match[2]}/${item.number}`;
-              const enrichment = enrichmentMap.get(key);
-              if (enrichment) {
-                Object.assign(item, enrichment);
-              }
-            }
-          }
-        } catch (enrichmentError) {
-          console.error("PR enrichment failed:", enrichmentError);
-        }
-      }
-
-      // Final check before updating state
-      if (abortController.signal.aborted) return;
-
-      // Cache the result (persist for instant load next time)
-      cache.set(cacheKey, { items: combined, totalCount: total }, true);
-
-      setState({
-        prList: {
-          items: combined,
-          totalCount: total,
-          loading: false,
-          error: null,
-          lastFetchedAt: Date.now(),
-        },
-      });
-    } catch (e) {
-      // Ignore abort errors - they're expected when switching filters
-      if (e instanceof Error && e.name === "AbortError") return;
-
-      // Only update error state if not aborted
-      if (abortController.signal.aborted) return;
-
-      setState((s) => ({
-        prList: {
-          ...s.prList,
-          loading: false,
-          error: e instanceof Error ? e.message : "Failed to fetch PRs",
-        },
-      }));
-    }
-  }
-
-  function refreshPRList() {
-    const { prListQueries, prListPage } = state;
-    if (prListQueries.length > 0) {
-      fetchPRList(prListQueries, prListPage, 30, { backgroundRefresh: true });
-    }
   }
 
   // ---------------------------------------------------------------------------
@@ -964,48 +765,8 @@ function createGitHubStore() {
   // API Methods (with caching and deduplication)
   // ---------------------------------------------------------------------------
 
-  async function searchPRs(
-    query: string,
-    page = 1,
-    perPage = 30,
-    signal?: AbortSignal
-  ) {
-    if (!octokit) throw new Error("Not initialized");
-
-    const cacheKey = `search:prs:${query}:${page}:${perPage}`;
-
-    const cached =
-      cache.get<
-        Awaited<
-          ReturnType<typeof octokit.request<"GET /search/issues">>
-        >["data"]
-      >(cacheKey);
-    if (cached) return cached;
-
-    const pending =
-      cache.getPending<
-        Awaited<
-          ReturnType<typeof octokit.request<"GET /search/issues">>
-        >["data"]
-      >(cacheKey);
-    if (pending) return pending;
-
-    const promise = octokit
-      .request("GET /search/issues", {
-        q: query,
-        sort: "updated",
-        order: "desc",
-        per_page: perPage,
-        page,
-        request: { signal },
-      })
-      .then((res) => {
-        cache.set(cacheKey, res.data);
-        return res.data;
-      });
-
-    cache.setPending(cacheKey, promise);
-    return promise;
+  function searchPRs(query: string, page = 1, perPage = 30) {
+    return queryClient.fetchQuery(queries.searchPRs(query, page, perPage));
   }
 
   async function fetchUserTeams() {
@@ -1061,69 +822,12 @@ function createGitHubStore() {
     }
   }
 
-  async function searchRepos(query: string) {
-    if (!octokit) throw new Error("Not initialized");
-
-    const cacheKey = `search:repos:${query}`;
-
-    const cached =
-      cache.get<
-        Awaited<
-          ReturnType<typeof octokit.request<"GET /search/repositories">>
-        >["data"]
-      >(cacheKey);
-    if (cached) return cached;
-
-    const pending =
-      cache.getPending<
-        Awaited<
-          ReturnType<typeof octokit.request<"GET /search/repositories">>
-        >["data"]
-      >(cacheKey);
-    if (pending) return pending;
-
-    const promise = octokit
-      .request("GET /search/repositories", {
-        q: query,
-        order: "desc",
-        per_page: 10,
-      })
-      .then((res) => {
-        cache.set(cacheKey, res.data);
-        return res.data;
-      });
-
-    cache.setPending(cacheKey, promise);
-    return promise;
+  function searchRepos(query: string) {
+    return queryClient.fetchQuery(queries.searchRepos(query));
   }
 
-  async function searchUsers(query: string) {
-    if (!octokit) throw new Error("Not initialized");
-
-    const cacheKey = `search:users:${query}`;
-
-    type UserSearchResult = Awaited<
-      ReturnType<typeof octokit.request<"GET /search/users">>
-    >["data"];
-
-    const cached = cache.get<UserSearchResult>(cacheKey);
-    if (cached) return cached;
-
-    const pending = cache.getPending<UserSearchResult>(cacheKey);
-    if (pending) return pending;
-
-    const promise = octokit
-      .request("GET /search/users", {
-        q: query,
-        per_page: 8,
-      })
-      .then((res) => {
-        cache.set(cacheKey, res.data);
-        return res.data;
-      });
-
-    cache.setPending(cacheKey, promise);
-    return promise;
+  function searchUsers(query: string) {
+    return queryClient.fetchQuery(queries.searchUsers(query));
   }
 
   async function getPR(
@@ -3325,8 +3029,6 @@ function createGitHubStore() {
     setOnUnauthorized,
     setOnRateLimited,
     // State actions
-    fetchPRList,
-    refreshPRList,
     fetchPRChecks,
     refreshAllPRChecks,
     getPRCheckKey,
@@ -3473,15 +3175,8 @@ export function GitHubProvider({ children }: { children: ReactNode }) {
     }
   }, [store, token, isAuthenticated]);
 
-  // Auto-refresh PR list every 60 seconds
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (store.getState().ready) {
-        store.refreshPRList();
-      }
-    }, 60_000);
-    return () => clearInterval(interval);
-  }, [store]);
+  // Auto-refresh PR list every 60 seconds (React Query handles this via staleTime + refetchOnWindowFocus)
+  // The prList query is managed by React Query; no manual interval needed here.
 
   // Auto-refresh PR checks every 30 seconds
   useEffect(() => {
@@ -3532,18 +3227,6 @@ export function useCurrentUser(): CurrentUserData | null {
   return data ?? null;
 }
 
-export function usePRList() {
-  return useGitHubSelector((s) => s.prList);
-}
-
-export function usePRListActions() {
-  const store = useGitHubStore();
-  return {
-    fetchPRList: store.fetchPRList,
-    refreshPRList: store.refreshPRList,
-  };
-}
-
 export function usePRChecks(owner: string, repo: string, number: number) {
   const store = useGitHubStore();
   const ready = useGitHubSelector((s) => s.ready);
@@ -3566,7 +3249,7 @@ export function usePRChecks(owner: string, repo: string, number: number) {
 export function useRefreshAll() {
   const store = useGitHubStore();
   return useCallback(() => {
-    store.refreshPRList();
+    queryClient.invalidateQueries({ queryKey: ["pr-list"] });
     store.refreshAllPRChecks();
   }, [store]);
 }
