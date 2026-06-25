@@ -60,8 +60,7 @@ export function useReviewActions() {
         });
       }
 
-      // Invalidate timeline cache so we get fresh data
-      github.invalidateCache(`pr:${owner}/${repo}/${pr.number}`);
+      github.invalidatePR(owner, repo, pr.number);
 
       // Refresh comments, reviews, and timeline
       const [newComments, reviews, timeline] = await Promise.all([

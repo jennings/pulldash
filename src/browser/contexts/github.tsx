@@ -253,155 +253,6 @@ export interface PendingReview {
 }
 
 // ============================================================================
-// Persistent Cache with Stale-While-Revalidate
-// ============================================================================
-
-interface CacheEntry<T> {
-  data: T;
-  timestamp: number;
-}
-
-interface PendingRequest<T> {
-  promise: Promise<T>;
-  timestamp: number;
-}
-
-const DEFAULT_CACHE_TTL = 30_000; // 30 seconds
-const STORAGE_PREFIX = "gh_cache:";
-
-class RequestCache {
-  private cache = new Map<string, CacheEntry<unknown>>();
-  private pending = new Map<string, PendingRequest<unknown>>();
-  private persistKeys = new Set<string>(); // Keys that should be persisted
-
-  constructor() {
-    // Load persisted cache on startup
-    this.loadFromStorage();
-  }
-
-  private loadFromStorage() {
-    try {
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key?.startsWith(STORAGE_PREFIX)) {
-          const cacheKey = key.slice(STORAGE_PREFIX.length);
-          const stored = localStorage.getItem(key);
-          if (stored) {
-            const entry = JSON.parse(stored) as CacheEntry<unknown>;
-            this.cache.set(cacheKey, entry);
-            this.persistKeys.add(cacheKey);
-          }
-        }
-      }
-    } catch {
-      // Ignore storage errors
-    }
-  }
-
-  private saveToStorage(key: string, entry: CacheEntry<unknown>) {
-    try {
-      localStorage.setItem(STORAGE_PREFIX + key, JSON.stringify(entry));
-      this.persistKeys.add(key);
-    } catch {
-      // Ignore storage errors (quota exceeded, etc.)
-    }
-  }
-
-  private removeFromStorage(key: string) {
-    try {
-      localStorage.removeItem(STORAGE_PREFIX + key);
-      this.persistKeys.delete(key);
-    } catch {
-      // Ignore
-    }
-  }
-
-  /**
-   * Get cached data. Returns null if no cache or cache is stale.
-   */
-  get<T>(key: string, ttl = DEFAULT_CACHE_TTL): T | null {
-    const entry = this.cache.get(key);
-    if (!entry) return null;
-    if (Date.now() - entry.timestamp > ttl) {
-      this.cache.delete(key);
-      this.removeFromStorage(key);
-      return null;
-    }
-    return entry.data as T;
-  }
-
-  /**
-   * Get cached data even if stale (for SWR pattern).
-   * Returns { data, isStale } or null if no cache exists.
-   */
-  getStale<T>(
-    key: string,
-    freshTtl = DEFAULT_CACHE_TTL
-  ): { data: T; isStale: boolean } | null {
-    const entry = this.cache.get(key);
-    if (!entry) return null;
-    const isStale = Date.now() - entry.timestamp > freshTtl;
-    return { data: entry.data as T, isStale };
-  }
-
-  set<T>(key: string, data: T, persist = false): void {
-    const entry = { data, timestamp: Date.now() };
-    this.cache.set(key, entry);
-    if (persist || this.persistKeys.has(key)) {
-      this.saveToStorage(key, entry);
-    }
-  }
-
-  getPending<T>(key: string): Promise<T> | null {
-    const pending = this.pending.get(key);
-    if (!pending) return null;
-    return pending.promise as Promise<T>;
-  }
-
-  setPending<T>(key: string, promise: Promise<T>): void {
-    this.pending.set(key, { promise, timestamp: Date.now() });
-    promise.finally(() => this.pending.delete(key));
-  }
-
-  clearPending(key: string): void {
-    this.pending.delete(key);
-  }
-
-  invalidate(pattern?: string): void {
-    if (!pattern) {
-      // Clear all memory cache
-      this.cache.clear();
-      // Clear all pending requests
-      this.pending.clear();
-      // Clear persisted cache
-      for (const key of this.persistKeys) {
-        this.removeFromStorage(key);
-      }
-      return;
-    }
-    for (const key of this.cache.keys()) {
-      if (key.includes(pattern)) {
-        this.cache.delete(key);
-        this.removeFromStorage(key);
-      }
-    }
-    // Also clear pending requests matching the pattern
-    for (const key of this.pending.keys()) {
-      if (key.includes(pattern)) {
-        this.pending.delete(key);
-      }
-    }
-  }
-
-  /**
-   * Check if we have any cached data (fresh or stale) for a key.
-   */
-  has(key: string): boolean {
-    return this.cache.has(key);
-  }
-}
-
-// ============================================================================
 // GraphQL Batcher - Combines multiple queries within a time window
 // ============================================================================
 
@@ -531,7 +382,6 @@ function createGitHubStore() {
   };
 
   const listeners = new Set<Listener>();
-  const cache = new RequestCache();
   // In-flight dedup for immutable (SHA-keyed) fetches that go directly to PersistentCache
   const immutablePending = new Map<string, Promise<unknown>>();
   let octokit: Octokit | null = null;
@@ -619,8 +469,7 @@ function createGitHubStore() {
     octokit = null;
     batcher = null;
     setOctokit(null);
-    cache.invalidate();
-    queryClient.removeQueries({ queryKey: ["pr-list"] });
+    queryClient.clear();
     setState({
       ready: false,
       error: null,
@@ -2668,10 +2517,6 @@ function createGitHubStore() {
     return queryClient.fetchQuery(queries.userByLogin(login));
   }
 
-  function invalidateCache(pattern?: string) {
-    cache.invalidate(pattern);
-  }
-
   return {
     // State
     getState,
@@ -2765,7 +2610,7 @@ function createGitHubStore() {
     updateIssueComment,
     deleteIssueComment,
     getUserProfile,
-    invalidateCache,
+    invalidatePR,
   };
 }
 
