@@ -53,7 +53,12 @@ import { cn } from "../cn";
 import { PRHeader } from "./pr-header";
 import { FileTree } from "./file-tree";
 import { FileHeader } from "./file-header";
-import type { PullRequest, PullRequestFile, ReviewComment } from "@/api/types";
+import type {
+  PullRequest,
+  PullRequestFile,
+  Review,
+  ReviewComment,
+} from "@/api/types";
 import {
   useGitHub,
   useGitHubStore,
@@ -765,6 +770,8 @@ function VersionBar() {
     (s) => s.parentCommitMessages
   );
   const versionDataLoaded = usePRReviewSelector((s) => s.versionDataLoaded);
+  const reviews = usePRReviewSelector((s) => s.reviews);
+  const currentUser = usePRReviewSelector((s) => s.currentUser);
 
   // Lazy-load version data on first mount (deferred from loadPRData)
   useEffect(() => {
@@ -782,6 +789,28 @@ function VersionBar() {
     return map;
   }, [commits]);
 
+  // Push version number of the most recent review submitted by the current user.
+  // Used to annotate the version with "- Last review" in the selectors.
+  const lastReviewedVersionNumber = useMemo(() => {
+    if (!currentUser || pushVersions.length === 0) return null;
+    let latest: Review | null = null;
+    for (const r of reviews) {
+      if (r.user?.login !== currentUser) continue;
+      if (!r.submitted_at) continue;
+      if (
+        !latest ||
+        new Date(r.submitted_at).getTime() >
+          new Date(latest.submitted_at ?? 0).getTime()
+      ) {
+        latest = r;
+      }
+    }
+    if (!latest?.commit_id) return null;
+    return (
+      pushVersions.find((v) => v.sha === latest.commit_id)?.version ?? null
+    );
+  }, [reviews, currentUser, pushVersions]);
+
   if (commits.length === 0) return null;
 
   const isViewingLatest = selectedHeadSha === null;
@@ -789,7 +818,7 @@ function VersionBar() {
   const viewingLabel = isViewingLatest
     ? `Latest`
     : viewingVersion
-      ? `v${viewingVersion.version} (${getTimeAgo(new Date(viewingVersion.pushedAt))})`
+      ? `v${viewingVersion.version} (${getTimeAgo(new Date(viewingVersion.pushedAt))})${viewingVersion.version === lastReviewedVersionNumber ? " - Last review" : ""}`
       : `v?`;
 
   const selectedCommit = selectedCommitSha
@@ -802,7 +831,7 @@ function VersionBar() {
   const compareToLabel = selectedParentSha
     ? `Parent #${(selectedCommit?.parents ?? []).findIndex((p) => p.sha === selectedParentSha) + 1}`
     : compareToVersion
-      ? `v${compareToVersion.version} (${getTimeAgo(new Date(compareToVersion.pushedAt))})`
+      ? `v${compareToVersion.version} (${getTimeAgo(new Date(compareToVersion.pushedAt))})${compareToVersion.version === lastReviewedVersionNumber ? " - Last review" : ""}`
       : compareToSha
         ? "v?"
         : "Target";
@@ -886,6 +915,12 @@ function VersionBar() {
                     <span className="text-muted-foreground">
                       ({getTimeAgo(new Date(pv.pushedAt))})
                     </span>
+                    {pv.version === lastReviewedVersionNumber && (
+                      <span className="text-muted-foreground">
+                        {" "}
+                        - Last review
+                      </span>
+                    )}
                   </span>
                   {selectedHeadSha === pv.sha && (
                     <Check className="w-3 h-3 ml-2 shrink-0" />
@@ -1072,6 +1107,12 @@ function VersionBar() {
                       <span className="text-muted-foreground">
                         ({getTimeAgo(new Date(pv.pushedAt))})
                       </span>
+                      {pv.version === lastReviewedVersionNumber && (
+                        <span className="text-muted-foreground">
+                          {" "}
+                          - Last review
+                        </span>
+                      )}
                     </span>
                     {compareToSha === pv.sha && (
                       <Check className="w-3 h-3 ml-2 shrink-0" />
