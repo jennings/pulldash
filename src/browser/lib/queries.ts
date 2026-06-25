@@ -24,10 +24,14 @@ import { keepPreviousData, queryOptions } from "@tanstack/react-query";
 import { getOctokit } from "./github-client";
 import type {
   CurrentUserData,
+  IssueComment,
   PRSearchResult,
   PullRequest,
   PullRequestFile,
   PushVersion,
+  Review,
+  ReviewComment,
+  TimelineEvent,
   UserProfile,
 } from "../contexts/github";
 import type { components } from "@octokit/openapi-types";
@@ -333,6 +337,156 @@ export const queries = {
         return versions;
       },
       staleTime: 30_000,
+    }),
+
+  pullRequestComments: (owner: string, repo: string, number: number) =>
+    queryOptions({
+      queryKey: ["pull-request", owner, repo, number, "comments"],
+      queryFn: async ({ signal }) => {
+        const comments: ReviewComment[] = [];
+        let page = 1;
+        while (true) {
+          const { data } = await getOctokit().request(
+            "GET /repos/{owner}/{repo}/pulls/{pull_number}/comments",
+            {
+              owner,
+              repo,
+              pull_number: number,
+              per_page: 100,
+              page,
+              headers: { accept: "application/vnd.github.full+json" },
+              request: { signal },
+            }
+          );
+          comments.push(...(data as ReviewComment[]));
+          if (data.length < 100) break;
+          page++;
+        }
+        return comments;
+      },
+      staleTime: 30_000,
+    }),
+
+  pullRequestReviews: (owner: string, repo: string, number: number) =>
+    queryOptions({
+      queryKey: ["pull-request", owner, repo, number, "reviews"],
+      queryFn: async ({ signal }) => {
+        const res = await getOctokit().request(
+          "GET /repos/{owner}/{repo}/pulls/{pull_number}/reviews",
+          {
+            owner,
+            repo,
+            pull_number: number,
+            headers: { accept: "application/vnd.github.full+json" },
+            request: { signal },
+          }
+        );
+        return res.data as Review[];
+      },
+      staleTime: 30_000,
+    }),
+
+  pullRequestConversation: (owner: string, repo: string, number: number) =>
+    queryOptions({
+      queryKey: ["pull-request", owner, repo, number, "conversation"],
+      queryFn: async ({ signal }) => {
+        const res = await getOctokit().request(
+          "GET /repos/{owner}/{repo}/issues/{issue_number}/comments",
+          {
+            owner,
+            repo,
+            issue_number: number,
+            headers: { accept: "application/vnd.github.full+json" },
+            request: { signal },
+          }
+        );
+        return res.data as IssueComment[];
+      },
+      staleTime: 30_000,
+    }),
+
+  pullRequestTimeline: (owner: string, repo: string, number: number) =>
+    queryOptions({
+      queryKey: ["pull-request", owner, repo, number, "timeline"],
+      queryFn: async ({ signal }) => {
+        const events: TimelineEvent[] = [];
+        let page = 1;
+        while (true) {
+          const { data } = await getOctokit().request(
+            "GET /repos/{owner}/{repo}/issues/{issue_number}/timeline",
+            {
+              owner,
+              repo,
+              issue_number: number,
+              per_page: 100,
+              page,
+              request: { signal },
+            }
+          );
+          events.push(...(data as TimelineEvent[]));
+          if (data.length < 100) break;
+          page++;
+        }
+        return events;
+      },
+      staleTime: 30_000,
+    }),
+
+  issueReactions: (owner: string, repo: string, issueNumber: number) =>
+    queryOptions({
+      queryKey: ["reactions", "issue", owner, repo, issueNumber],
+      queryFn: async ({ signal }) => {
+        const res = await getOctokit().request(
+          "GET /repos/{owner}/{repo}/issues/{issue_number}/reactions",
+          {
+            owner,
+            repo,
+            issue_number: issueNumber,
+            per_page: 100,
+            request: { signal },
+          }
+        );
+        return res.data as components["schemas"]["reaction"][];
+      },
+      staleTime: 5 * 60_000,
+    }),
+
+  commentReactions: (owner: string, repo: string, commentId: number) =>
+    queryOptions({
+      queryKey: ["reactions", "comment", owner, repo, commentId],
+      queryFn: async ({ signal }) => {
+        const res = await getOctokit().request(
+          "GET /repos/{owner}/{repo}/issues/comments/{comment_id}/reactions",
+          {
+            owner,
+            repo,
+            comment_id: commentId,
+            per_page: 100,
+            request: { signal },
+          }
+        );
+        return res.data as components["schemas"]["reaction"][];
+      },
+      staleTime: 5 * 60_000,
+    }),
+
+  reviewCommentReactions: (owner: string, repo: string, commentId: number) =>
+    queryOptions({
+      queryKey: ["reactions", "review-comment", owner, repo, commentId],
+      queryFn: async ({ signal }) => {
+        const res = await getOctokit().request(
+          "GET /repos/{owner}/{repo}/pulls/comments/{comment_id}/reactions",
+          {
+            owner,
+            repo,
+            comment_id: commentId,
+            per_page: 100,
+            request: { signal },
+          }
+        );
+        return res.data as components["schemas"]["reaction"][];
+      },
+      staleTime: 5 * 60_000,
     }),
 
   userByLogin: (login: string) =>

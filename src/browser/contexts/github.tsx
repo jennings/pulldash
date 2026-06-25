@@ -766,11 +766,12 @@ function createGitHubStore() {
   // ---------------------------------------------------------------------------
 
   function invalidatePR(owner: string, repo: string, number: number) {
+    // Prefix match: invalidates the PR header AND every sub-query
+    // (files, commits, push-versions, comments, reviews, conversation, timeline).
     queryClient.invalidateQueries({
       queryKey: ["pull-request", owner, repo, number],
     });
     queryClient.invalidateQueries({ queryKey: ["pr-list"] });
-    cache.invalidate(`pr:${owner}/${repo}/${number}`);
   }
 
   function searchPRs(query: string, page = 1, perPage = 30) {
@@ -1074,51 +1075,15 @@ function createGitHubStore() {
     return promise;
   }
 
-  async function getPRComments(
+  function getPRComments(
     owner: string,
     repo: string,
     number: number
   ): Promise<ReviewComment[]> {
     if (!octokit) throw new Error("Not initialized");
-
-    const cacheKey = `pr:${owner}/${repo}/${number}:comments`;
-
-    const cached = cache.get<ReviewComment[]>(cacheKey);
-    if (cached) return cached;
-
-    const pending = cache.getPending<ReviewComment[]>(cacheKey);
-    if (pending) return pending;
-
-    const promise = (async () => {
-      const comments: ReviewComment[] = [];
-      let page = 1;
-
-      while (true) {
-        const { data } = await octokit!.request(
-          "GET /repos/{owner}/{repo}/pulls/{pull_number}/comments",
-          {
-            owner,
-            repo,
-            pull_number: number,
-            per_page: 100,
-            page,
-            headers: {
-              // Request full media type to get both body and body_html with signed attachment URLs
-              accept: "application/vnd.github.full+json",
-            },
-          }
-        );
-        comments.push(...(data as ReviewComment[]));
-        if (data.length < 100) break;
-        page++;
-      }
-
-      cache.set(cacheKey, comments);
-      return comments;
-    })();
-
-    cache.setPending(cacheKey, promise);
-    return promise;
+    return queryClient.fetchQuery(
+      queries.pullRequestComments(owner, repo, number)
+    );
   }
 
   async function createPRComment(
@@ -1167,42 +1132,21 @@ function createGitHubStore() {
       result = data;
     }
 
-    cache.invalidate(`pr:${owner}/${repo}/${number}:comments`);
+    queryClient.invalidateQueries({
+      queryKey: queries.pullRequestComments(owner, repo, number).queryKey,
+    });
     return result;
   }
 
-  async function getPRReviews(
+  function getPRReviews(
     owner: string,
     repo: string,
     number: number
   ): Promise<Review[]> {
     if (!octokit) throw new Error("Not initialized");
-
-    const cacheKey = `pr:${owner}/${repo}/${number}:reviews`;
-
-    const cached = cache.get<Review[]>(cacheKey);
-    if (cached) return cached;
-
-    const pending = cache.getPending<Review[]>(cacheKey);
-    if (pending) return pending;
-
-    const promise = octokit
-      .request("GET /repos/{owner}/{repo}/pulls/{pull_number}/reviews", {
-        owner,
-        repo,
-        pull_number: number,
-        headers: {
-          // Request full media type to get both body and body_html with signed attachment URLs
-          accept: "application/vnd.github.full+json",
-        },
-      })
-      .then((res) => {
-        cache.set(cacheKey, res.data as Review[]);
-        return res.data as Review[];
-      });
-
-    cache.setPending(cacheKey, promise);
-    return promise;
+    return queryClient.fetchQuery(
+      queries.pullRequestReviews(owner, repo, number)
+    );
   }
 
   async function createPRReview(
@@ -1625,40 +1569,11 @@ function createGitHubStore() {
     | "rocket"
     | "eyes";
 
-  async function getIssueReactions(
-    owner: string,
-    repo: string,
-    issueNumber: number
-  ) {
+  function getIssueReactions(owner: string, repo: string, issueNumber: number) {
     if (!octokit) throw new Error("Not initialized");
-
-    const cacheKey = `reactions:issue:${owner}/${repo}/${issueNumber}`;
-
-    const cached = cache.get<components["schemas"]["reaction"][]>(
-      cacheKey,
-      300_000
+    return queryClient.fetchQuery(
+      queries.issueReactions(owner, repo, issueNumber)
     );
-    if (cached) return cached;
-
-    const pending =
-      cache.getPending<components["schemas"]["reaction"][]>(cacheKey);
-    if (pending) return pending;
-
-    const promise = octokit
-      .request("GET /repos/{owner}/{repo}/issues/{issue_number}/reactions", {
-        owner,
-        repo,
-        issue_number: issueNumber,
-        per_page: 100,
-      })
-      .then((res) => {
-        const data = res.data as components["schemas"]["reaction"][];
-        cache.set(cacheKey, data);
-        return data;
-      });
-
-    cache.setPending(cacheKey, promise);
-    return promise;
   }
 
   async function addIssueReaction(
@@ -1679,7 +1594,9 @@ function createGitHubStore() {
       }
     );
 
-    cache.invalidate(`reactions:issue:${owner}/${repo}/${issueNumber}`);
+    queryClient.invalidateQueries({
+      queryKey: queries.issueReactions(owner, repo, issueNumber).queryKey,
+    });
     return data;
   }
 
@@ -1701,46 +1618,16 @@ function createGitHubStore() {
       }
     );
 
-    cache.invalidate(`reactions:issue:${owner}/${repo}/${issueNumber}`);
+    queryClient.invalidateQueries({
+      queryKey: queries.issueReactions(owner, repo, issueNumber).queryKey,
+    });
   }
 
-  async function getCommentReactions(
-    owner: string,
-    repo: string,
-    commentId: number
-  ) {
+  function getCommentReactions(owner: string, repo: string, commentId: number) {
     if (!octokit) throw new Error("Not initialized");
-
-    const cacheKey = `reactions:comment:${owner}/${repo}/${commentId}`;
-
-    const cached = cache.get<components["schemas"]["reaction"][]>(
-      cacheKey,
-      300_000
+    return queryClient.fetchQuery(
+      queries.commentReactions(owner, repo, commentId)
     );
-    if (cached) return cached;
-
-    const pending =
-      cache.getPending<components["schemas"]["reaction"][]>(cacheKey);
-    if (pending) return pending;
-
-    const promise = octokit
-      .request(
-        "GET /repos/{owner}/{repo}/issues/comments/{comment_id}/reactions",
-        {
-          owner,
-          repo,
-          comment_id: commentId,
-          per_page: 100,
-        }
-      )
-      .then((res) => {
-        const data = res.data as components["schemas"]["reaction"][];
-        cache.set(cacheKey, data);
-        return data;
-      });
-
-    cache.setPending(cacheKey, promise);
-    return promise;
   }
 
   async function addCommentReaction(
@@ -1761,7 +1648,9 @@ function createGitHubStore() {
       }
     );
 
-    cache.invalidate(`reactions:comment:${owner}/${repo}/${commentId}`);
+    queryClient.invalidateQueries({
+      queryKey: queries.commentReactions(owner, repo, commentId).queryKey,
+    });
     return data;
   }
 
@@ -1783,47 +1672,21 @@ function createGitHubStore() {
       }
     );
 
-    cache.invalidate(`reactions:comment:${owner}/${repo}/${commentId}`);
+    queryClient.invalidateQueries({
+      queryKey: queries.commentReactions(owner, repo, commentId).queryKey,
+    });
   }
 
   // Pull Request Review Comment Reactions (different from issue comments)
-  async function getReviewCommentReactions(
+  function getReviewCommentReactions(
     owner: string,
     repo: string,
     commentId: number
   ) {
     if (!octokit) throw new Error("Not initialized");
-
-    const cacheKey = `reactions:review-comment:${owner}/${repo}/${commentId}`;
-
-    const cached = cache.get<components["schemas"]["reaction"][]>(
-      cacheKey,
-      300_000
+    return queryClient.fetchQuery(
+      queries.reviewCommentReactions(owner, repo, commentId)
     );
-    if (cached) return cached;
-
-    const pending =
-      cache.getPending<components["schemas"]["reaction"][]>(cacheKey);
-    if (pending) return pending;
-
-    const promise = octokit
-      .request(
-        "GET /repos/{owner}/{repo}/pulls/comments/{comment_id}/reactions",
-        {
-          owner,
-          repo,
-          comment_id: commentId,
-          per_page: 100,
-        }
-      )
-      .then((res) => {
-        const data = res.data as components["schemas"]["reaction"][];
-        cache.set(cacheKey, data);
-        return data;
-      });
-
-    cache.setPending(cacheKey, promise);
-    return promise;
   }
 
   async function addReviewCommentReaction(
@@ -1844,7 +1707,9 @@ function createGitHubStore() {
       }
     );
 
-    cache.invalidate(`reactions:review-comment:${owner}/${repo}/${commentId}`);
+    queryClient.invalidateQueries({
+      queryKey: queries.reviewCommentReactions(owner, repo, commentId).queryKey,
+    });
     return data;
   }
 
@@ -1866,7 +1731,9 @@ function createGitHubStore() {
       }
     );
 
-    cache.invalidate(`reactions:review-comment:${owner}/${repo}/${commentId}`);
+    queryClient.invalidateQueries({
+      queryKey: queries.reviewCommentReactions(owner, repo, commentId).queryKey,
+    });
   }
 
   async function closePR(owner: string, repo: string, number: number) {
@@ -1980,38 +1847,15 @@ function createGitHubStore() {
     });
   }
 
-  async function getPRConversation(
+  function getPRConversation(
     owner: string,
     repo: string,
     number: number
   ): Promise<IssueComment[]> {
     if (!octokit) throw new Error("Not initialized");
-
-    const cacheKey = `pr:${owner}/${repo}/${number}:conversation`;
-
-    const cached = cache.get<IssueComment[]>(cacheKey);
-    if (cached) return cached;
-
-    const pending = cache.getPending<IssueComment[]>(cacheKey);
-    if (pending) return pending;
-
-    const promise = octokit
-      .request("GET /repos/{owner}/{repo}/issues/{issue_number}/comments", {
-        owner,
-        repo,
-        issue_number: number,
-        headers: {
-          // Request full media type to get both body and body_html with signed attachment URLs
-          accept: "application/vnd.github.full+json",
-        },
-      })
-      .then((res) => {
-        cache.set(cacheKey, res.data as IssueComment[]);
-        return res.data as IssueComment[];
-      });
-
-    cache.setPending(cacheKey, promise);
-    return promise;
+    return queryClient.fetchQuery(
+      queries.pullRequestConversation(owner, repo, number)
+    );
   }
 
   async function createPRConversationComment(
@@ -2031,51 +1875,21 @@ function createGitHubStore() {
         body,
       }
     );
-    cache.invalidate(`pr:${owner}/${repo}/${number}:conversation`);
+    queryClient.invalidateQueries({
+      queryKey: queries.pullRequestConversation(owner, repo, number).queryKey,
+    });
     return data;
   }
 
-  async function getPRTimeline(
+  function getPRTimeline(
     owner: string,
     repo: string,
     number: number
   ): Promise<TimelineEvent[]> {
     if (!octokit) throw new Error("Not initialized");
-
-    const cacheKey = `pr:${owner}/${repo}/${number}:timeline`;
-
-    const cached = cache.get<TimelineEvent[]>(cacheKey);
-    if (cached) return cached;
-
-    const pending = cache.getPending<TimelineEvent[]>(cacheKey);
-    if (pending) return pending;
-
-    const promise = (async () => {
-      const events: TimelineEvent[] = [];
-      let page = 1;
-
-      while (true) {
-        const { data } = await octokit!.request(
-          "GET /repos/{owner}/{repo}/issues/{issue_number}/timeline",
-          {
-            owner,
-            repo,
-            issue_number: number,
-            per_page: 100,
-            page,
-          }
-        );
-        events.push(...(data as TimelineEvent[]));
-        if (data.length < 100) break;
-        page++;
-      }
-
-      cache.set(cacheKey, events);
-      return events;
-    })();
-
-    cache.setPending(cacheKey, promise);
-    return promise;
+    return queryClient.fetchQuery(
+      queries.pullRequestTimeline(owner, repo, number)
+    );
   }
 
   async function getFileContent(
