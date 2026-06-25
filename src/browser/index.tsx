@@ -40,9 +40,13 @@ createRoot(document.getElementById("app")!).render(
                 <Routes>
                   {/* Home */}
                   <Route path="/" element={<AppShell />} />
-                  {/* PR review - URL like /:owner/:repo/pull/:number */}
+                  {/* PR review - URL like /:owner/:repo/pull/:number/[commits|checks|changes] */}
                   <Route
                     path="/:owner/:repo/pull/:number"
+                    element={<AppShell />}
+                  />
+                  <Route
+                    path="/:owner/:repo/pull/:number/:tab"
                     element={<AppShell />}
                   />
                 </Routes>

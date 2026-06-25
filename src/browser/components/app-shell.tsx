@@ -52,7 +52,12 @@ export function AppShell() {
     resetTabs,
   } = useTabContext();
   const { isAuthenticated } = useAuth();
-  const params = useParams<{ owner: string; repo: string; number: string }>();
+  const params = useParams<{
+    owner: string;
+    repo: string;
+    number: string;
+    tab?: string;
+  }>();
   const navigate = useNavigate();
   const githubStore = useGitHubStore();
 

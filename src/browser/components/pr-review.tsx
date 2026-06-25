@@ -69,6 +69,7 @@ import {
   usePRReviewStore,
   useKeyboardNavigation,
   useHashNavigation,
+  useRouteNavigation,
   useDiffLoader,
   usePendingReviewLoader,
   useCurrentUserLoader,
@@ -405,6 +406,7 @@ function PRReviewLayout() {
   // Initialize hooks that load data
   useKeyboardNavigation();
   useHashNavigation();
+  useRouteNavigation();
   useDiffLoader();
   usePendingReviewLoader();
   useCurrentUserLoader();

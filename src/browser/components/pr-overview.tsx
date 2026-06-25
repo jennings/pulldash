@@ -55,7 +55,11 @@ import {
   TooltipTrigger,
 } from "../ui/tooltip";
 import { EmojiReactions } from "./emoji-reactions";
-import { usePRReviewSelector, usePRReviewStore } from "../contexts/pr-review";
+import {
+  usePRReviewSelector,
+  usePRReviewStore,
+  type OverviewTab,
+} from "../contexts/pr-review";
 import { getTimeAgo, formatDateTime } from "../lib/dates";
 import { parseDiffCached, type ParsedDiff } from "../lib/diff";
 import type { ReviewComment } from "@/api/types";
@@ -95,7 +99,7 @@ type CheckRun = GitHubCheckRun;
 type CombinedStatus = GitHubCombinedStatus;
 type IssueComment = GitHubIssueComment;
 
-type TabType = "conversation" | "commits" | "checks";
+type TabType = OverviewTab;
 
 // ============================================================================
 // Main Component
@@ -158,8 +162,15 @@ export const PROverview = memo(function PROverview() {
     (s) => s.viewerCanMergeAsAdmin
   );
 
+  // Active tab is driven by the URL via the store.
+  const activeTab = usePRReviewSelector((s) => s.overviewActiveTab);
+  const setActiveTab = useCallback(
+    (tab: TabType) => {
+      store.setOverviewActiveTab(tab);
+    },
+    [store]
+  );
   // Local UI state (not in store)
-  const [activeTab, setActiveTab] = useState<TabType>("conversation");
   const [showMergeOptions, setShowMergeOptions] = useState(false);
   const [commentText, setCommentText] = useState("");
   const [submittingComment, setSubmittingComment] = useState(false);

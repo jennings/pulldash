@@ -156,6 +156,8 @@ export interface WorkflowRunAwaitingApproval {
 // Merge method type
 export type MergeMethod = "merge" | "squash" | "rebase";
 
+export type OverviewTab = "conversation" | "commits" | "checks";
+
 interface PRReviewState {
   // Core data
   pr: PullRequest;
@@ -261,6 +263,8 @@ interface PRReviewState {
   selectedFile: string | null;
   selectedFiles: Set<string>;
   showOverview: boolean;
+  // Which sub-tab is active when on the overview screen.
+  overviewActiveTab: OverviewTab;
   // Overview scroll target (GitHub-style hash: pullrequestreview-{id}, issuecomment-{id}, etc.)
   overviewScrollTarget: string | null;
 
@@ -644,6 +648,7 @@ export class PRReviewStore {
       selectedFile: null,
       selectedFiles: new Set(),
       showOverview: true,
+      overviewActiveTab: "conversation",
       overviewScrollTarget: null,
       conversationsSidebarOpen: false,
       commentsHidden: false,
@@ -824,6 +829,17 @@ export class PRReviewStore {
     if (this.state.overviewScrollTarget) {
       this.set({ overviewScrollTarget: null });
     }
+  };
+
+  setOverviewActiveTab = (tab: OverviewTab) => {
+    if (this.state.overviewActiveTab === tab && this.state.showOverview) return;
+    this.set({
+      overviewActiveTab: tab,
+      showOverview: true,
+      // Selecting an overview sub-tab implies leaving the file view.
+      selectedFile: null,
+      selectedFiles: new Set(),
+    });
   };
 
   toggleConversationsSidebar = () => {
@@ -4268,6 +4284,7 @@ export { useCommentRangeLookup } from "./useCommentRangeLookup";
 export { useCommentAnchorLookup } from "./useCommentAnchorLookup";
 export { useKeyboardNavigation } from "./useKeyboardNavigation";
 export { useHashNavigation } from "./useHashNavigation";
+export { useRouteNavigation } from "./useRouteNavigation";
 export { useDiffLoader } from "./useDiffLoader";
 export { useCurrentUserLoader } from "./useCurrentUserLoader";
 export { usePendingReviewLoader } from "./usePendingReviewLoader";
