@@ -22,9 +22,11 @@
 
 import { keepPreviousData, queryOptions } from "@tanstack/react-query";
 import { getOctokit } from "./github-client";
+import * as PersistentCache from "./persistent-cache";
 import type {
   CurrentUserData,
   IssueComment,
+  PRCommit,
   PRSearchResult,
   PullRequest,
   PullRequestFile,
@@ -505,6 +507,233 @@ export const queries = {
       },
       staleTime: 60 * 60_000,
       meta: { persist: true },
+    }),
+
+  commitFiles: (owner: string, repo: string, sha: string, prKey?: string) =>
+    queryOptions({
+      queryKey: ["commit-files", owner, repo, sha],
+      queryFn: async ({ signal }) => {
+        const key = `commit:${owner}/${repo}/${sha}:files`;
+        const cached = await PersistentCache.get<PullRequestFile[]>(key);
+        if (cached) return cached;
+        const { data } = await getOctokit().request(
+          "GET /repos/{owner}/{repo}/commits/{ref}",
+          { owner, repo, ref: sha, request: { signal } }
+        );
+        const files = (data.files ?? []) as PullRequestFile[];
+        if (prKey) await PersistentCache.put(key, files, prKey);
+        return files;
+      },
+      staleTime: Infinity,
+      gcTime: 5 * 60_000,
+    }),
+
+  singleCommit: (owner: string, repo: string, ref: string, prKey?: string) =>
+    queryOptions({
+      queryKey: ["single-commit", owner, repo, ref],
+      queryFn: async ({ signal }) => {
+        const key = `commit:${owner}/${repo}:${ref}`;
+        const cached = await PersistentCache.get<PRCommit>(key);
+        if (cached) return cached;
+        const { data } = await getOctokit().request(
+          "GET /repos/{owner}/{repo}/commits/{ref}",
+          { owner, repo, ref, request: { signal } }
+        );
+        const commit = data as PRCommit;
+        if (prKey) await PersistentCache.put(key, commit, prKey);
+        return commit;
+      },
+      staleTime: Infinity,
+      gcTime: 5 * 60_000,
+    }),
+
+  rawGitCommit: (owner: string, repo: string, ref: string, prKey?: string) =>
+    queryOptions({
+      queryKey: ["raw-git-commit", owner, repo, ref],
+      queryFn: async ({ signal }) => {
+        const key = `git-commit:${owner}/${repo}:${ref}`;
+        type RawCommit = { verification: { payload: string } | null };
+        const cached = await PersistentCache.get<RawCommit>(key);
+        if (cached) return cached;
+        const { data } = await getOctokit().request(
+          "GET /repos/{owner}/{repo}/git/commits/{ref}",
+          { owner, repo, ref, request: { signal } }
+        );
+        const commit = data as unknown as RawCommit;
+        if (prKey) await PersistentCache.put(key, commit, prKey);
+        return commit;
+      },
+      staleTime: Infinity,
+      gcTime: 5 * 60_000,
+    }),
+
+  mergeCommitFiles: (
+    owner: string,
+    repo: string,
+    mergeSha: string,
+    parentSha: string,
+    prKey?: string
+  ) =>
+    queryOptions({
+      queryKey: ["merge-commit-files", owner, repo, mergeSha, parentSha],
+      queryFn: async ({ signal }) => {
+        const key = `merge:${owner}/${repo}/${mergeSha}:${parentSha}:files`;
+        const cached = await PersistentCache.get<PullRequestFile[]>(key);
+        if (cached) return cached;
+        const { data } = await getOctokit().request(
+          "GET /repos/{owner}/{repo}/compare/{basehead}",
+          {
+            owner,
+            repo,
+            basehead: `${parentSha}...${mergeSha}`,
+            request: { signal },
+          }
+        );
+        const files = (data.files ?? []) as PullRequestFile[];
+        if (prKey) await PersistentCache.put(key, files, prKey);
+        return files;
+      },
+      staleTime: Infinity,
+      gcTime: 5 * 60_000,
+    }),
+
+  rawCompareDiff: (
+    owner: string,
+    repo: string,
+    baseSha: string,
+    headSha: string,
+    prKey?: string
+  ) =>
+    queryOptions({
+      queryKey: ["raw-compare-diff", owner, repo, baseSha, headSha],
+      queryFn: async ({ signal }) => {
+        const key = `rawdiff:${owner}/${repo}/${baseSha}...${headSha}`;
+        const cached = await PersistentCache.get<string>(key);
+        if (cached) return cached;
+        const { data } = await getOctokit().request(
+          "GET /repos/{owner}/{repo}/compare/{basehead}",
+          {
+            owner,
+            repo,
+            basehead: `${baseSha}...${headSha}`,
+            headers: { Accept: "application/vnd.github.diff" },
+            request: { signal },
+          }
+        );
+        const text = data as unknown as string;
+        if (prKey) await PersistentCache.put(key, text, prKey);
+        return text;
+      },
+      staleTime: Infinity,
+      gcTime: 5 * 60_000,
+    }),
+
+  prFilesForRange: (
+    owner: string,
+    repo: string,
+    baseSha: string,
+    headSha: string,
+    prKey?: string
+  ) =>
+    queryOptions({
+      queryKey: ["pr-files-for-range", owner, repo, baseSha, headSha],
+      queryFn: async ({ signal }) => {
+        const key = `compare:${owner}/${repo}/${baseSha}...${headSha}:files`;
+        const cached = await PersistentCache.get<PullRequestFile[]>(key);
+        if (cached) return cached;
+        const { data } = await getOctokit().request(
+          "GET /repos/{owner}/{repo}/compare/{basehead}",
+          {
+            owner,
+            repo,
+            basehead: `${baseSha}...${headSha}`,
+            per_page: 100,
+            request: { signal },
+          }
+        );
+        const files = (data.files ?? []) as PullRequestFile[];
+        if (prKey) await PersistentCache.put(key, files, prKey);
+        return files;
+      },
+      staleTime: Infinity,
+      gcTime: 5 * 60_000,
+    }),
+
+  commitsForHeadSha: (
+    owner: string,
+    repo: string,
+    baseSha: string,
+    headSha: string,
+    prKey?: string
+  ) =>
+    queryOptions({
+      queryKey: ["commits-for-head-sha", owner, repo, baseSha, headSha],
+      queryFn: async ({ signal }) => {
+        const key = `compare:${owner}/${repo}/${baseSha}...${headSha}:commits`;
+        type CommitList = components["schemas"]["commit"][];
+        const cached = await PersistentCache.get<CommitList>(key);
+        if (cached) return cached;
+        const { data } = await getOctokit().request(
+          "GET /repos/{owner}/{repo}/compare/{basehead}",
+          {
+            owner,
+            repo,
+            basehead: `${baseSha}...${headSha}`,
+            per_page: 100,
+            request: { signal },
+          }
+        );
+        const commits = data.commits as CommitList;
+        if (prKey) await PersistentCache.put(key, commits, prKey);
+        return commits;
+      },
+      staleTime: Infinity,
+      gcTime: 5 * 60_000,
+    }),
+
+  fileContent: (
+    owner: string,
+    repo: string,
+    path: string,
+    ref: string,
+    prKey?: string
+  ) =>
+    queryOptions({
+      queryKey: ["file-content", owner, repo, path, ref],
+      queryFn: async ({ signal }) => {
+        const key = `file:${owner}/${repo}/${ref}/${path}`;
+        const cached = await PersistentCache.get<string>(key);
+        if (cached !== null) return cached;
+        try {
+          const { data } = await getOctokit().request(
+            "GET /repos/{owner}/{repo}/contents/{path}",
+            {
+              owner,
+              repo,
+              path,
+              ref,
+              headers: { Accept: "application/vnd.github.raw+json" },
+              request: { signal },
+            }
+          );
+          const content = data as unknown as string;
+          if (prKey) await PersistentCache.put(key, content, prKey);
+          return content;
+        } catch (error) {
+          if (
+            error &&
+            typeof error === "object" &&
+            "status" in error &&
+            (error as { status: number }).status === 404
+          ) {
+            if (prKey) await PersistentCache.put(key, "", prKey);
+            return "";
+          }
+          throw error;
+        }
+      },
+      staleTime: Infinity,
+      gcTime: 5 * 60_000,
     }),
 
   prList: (queryStrings: string[], page = 1, perPage = 30) =>
