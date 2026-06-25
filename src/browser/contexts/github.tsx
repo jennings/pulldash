@@ -617,9 +617,7 @@ function createGitHubStore() {
   function invalidatePR(owner: string, repo: string, number: number) {
     // Prefix match: invalidates the PR header AND every sub-query
     // (files, commits, push-versions, comments, reviews, conversation, timeline).
-    queryClient.invalidateQueries({
-      queryKey: ["pull-request", owner, repo, number],
-    });
+    queryClient.invalidateQueries(queries.pullRequest(owner, repo, number));
     queryClient.invalidateQueries({ queryKey: ["pr-list"] });
   }
 

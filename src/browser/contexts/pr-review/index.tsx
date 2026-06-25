@@ -36,6 +36,7 @@ import {
 } from "@/browser/contexts/github";
 import { diffService } from "@/browser/lib/diff";
 import { queryClient } from "@/browser/lib/query-client";
+import { queries } from "@/browser/lib/queries";
 
 // ============================================================================
 // File Sorting (match file tree order)
@@ -3572,12 +3573,10 @@ export class PRReviewStore {
 
     this.set({ loadingChecks: true });
 
-    queryClient.invalidateQueries({
-      queryKey: ["checks", owner, repo, sha],
-    });
-    queryClient.invalidateQueries({
-      queryKey: ["workflow-runs", owner, repo, sha],
-    });
+    queryClient.invalidateQueries(queries.checksByCommit(owner, repo, sha));
+    queryClient.invalidateQueries(
+      queries.workflowRunsByCommit(owner, repo, sha)
+    );
 
     try {
       const [checksData, workflowRunsData] = await Promise.all([
