@@ -54,4 +54,50 @@ export const queries = {
       staleTime: 5 * 60_000,
       meta: { persist: true },
     }),
+
+  checksByCommit: (owner: string, repo: string, sha: string) =>
+    queryOptions({
+      queryKey: ["checks", owner, repo, sha],
+      queryFn: async () => {
+        const [checkRunsRes, statusRes] = await Promise.all([
+          getOctokit().request(
+            "GET /repos/{owner}/{repo}/commits/{ref}/check-runs",
+            { owner, repo, ref: sha }
+          ),
+          getOctokit().request(
+            "GET /repos/{owner}/{repo}/commits/{ref}/status",
+            { owner, repo, ref: sha }
+          ),
+        ]);
+        return {
+          checkRuns: checkRunsRes.data
+            .check_runs as components["schemas"]["check-run"][],
+          status:
+            statusRes.data as components["schemas"]["combined-commit-status"],
+        };
+      },
+      staleTime: 15_000,
+    }),
+
+  workflowRunsByCommit: (owner: string, repo: string, sha: string) =>
+    queryOptions({
+      queryKey: ["workflow-runs", owner, repo, sha],
+      queryFn: async () => {
+        const res = await getOctokit().request(
+          "GET /repos/{owner}/{repo}/actions/runs",
+          { owner, repo, head_sha: sha, per_page: 50 }
+        );
+        return {
+          workflow_runs: res.data.workflow_runs as Array<{
+            id: number;
+            name: string | null;
+            status: string | null;
+            conclusion: string | null;
+            html_url: string;
+            head_sha: string;
+          }>,
+        };
+      },
+      staleTime: 15_000,
+    }),
 };
