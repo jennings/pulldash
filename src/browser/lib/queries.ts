@@ -58,8 +58,10 @@ export const queries = {
   currentUser: () =>
     queryOptions({
       queryKey: ["user", "current"],
-      queryFn: async () => {
-        const r = await getOctokit().request("GET /user");
+      queryFn: async ({ signal }) => {
+        const r = await getOctokit().request("GET /user", {
+          request: { signal },
+        });
         return toCurrentUserData(r.data);
       },
       staleTime: 5 * 60_000,
@@ -69,15 +71,15 @@ export const queries = {
   checksByCommit: (owner: string, repo: string, sha: string) =>
     queryOptions({
       queryKey: ["checks", owner, repo, sha],
-      queryFn: async () => {
+      queryFn: async ({ signal }) => {
         const [checkRunsRes, statusRes] = await Promise.all([
           getOctokit().request(
             "GET /repos/{owner}/{repo}/commits/{ref}/check-runs",
-            { owner, repo, ref: sha }
+            { owner, repo, ref: sha, request: { signal } }
           ),
           getOctokit().request(
             "GET /repos/{owner}/{repo}/commits/{ref}/status",
-            { owner, repo, ref: sha }
+            { owner, repo, ref: sha, request: { signal } }
           ),
         ]);
         return {
@@ -93,10 +95,10 @@ export const queries = {
   workflowRunsByCommit: (owner: string, repo: string, sha: string) =>
     queryOptions({
       queryKey: ["workflow-runs", owner, repo, sha],
-      queryFn: async () => {
+      queryFn: async ({ signal }) => {
         const res = await getOctokit().request(
           "GET /repos/{owner}/{repo}/actions/runs",
-          { owner, repo, head_sha: sha, per_page: 50 }
+          { owner, repo, head_sha: sha, per_page: 50, request: { signal } }
         );
         return {
           workflow_runs: res.data.workflow_runs as Array<{
@@ -115,10 +117,10 @@ export const queries = {
   collaborators: (owner: string, repo: string) =>
     queryOptions({
       queryKey: ["collaborators", owner, repo],
-      queryFn: async () => {
+      queryFn: async ({ signal }) => {
         const res = await getOctokit().request(
           "GET /repos/{owner}/{repo}/collaborators",
-          { owner, repo, per_page: 100 }
+          { owner, repo, per_page: 100, request: { signal } }
         );
         return res.data as components["schemas"]["collaborator"][];
       },
@@ -129,7 +131,7 @@ export const queries = {
   labels: (owner: string, repo: string) =>
     queryOptions({
       queryKey: ["labels", owner, repo],
-      queryFn: async () => {
+      queryFn: async ({ signal }) => {
         const allLabels: Array<{
           name: string;
           color: string;
@@ -139,7 +141,7 @@ export const queries = {
         while (true) {
           const { data } = await getOctokit().request(
             "GET /repos/{owner}/{repo}/labels",
-            { owner, repo, per_page: 100, page }
+            { owner, repo, per_page: 100, page, request: { signal } }
           );
           for (const l of data) {
             allLabels.push({
@@ -178,11 +180,12 @@ export const queries = {
   searchRepos: (query: string) =>
     queryOptions({
       queryKey: ["search", "repos", query],
-      queryFn: async () => {
+      queryFn: async ({ signal }) => {
         const res = await getOctokit().request("GET /search/repositories", {
           q: query,
           order: "desc",
           per_page: 10,
+          request: { signal },
         });
         return res.data;
       },
@@ -192,10 +195,11 @@ export const queries = {
   searchUsers: (query: string) =>
     queryOptions({
       queryKey: ["search", "users", query],
-      queryFn: async () => {
+      queryFn: async ({ signal }) => {
         const res = await getOctokit().request("GET /search/users", {
           q: query,
           per_page: 8,
+          request: { signal },
         });
         return res.data;
       },
@@ -270,7 +274,7 @@ export const queries = {
   pullRequestPushVersions: (owner: string, repo: string, number: number) =>
     queryOptions({
       queryKey: ["pull-request", owner, repo, number, "push-versions"],
-      queryFn: async () => {
+      queryFn: async ({ signal }) => {
         interface ForcePushNode {
           createdAt: string;
           beforeCommit: { oid: string } | null;
@@ -300,7 +304,7 @@ export const queries = {
               }
             }
           }`,
-          { owner, repo, number }
+          { owner, repo, number, request: { signal } }
         );
 
         const prData = data.repository.pullRequest;
@@ -560,7 +564,7 @@ export const queries = {
 
         if (prIdentifiers.length > 0 && !signal?.aborted) {
           try {
-            const enrichmentMap = await _enrichPRs(prIdentifiers);
+            const enrichmentMap = await _enrichPRs(prIdentifiers, signal);
             for (const item of combined) {
               const match = item.repository_url?.match(
                 /repos\/([^/]+)\/([^/]+)/
@@ -617,7 +621,8 @@ type EnrichmentResult = {
 };
 
 async function _enrichPRs(
-  prs: Array<{ owner: string; repo: string; number: number }>
+  prs: Array<{ owner: string; repo: string; number: number }>,
+  signal?: AbortSignal
 ): Promise<Map<string, EnrichmentResult>> {
   const prQueries = prs
     .map(
@@ -704,7 +709,7 @@ async function _enrichPRs(
         } | null;
       }
     >
-  >(`query { ${prQueries} }`);
+  >(`query { ${prQueries} }`, { request: { signal } });
 
   const enrichmentMap = new Map<string, EnrichmentResult>();
 
