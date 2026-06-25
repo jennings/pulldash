@@ -42,3 +42,17 @@ declare module "*.css" {
   const content: string;
   export default content;
 }
+
+declare module "nanobar" {
+  interface NanobarOptions {
+    id?: string;
+    classname?: string;
+    target?: HTMLElement;
+  }
+  class Nanobar {
+    constructor(opts?: NanobarOptions);
+    el: HTMLElement;
+    go(percent: number): void;
+  }
+  export default Nanobar;
+}
