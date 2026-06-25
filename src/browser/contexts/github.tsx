@@ -13,6 +13,7 @@ import type { components } from "@octokit/openapi-types";
 import { useAuth } from "./auth";
 import * as PersistentCache from "../lib/persistent-cache";
 import { setOctokit } from "../lib/github-client";
+import { queryClient } from "../lib/query-client";
 import { queries } from "../lib/queries";
 
 export type UserTeam = { org: string; slug: string };
@@ -1631,86 +1632,16 @@ function createGitHubStore() {
     cache.invalidate(`pr:${owner}/${repo}/${number}`);
   }
 
-  async function getPRChecksForSha(owner: string, repo: string, sha: string) {
+  function getPRChecksForSha(owner: string, repo: string, sha: string) {
     if (!octokit) throw new Error("Not initialized");
-
-    const cacheKey = `checks:${owner}/${repo}/${sha}`;
-
-    type ChecksResult = { checkRuns: CheckRun[]; status: CombinedStatus };
-
-    const cached = cache.get<ChecksResult>(cacheKey, 15_000);
-    if (cached) return cached;
-
-    const pending = cache.getPending<ChecksResult>(cacheKey);
-    if (pending) return pending;
-
-    const promise = Promise.all([
-      octokit.request("GET /repos/{owner}/{repo}/commits/{ref}/check-runs", {
-        owner,
-        repo,
-        ref: sha,
-      }),
-      octokit.request("GET /repos/{owner}/{repo}/commits/{ref}/status", {
-        owner,
-        repo,
-        ref: sha,
-      }),
-    ]).then(([checkRunsRes, statusRes]) => {
-      const result = {
-        checkRuns: checkRunsRes.data.check_runs,
-        status: statusRes.data,
-      };
-      cache.set(cacheKey, result);
-      return result;
-    });
-
-    cache.setPending(cacheKey, promise);
-    return promise;
+    return queryClient.fetchQuery(queries.checksByCommit(owner, repo, sha));
   }
 
-  async function getWorkflowRunsForSha(
-    owner: string,
-    repo: string,
-    sha: string
-  ) {
+  function getWorkflowRunsForSha(owner: string, repo: string, sha: string) {
     if (!octokit) throw new Error("Not initialized");
-
-    const cacheKey = `workflow-runs:${owner}/${repo}/${sha}`;
-
-    type WorkflowRunsResult = {
-      workflow_runs: Array<{
-        id: number;
-        name: string;
-        status: string;
-        conclusion: string | null;
-        html_url: string;
-        head_sha: string;
-      }>;
-    };
-
-    const cached = cache.get<WorkflowRunsResult>(cacheKey, 15_000);
-    if (cached) return cached;
-
-    const pending = cache.getPending<WorkflowRunsResult>(cacheKey);
-    if (pending) return pending;
-
-    const promise = octokit
-      .request("GET /repos/{owner}/{repo}/actions/runs", {
-        owner,
-        repo,
-        head_sha: sha,
-        per_page: 50,
-      })
-      .then((res) => {
-        const result = {
-          workflow_runs: res.data.workflow_runs,
-        };
-        cache.set(cacheKey, result);
-        return result;
-      });
-
-    cache.setPending(cacheKey, promise);
-    return promise;
+    return queryClient.fetchQuery(
+      queries.workflowRunsByCommit(owner, repo, sha)
+    );
   }
 
   async function approveWorkflowRun(
@@ -1729,8 +1660,7 @@ function createGitHubStore() {
       }
     );
 
-    // Invalidate workflow runs cache for this repo
-    cache.invalidate(`workflow-runs:${owner}/${repo}`);
+    queryClient.invalidateQueries({ queryKey: ["workflow-runs", owner, repo] });
   }
 
   async function mergePR(
