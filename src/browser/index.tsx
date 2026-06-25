@@ -7,6 +7,7 @@ import { ThemeProvider } from "./contexts/theme";
 import { CommandPaletteProvider } from "./components/command-palette";
 import { AppShell } from "./components/app-shell";
 import { WelcomeDialog } from "./components/welcome-dialog";
+import { ShortcutsDialog } from "./components/shortcuts-dialog";
 import { initTheme } from "./theme";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
@@ -52,6 +53,8 @@ createRoot(document.getElementById("app")!).render(
                 </Routes>
                 {/* Auth dialog - shown when not authenticated */}
                 <WelcomeDialog />
+                {/* Keyboard shortcuts reference - opened with `?` */}
+                <ShortcutsDialog />
               </CommandPaletteProvider>
             </TabProvider>
           </BrowserRouter>
