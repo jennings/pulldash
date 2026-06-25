@@ -1828,34 +1828,9 @@ function createGitHubStore() {
     cache.invalidate(`pr:${owner}/${repo}/${number}`);
   }
 
-  async function getRepoCollaborators(owner: string, repo: string) {
+  function getRepoCollaborators(owner: string, repo: string) {
     if (!octokit) throw new Error("Not initialized");
-
-    const cacheKey = `repo:${owner}/${repo}:collaborators`;
-
-    const cached = cache.get<components["schemas"]["collaborator"][]>(
-      cacheKey,
-      300_000
-    );
-    if (cached) return cached;
-
-    const pending =
-      cache.getPending<components["schemas"]["collaborator"][]>(cacheKey);
-    if (pending) return pending;
-
-    const promise = octokit
-      .request("GET /repos/{owner}/{repo}/collaborators", {
-        owner,
-        repo,
-        per_page: 100,
-      })
-      .then((res) => {
-        cache.set(cacheKey, res.data);
-        return res.data;
-      });
-
-    cache.setPending(cacheKey, promise);
-    return promise;
+    return queryClient.fetchQuery(queries.collaborators(owner, repo));
   }
 
   async function addAssignees(
@@ -1901,57 +1876,9 @@ function createGitHubStore() {
     cache.invalidate(`pr:${owner}/${repo}/${issueNumber}`);
   }
 
-  async function getRepoLabels(owner: string, repo: string) {
+  function getRepoLabels(owner: string, repo: string) {
     if (!octokit) throw new Error("Not initialized");
-
-    const cacheKey = `repo:${owner}/${repo}:labels`;
-
-    const cached = cache.get<
-      Array<{ name: string; color: string; description: string | null }>
-    >(cacheKey, 300_000);
-    if (cached) return cached;
-
-    const pending =
-      cache.getPending<
-        Array<{ name: string; color: string; description: string | null }>
-      >(cacheKey);
-    if (pending) return pending;
-
-    const promise = (async () => {
-      // Manually paginate to get all labels
-      const allLabels: Array<{
-        name: string;
-        color: string;
-        description: string | null;
-      }> = [];
-      let page = 1;
-      while (true) {
-        const { data: labels } = await octokit.request(
-          "GET /repos/{owner}/{repo}/labels",
-          {
-            owner,
-            repo,
-            per_page: 100,
-            page,
-          }
-        );
-        for (const l of labels) {
-          allLabels.push({
-            name: l.name,
-            color: l.color,
-            description: l.description ?? null,
-          });
-        }
-        if (labels.length < 100) break;
-        page++;
-      }
-      cache.set(cacheKey, allLabels);
-      cache.clearPending(cacheKey);
-      return allLabels;
-    })();
-
-    cache.setPending(cacheKey, promise);
-    return promise;
+    return queryClient.fetchQuery(queries.labels(owner, repo));
   }
 
   async function addLabels(

@@ -100,4 +100,49 @@ export const queries = {
       },
       staleTime: 15_000,
     }),
+
+  collaborators: (owner: string, repo: string) =>
+    queryOptions({
+      queryKey: ["collaborators", owner, repo],
+      queryFn: async () => {
+        const res = await getOctokit().request(
+          "GET /repos/{owner}/{repo}/collaborators",
+          { owner, repo, per_page: 100 }
+        );
+        return res.data as components["schemas"]["collaborator"][];
+      },
+      staleTime: 5 * 60_000,
+      meta: { persist: true },
+    }),
+
+  labels: (owner: string, repo: string) =>
+    queryOptions({
+      queryKey: ["labels", owner, repo],
+      queryFn: async () => {
+        const allLabels: Array<{
+          name: string;
+          color: string;
+          description: string | null;
+        }> = [];
+        let page = 1;
+        while (true) {
+          const { data } = await getOctokit().request(
+            "GET /repos/{owner}/{repo}/labels",
+            { owner, repo, per_page: 100, page }
+          );
+          for (const l of data) {
+            allLabels.push({
+              name: l.name,
+              color: l.color,
+              description: l.description ?? null,
+            });
+          }
+          if (data.length < 100) break;
+          page++;
+        }
+        return allLabels;
+      },
+      staleTime: 5 * 60_000,
+      meta: { persist: true },
+    }),
 };

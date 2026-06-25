@@ -59,8 +59,11 @@ import { usePRReviewSelector, usePRReviewStore } from "../contexts/pr-review";
 import { getTimeAgo, formatDateTime } from "../lib/dates";
 import { parseDiffCached, type ParsedDiff } from "../lib/diff";
 import type { ReviewComment } from "@/api/types";
+import { useQuery } from "@tanstack/react-query";
+import { queries } from "../lib/queries";
 import {
   useGitHub,
+  useGitHubReady,
   useCurrentUser,
   type Review as GitHubReview,
   type IssueComment as GitHubIssueComment,
@@ -204,9 +207,13 @@ export const PROverview = memo(function PROverview() {
   const canResolveThread = canWrite && hasWritePermission;
 
   // Reviewers and Assignees state
-  const [collaborators, setCollaborators] = useState<
-    Array<{ login: string; avatar_url: string }>
-  >([]);
+  const { ready } = useGitHubReady();
+  const { data: collaboratorsRaw = [], isLoading: loadingCollaborators } =
+    useQuery({ ...queries.collaborators(owner, repo), enabled: ready });
+  const collaborators = collaboratorsRaw.map((c) => ({
+    login: c.login || "",
+    avatar_url: c.avatar_url || "",
+  }));
   const [showReviewersPicker, setShowReviewersPicker] = useState(false);
   const [showAssigneesPicker, setShowAssigneesPicker] = useState(false);
   const [reviewersPickerPosition, setReviewersPickerPosition] = useState({
@@ -217,7 +224,6 @@ export const PROverview = memo(function PROverview() {
     top: 0,
     left: 0,
   });
-  const [loadingCollaborators, setLoadingCollaborators] = useState(false);
   const [reviewerSearchQuery, setReviewerSearchQuery] = useState("");
   const [assigneeSearchQuery, setAssigneeSearchQuery] = useState("");
   const reviewersButtonRef = useRef<HTMLButtonElement>(null);
@@ -366,25 +372,6 @@ export const PROverview = memo(function PROverview() {
     await store.updateBranch();
   }, [store]);
 
-  // Fetch collaborators when picker is opened
-  const fetchCollaborators = useCallback(async () => {
-    if (collaborators.length > 0) return;
-    setLoadingCollaborators(true);
-    try {
-      const data = await github.getRepoCollaborators(owner, repo);
-      setCollaborators(
-        data.map((c) => ({
-          login: c.login || "",
-          avatar_url: c.avatar_url || "",
-        }))
-      );
-    } catch (error) {
-      console.error("Failed to fetch collaborators:", error);
-    } finally {
-      setLoadingCollaborators(false);
-    }
-  }, [github, owner, repo, collaborators.length]);
-
   const handleToggleReviewersPicker = useCallback(() => {
     if (!showReviewersPicker && reviewersButtonRef.current) {
       const rect = reviewersButtonRef.current.getBoundingClientRect();
@@ -392,14 +379,13 @@ export const PROverview = memo(function PROverview() {
         top: rect.bottom + 4,
         left: Math.min(rect.left, window.innerWidth - 280),
       });
-      fetchCollaborators();
       setReviewerSearchQuery("");
       // Focus the search input after a short delay to allow the picker to render
       setTimeout(() => reviewerSearchInputRef.current?.focus(), 50);
     }
     setShowReviewersPicker(!showReviewersPicker);
     setShowAssigneesPicker(false);
-  }, [showReviewersPicker, fetchCollaborators]);
+  }, [showReviewersPicker]);
 
   const handleToggleAssigneesPicker = useCallback(() => {
     if (!showAssigneesPicker && assigneesButtonRef.current) {
@@ -408,14 +394,13 @@ export const PROverview = memo(function PROverview() {
         top: rect.bottom + 4,
         left: Math.min(rect.left, window.innerWidth - 280),
       });
-      fetchCollaborators();
       setAssigneeSearchQuery("");
       // Focus the search input after a short delay to allow the picker to render
       setTimeout(() => assigneeSearchInputRef.current?.focus(), 50);
     }
     setShowAssigneesPicker(!showAssigneesPicker);
     setShowReviewersPicker(false);
-  }, [showAssigneesPicker, fetchCollaborators]);
+  }, [showAssigneesPicker]);
 
   // Helper to refetch PR and update store
   const refetchPR = useCallback(async () => {
@@ -2647,27 +2632,14 @@ function LabelsSection({
   onLabelToggle,
   canWrite = true,
 }: LabelsSectionProps) {
-  const github = useGitHub();
+  const { ready } = useGitHubReady();
+  const { data: repoLabels = [], isLoading: loadingLabels } = useQuery({
+    ...queries.labels(owner, repo),
+    enabled: ready,
+  });
   const [showPicker, setShowPicker] = useState(false);
-  const [repoLabels, setRepoLabels] = useState<
-    Array<{ name: string; color: string; description?: string | null }>
-  >([]);
-  const [loadingLabels, setLoadingLabels] = useState(false);
   const [pickerPosition, setPickerPosition] = useState({ top: 0, left: 0 });
   const buttonRef = useRef<HTMLButtonElement>(null);
-
-  const fetchLabels = useCallback(async () => {
-    if (repoLabels.length > 0) return;
-    setLoadingLabels(true);
-    try {
-      const labels = await github.getRepoLabels(owner, repo);
-      setRepoLabels(labels);
-    } catch (error) {
-      console.error("Failed to fetch labels:", error);
-    } finally {
-      setLoadingLabels(false);
-    }
-  }, [github, owner, repo, repoLabels.length]);
 
   const handleTogglePicker = useCallback(() => {
     if (!showPicker && buttonRef.current) {
@@ -2676,10 +2648,9 @@ function LabelsSection({
         top: rect.bottom + 4,
         left: Math.min(rect.left, window.innerWidth - 280),
       });
-      fetchLabels();
     }
     setShowPicker(!showPicker);
-  }, [showPicker, fetchLabels]);
+  }, [showPicker]);
 
   const handleToggleLabel = useCallback(
     async (labelName: string, labelColor: string) => {
