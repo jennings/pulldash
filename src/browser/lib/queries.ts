@@ -33,6 +33,7 @@ import type {
   PushVersion,
   Review,
   ReviewComment,
+  ReviewThread,
   TimelineEvent,
   UserProfile,
 } from "../contexts/github";
@@ -434,6 +435,113 @@ export const queries = {
           page++;
         }
         return events;
+      },
+      staleTime: 30_000,
+    }),
+
+  reviewThreads: (owner: string, repo: string, number: number) =>
+    queryOptions({
+      queryKey: ["pull-request", owner, repo, number, "review-threads"],
+      queryFn: async ({ signal }) => {
+        interface RawReviewThread {
+          id: string;
+          isResolved: boolean;
+          isOutdated: boolean;
+          resolvedBy: { login: string; avatarUrl: string } | null;
+          comments: {
+            nodes: Array<{
+              id: string;
+              databaseId: number;
+              body: string;
+              bodyHTML: string;
+              path: string;
+              line: number | null;
+              originalLine: number | null;
+              startLine: number | null;
+              diffHunk: string | null;
+              author: { login: string; avatarUrl: string } | null;
+              createdAt: string;
+              updatedAt: string;
+              replyTo: { databaseId: number } | null;
+              pullRequestReview: {
+                databaseId: number;
+                author: { login: string; avatarUrl: string } | null;
+              } | null;
+            }>;
+          };
+        }
+        const data = await getOctokit().graphql<{
+          repository: {
+            viewerPermission: string | null;
+            mergeQueue: { id: string } | null;
+            pullRequest: {
+              viewerCanMergeAsAdmin: boolean;
+              isInMergeQueue: boolean;
+              reviewThreads: { nodes: RawReviewThread[] };
+            };
+          };
+        }>(
+          `
+          query ($owner: String!, $repo: String!, $number: Int!) {
+            repository(owner: $owner, name: $repo) {
+              viewerPermission
+              mergeQueue {
+                id
+              }
+              pullRequest(number: $number) {
+                viewerCanMergeAsAdmin
+                isInMergeQueue
+                reviewThreads(first: 100) {
+                  nodes {
+                    id
+                    isResolved
+                    isOutdated
+                    resolvedBy { login avatarUrl }
+                    comments(first: 100) {
+                      nodes {
+                        id
+                        databaseId
+                        body
+                        bodyHTML
+                        path
+                        line
+                        originalLine
+                        startLine
+                        diffHunk
+                        author { login avatarUrl }
+                        createdAt
+                        updatedAt
+                        replyTo { databaseId }
+                        pullRequestReview {
+                          databaseId
+                          author { login avatarUrl }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        `,
+          { owner, repo, number, request: { signal } }
+        );
+        const threads: ReviewThread[] =
+          data.repository.pullRequest.reviewThreads.nodes.map((thread) => {
+            const firstComment = thread.comments.nodes[0];
+            return {
+              ...thread,
+              pullRequestReview: firstComment?.pullRequestReview ?? null,
+            };
+          });
+        return {
+          threads,
+          viewerPermission: data.repository.viewerPermission,
+          viewerCanMergeAsAdmin:
+            data.repository.pullRequest.viewerCanMergeAsAdmin,
+          hasMergeQueue: data.repository.mergeQueue !== null,
+          isInMergeQueue: data.repository.pullRequest.isInMergeQueue,
+        };
       },
       staleTime: 30_000,
     }),
