@@ -35,7 +35,6 @@ import {
   groupCommitsIntoVersions,
 } from "@/browser/contexts/github";
 import { diffService } from "@/browser/lib/diff";
-import { trackFetch } from "@/browser/lib/fetch-progress";
 import { queryClient } from "@/browser/lib/query-client";
 import { queries } from "@/browser/lib/queries";
 
@@ -1230,151 +1229,146 @@ export class PRReviewStore {
   // Push Version Selection
   // ---------------------------------------------------------------------------
 
-  setSelectedHeadSha = async (sha: string | null): Promise<void> =>
-    trackFetch(async () => {
-      const { owner, repo, pr, pushVersions, commitsByVersion } = this.state;
+  setSelectedHeadSha = async (sha: string | null): Promise<void> => {
+    const { owner, repo, pr, pushVersions, commitsByVersion } = this.state;
 
-      if (sha === null) {
-        this.set({
-          selectedHeadSha: null,
-          selectedCommitSha: null,
-          parentCommitMessages: {},
-          files: this.baseFiles,
-          commits: this.baseCommits,
-          loadedDiffs: {},
-          loadingFiles: new Set(),
-          expandedSkipBlocks: {},
-          expandingSkipBlocks: new Set(),
-        });
-        const { compareToSha, selectedCommitSha } = this.state;
-        if (compareToSha && selectedCommitSha === null) {
-          this.set({ interdiffEnabled: true, interdiffLoadedDiffs: {} });
-          await this.computeFullBranchInterdiff(compareToSha, pr.head.sha);
-        }
-
-        // Fetch checks for the latest version
-        this.github
-          .getPRChecks(owner, repo, pr.head.sha)
-          .then((checks) => {
-            this.set({ checks, checksLastUpdated: new Date() });
-          })
-          .catch(() => {});
-        return;
-      }
-
-      const selectedVersion = pushVersions.find((v) => v.sha === sha);
-      const versionCommits = selectedVersion
-        ? commitsByVersion.find((v) => v.version === selectedVersion.version)
-            ?.commits
-        : undefined;
-
+    if (sha === null) {
       this.set({
-        selectedHeadSha: sha,
+        selectedHeadSha: null,
         selectedCommitSha: null,
-        commits: versionCommits ?? this.baseCommits,
+        parentCommitMessages: {},
+        files: this.baseFiles,
+        commits: this.baseCommits,
         loadedDiffs: {},
         loadingFiles: new Set(),
         expandedSkipBlocks: {},
         expandingSkipBlocks: new Set(),
       });
-
-      await this.refreshFiles();
-
       const { compareToSha, selectedCommitSha } = this.state;
       if (compareToSha && selectedCommitSha === null) {
         this.set({ interdiffEnabled: true, interdiffLoadedDiffs: {} });
-        await this.computeFullBranchInterdiff(compareToSha, sha);
+        await this.computeFullBranchInterdiff(compareToSha, pr.head.sha);
       }
 
-      // Fetch checks for the selected version
-      const checksSha = sha ?? pr.head.sha;
+      // Fetch checks for the latest version
       this.github
-        .getPRChecks(owner, repo, checksSha)
+        .getPRChecks(owner, repo, pr.head.sha)
         .then((checks) => {
           this.set({ checks, checksLastUpdated: new Date() });
         })
         .catch(() => {});
+      return;
+    }
+
+    const selectedVersion = pushVersions.find((v) => v.sha === sha);
+    const versionCommits = selectedVersion
+      ? commitsByVersion.find((v) => v.version === selectedVersion.version)
+          ?.commits
+      : undefined;
+
+    this.set({
+      selectedHeadSha: sha,
+      selectedCommitSha: null,
+      commits: versionCommits ?? this.baseCommits,
+      loadedDiffs: {},
+      loadingFiles: new Set(),
+      expandedSkipBlocks: {},
+      expandingSkipBlocks: new Set(),
     });
+
+    await this.refreshFiles();
+
+    const { compareToSha, selectedCommitSha } = this.state;
+    if (compareToSha && selectedCommitSha === null) {
+      this.set({ interdiffEnabled: true, interdiffLoadedDiffs: {} });
+      await this.computeFullBranchInterdiff(compareToSha, sha);
+    }
+
+    // Fetch checks for the selected version
+    const checksSha = sha ?? pr.head.sha;
+    this.github
+      .getPRChecks(owner, repo, checksSha)
+      .then((checks) => {
+        this.set({ checks, checksLastUpdated: new Date() });
+      })
+      .catch(() => {});
+  };
 
   // ---------------------------------------------------------------------------
   // Per-Commit Selection and Interdiff
   // ---------------------------------------------------------------------------
 
-  setSelectedCommitSha = async (sha: string | null): Promise<void> =>
-    trackFetch(async () => {
-      const { owner, repo } = this.state;
+  setSelectedCommitSha = async (sha: string | null): Promise<void> => {
+    const { owner, repo } = this.state;
 
-      // loadedDiffs is intentionally NOT in this first set — it must be cleared
-      // atomically with the new files in the second set below. Clearing it here
-      // would cause useDiffLoader to fire in the window between this set and the
-      // files update, at which point files still holds the previous view's patches,
-      // causing stale diffs to be parsed and stored before the correct files arrive.
-      const resetBase = {
-        selectedCommitSha: sha,
-        selectedParentSha: null,
-        parentCommitMessages: {},
-        compareToCommitSha: null,
-        interdiffEnabled: false,
-        interdiffLoadedDiffs: {},
-        loadingFiles: new Set<string>(),
-        expandedSkipBlocks: {},
-        expandingSkipBlocks: new Set<string>(),
-      };
+    // loadedDiffs is intentionally NOT in this first set — it must be cleared
+    // atomically with the new files in the second set below. Clearing it here
+    // would cause useDiffLoader to fire in the window between this set and the
+    // files update, at which point files still holds the previous view's patches,
+    // causing stale diffs to be parsed and stored before the correct files arrive.
+    const resetBase = {
+      selectedCommitSha: sha,
+      selectedParentSha: null,
+      parentCommitMessages: {},
+      compareToCommitSha: null,
+      interdiffEnabled: false,
+      interdiffLoadedDiffs: {},
+      loadingFiles: new Set<string>(),
+      expandedSkipBlocks: {},
+      expandingSkipBlocks: new Set<string>(),
+    };
 
-      if (sha === null) {
-        const { selectedHeadSha, compareToSha } = this.state;
-        if (selectedHeadSha) {
-          this.set(resetBase);
-          const { pr } = this.state;
-          const versionFiles = await this.github
-            .getPRFilesForRange(
-              owner,
-              repo,
-              pr.base.sha,
-              selectedHeadSha,
-              `${owner}/${repo}/${pr.number}`
-            )
-            .catch(() => [] as PullRequestFile[]);
-          this.set({ files: sortFilesLikeTree(versionFiles), loadedDiffs: {} });
-          if (compareToSha) {
-            this.set({ interdiffEnabled: true, interdiffLoadedDiffs: {} });
-            await this.computeFullBranchInterdiff(
-              compareToSha,
-              selectedHeadSha
-            );
-          }
-        } else {
-          this.set({ ...resetBase, files: this.baseFiles, loadedDiffs: {} });
-          if (compareToSha) {
-            const { pr } = this.state;
-            this.set({ interdiffEnabled: true, interdiffLoadedDiffs: {} });
-            await this.computeFullBranchInterdiff(compareToSha, pr.head.sha);
-          }
+    if (sha === null) {
+      const { selectedHeadSha, compareToSha } = this.state;
+      if (selectedHeadSha) {
+        this.set(resetBase);
+        const { pr } = this.state;
+        const versionFiles = await this.github
+          .getPRFilesForRange(
+            owner,
+            repo,
+            pr.base.sha,
+            selectedHeadSha,
+            `${owner}/${repo}/${pr.number}`
+          )
+          .catch(() => [] as PullRequestFile[]);
+        this.set({ files: sortFilesLikeTree(versionFiles), loadedDiffs: {} });
+        if (compareToSha) {
+          this.set({ interdiffEnabled: true, interdiffLoadedDiffs: {} });
+          await this.computeFullBranchInterdiff(compareToSha, selectedHeadSha);
         }
-        return;
+      } else {
+        this.set({ ...resetBase, files: this.baseFiles, loadedDiffs: {} });
+        if (compareToSha) {
+          const { pr } = this.state;
+          this.set({ interdiffEnabled: true, interdiffLoadedDiffs: {} });
+          await this.computeFullBranchInterdiff(compareToSha, pr.head.sha);
+        }
       }
+      return;
+    }
 
-      this.set(resetBase);
+    this.set(resetBase);
 
-      const commitFiles = await this.github
-        .getCommitFiles(
-          owner,
-          repo,
-          sha,
-          `${owner}/${repo}/${this.state.pr.number}`
-        )
-        .catch(() => [] as PullRequestFile[]);
+    const commitFiles = await this.github
+      .getCommitFiles(
+        owner,
+        repo,
+        sha,
+        `${owner}/${repo}/${this.state.pr.number}`
+      )
+      .catch(() => [] as PullRequestFile[]);
 
-      this.set({ files: sortFilesLikeTree(commitFiles), loadedDiffs: {} });
+    this.set({ files: sortFilesLikeTree(commitFiles), loadedDiffs: {} });
 
-      // If comparing to a specific version, auto-match the commit in that version
-      if (this.state.compareToSha) {
-        await this.autoMatchAndComputeInterdiff(sha);
-      }
+    // If comparing to a specific version, auto-match the commit in that version
+    if (this.state.compareToSha) {
+      await this.autoMatchAndComputeInterdiff(sha);
+    }
 
-      // Fire-and-forget: load parent commit titles for merge commits
-      this.loadParentCommitMessages(sha);
-    });
+    // Fire-and-forget: load parent commit titles for merge commits
+    this.loadParentCommitMessages(sha);
+  };
 
   private async loadParentCommitMessages(sha: string) {
     const { owner, repo, pr } = this.state;
@@ -1416,54 +1410,53 @@ export class PRReviewStore {
     }
   }
 
-  setSelectedParentSha = async (sha: string | null): Promise<void> =>
-    trackFetch(async () => {
-      const { owner, repo, selectedCommitSha, compareToSha } = this.state;
+  setSelectedParentSha = async (sha: string | null): Promise<void> => {
+    const { owner, repo, selectedCommitSha, compareToSha } = this.state;
 
-      // Parents and push-version comparisons are mutually exclusive
-      const resetCompare = compareToSha
-        ? {
-            compareToSha: null,
-            compareToCommitSha: null,
-            interdiffEnabled: false,
-            interdiffLoadedDiffs: {},
-          }
-        : {};
+    // Parents and push-version comparisons are mutually exclusive
+    const resetCompare = compareToSha
+      ? {
+          compareToSha: null,
+          compareToCommitSha: null,
+          interdiffEnabled: false,
+          interdiffLoadedDiffs: {},
+        }
+      : {};
 
-      // loadedDiffs is intentionally NOT cleared here — it must be cleared
-      // atomically with the new files below. Clearing it here would cause
-      // useDiffLoader to fire between this set and the files update, at which
-      // point files still holds the previous parent's patches, causing stale
-      // diffs to be parsed and stored before the correct files arrive.
-      if (sha === null || !selectedCommitSha) {
-        this.set({ selectedParentSha: null, ...resetCompare });
-        const commitFiles = await this.github
-          .getCommitFiles(
-            owner,
-            repo,
-            selectedCommitSha!,
-            `${owner}/${repo}/${this.state.pr.number}`
-          )
-          .catch(() => [] as PullRequestFile[]);
-        this.set({ files: sortFilesLikeTree(commitFiles), loadedDiffs: {} });
-        return;
-      }
-
-      this.set({
-        selectedParentSha: sha,
-        ...resetCompare,
-      });
-      const mergeFiles = await this.github
-        .getMergeCommitFiles(
+    // loadedDiffs is intentionally NOT cleared here — it must be cleared
+    // atomically with the new files below. Clearing it here would cause
+    // useDiffLoader to fire between this set and the files update, at which
+    // point files still holds the previous parent's patches, causing stale
+    // diffs to be parsed and stored before the correct files arrive.
+    if (sha === null || !selectedCommitSha) {
+      this.set({ selectedParentSha: null, ...resetCompare });
+      const commitFiles = await this.github
+        .getCommitFiles(
           owner,
           repo,
-          selectedCommitSha,
-          sha,
+          selectedCommitSha!,
           `${owner}/${repo}/${this.state.pr.number}`
         )
         .catch(() => [] as PullRequestFile[]);
-      this.set({ files: sortFilesLikeTree(mergeFiles), loadedDiffs: {} });
+      this.set({ files: sortFilesLikeTree(commitFiles), loadedDiffs: {} });
+      return;
+    }
+
+    this.set({
+      selectedParentSha: sha,
+      ...resetCompare,
     });
+    const mergeFiles = await this.github
+      .getMergeCommitFiles(
+        owner,
+        repo,
+        selectedCommitSha,
+        sha,
+        `${owner}/${repo}/${this.state.pr.number}`
+      )
+      .catch(() => [] as PullRequestFile[]);
+    this.set({ files: sortFilesLikeTree(mergeFiles), loadedDiffs: {} });
+  };
 
   private computeInterdiff = async (
     baseCommitSha: string,
@@ -1607,27 +1600,26 @@ export class PRReviewStore {
     }
   };
 
-  setCompareToSha = async (sha: string | null): Promise<void> =>
-    trackFetch(async () => {
-      this.set({
-        compareToSha: sha,
-        selectedParentSha: null,
-        compareToCommitSha: null,
-        interdiffEnabled: false,
-        interdiffLoadedDiffs: {},
-      });
-      const { selectedCommitSha, selectedHeadSha, pr } = this.state;
-      if (sha && selectedCommitSha) {
-        await this.autoMatchAndComputeInterdiff(selectedCommitSha);
-      } else if (sha && !selectedCommitSha) {
-        this.set({ interdiffEnabled: true, interdiffLoadedDiffs: {} });
-        await this.computeFullBranchInterdiff(
-          sha,
-          selectedHeadSha ?? pr.head.sha
-        );
-      }
-      await this.refreshFiles();
+  setCompareToSha = async (sha: string | null): Promise<void> => {
+    this.set({
+      compareToSha: sha,
+      selectedParentSha: null,
+      compareToCommitSha: null,
+      interdiffEnabled: false,
+      interdiffLoadedDiffs: {},
     });
+    const { selectedCommitSha, selectedHeadSha, pr } = this.state;
+    if (sha && selectedCommitSha) {
+      await this.autoMatchAndComputeInterdiff(selectedCommitSha);
+    } else if (sha && !selectedCommitSha) {
+      this.set({ interdiffEnabled: true, interdiffLoadedDiffs: {} });
+      await this.computeFullBranchInterdiff(
+        sha,
+        selectedHeadSha ?? pr.head.sha
+      );
+    }
+    await this.refreshFiles();
+  };
 
   getChecksStatus = async (
     sha: string
@@ -1681,19 +1673,18 @@ export class PRReviewStore {
     });
   };
 
-  setCompareToCommitSha = async (sha: string | null): Promise<void> =>
-    trackFetch(async () => {
-      const { selectedCommitSha } = this.state;
-      const interdiffEnabled = sha !== null && selectedCommitSha !== null;
-      this.set({
-        compareToCommitSha: sha,
-        interdiffEnabled,
-        interdiffLoadedDiffs: {},
-      });
-      if (sha && selectedCommitSha) {
-        await this.computeInterdiff(sha, selectedCommitSha);
-      }
+  setCompareToCommitSha = async (sha: string | null): Promise<void> => {
+    const { selectedCommitSha } = this.state;
+    const interdiffEnabled = sha !== null && selectedCommitSha !== null;
+    this.set({
+      compareToCommitSha: sha,
+      interdiffEnabled,
+      interdiffLoadedDiffs: {},
     });
+    if (sha && selectedCommitSha) {
+      await this.computeInterdiff(sha, selectedCommitSha);
+    }
+  };
 
   /** Resolve a change-id for a commit, trying the raw git commit payload
    *  as a fallback when the commit message has no Change-Id trailer. */
