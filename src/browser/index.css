@@ -213,6 +213,11 @@
   }
 }
 
+.nanobar-pulldash .bar {
+  background: #408ac3;
+  height: 2px;
+}
+
 /* Diff content styling */
 .diff-content table {
   font-family: var(--font-mono);

@@ -39,7 +39,8 @@
     "@tanstack/react-query": "^5.101.1",
     "@tanstack/react-query-devtools": "^5.101.1",
     "@tanstack/react-query-persist-client": "^5.101.1",
-    "hono": "^4.10.7"
+    "hono": "^4.10.7",
+    "nanobar": "^0.4.2"
   },
   "devDependencies": {
     "@octokit/core": "^7.0.6",
