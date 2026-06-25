@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { queries } from "../lib/queries";
 import {
   Search,
   GitPullRequest,
@@ -43,8 +45,6 @@ import {
 import {
   useGitHubStore,
   useGitHubReady,
-  usePRList,
-  usePRListActions,
   getCachedTeams,
   type PRSearchResult,
 } from "../contexts/github";
@@ -326,9 +326,7 @@ export function Home() {
   const github = useGitHubStore();
   const { isAuthenticated } = useAuth();
 
-  // Data store
-  const prList = usePRList();
-  const { fetchPRList, refreshPRList } = usePRListActions();
+  const queryClient = useQueryClient();
 
   // Filter config
   const [config, setConfig] = useState<FilterConfig>(getFilterConfig);
@@ -361,21 +359,29 @@ export function Home() {
     saveFilterConfig(config);
   }, [config]);
 
-  useEffect(() => {
-    if (githubReady) {
-      fetchPRList(searchQueries, page, perPage);
-    }
-  }, [fetchPRList, searchQueries, page, perPage, githubReady]);
-
   // Reset page when config changes
   useEffect(() => {
     setPage(1);
   }, [config.repos, config.state]);
 
+  // PR list via React Query
+  const {
+    data: prListData,
+    isFetching: loadingPrs,
+    isPending: prListPending,
+    dataUpdatedAt,
+  } = useQuery({
+    ...queries.prList(searchQueries, page, perPage),
+    enabled: githubReady,
+  });
+
+  const refreshPRList = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["pr-list"] });
+  }, [queryClient]);
+
   // Convenience accessors
-  const prs = prList.items;
-  const loadingPrs = prList.loading;
-  const totalCount = prList.totalCount;
+  const prs = prListData?.items ?? [];
+  const totalCount = prListData?.totalCount ?? 0;
 
   // Client-side filter for UPDATED PRs
   const filteredPrs = useMemo(() => {
@@ -1045,8 +1051,8 @@ export function Home() {
               )}
             </span>
             <div className="flex items-center gap-2">
-              {prList.lastFetchedAt && !loadingPrs && (
-                <RefreshCountdown lastFetchedAt={prList.lastFetchedAt} />
+              {dataUpdatedAt > 0 && !loadingPrs && (
+                <RefreshCountdown lastFetchedAt={dataUpdatedAt} />
               )}
               <button
                 onClick={refreshPRList}
@@ -1066,8 +1072,7 @@ export function Home() {
 
           {/* PR List */}
           <div className="flex-1 overflow-auto">
-            {loadingPrs ||
-            (config.repos.length > 0 && prs.length === 0 && !prList.error) ? (
+            {loadingPrs || (config.repos.length > 0 && prListPending) ? (
               <PRListSkeleton count={8} />
             ) : prs.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-20 text-center">
