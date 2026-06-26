@@ -685,9 +685,6 @@ export const PROverview = memo(function PROverview() {
 
   // Reaction state - keyed by "issue" for PR body or comment ID
   const [reactions, setReactions] = useState<Record<string, Reaction[]>>({});
-  const [loadingReactions, setLoadingReactions] = useState<Set<string>>(
-    new Set()
-  );
 
   // Fetch PR body reactions
   useEffect(() => {
@@ -706,99 +703,80 @@ export const PROverview = memo(function PROverview() {
     fetchPRReactions();
   }, [github, owner, repo, pr.number]);
 
-  // Helper: retry an async function up to `retries` times with 1s backoff
-  async function withRetry<T>(
-    fn: () => Promise<T>,
-    retries = 2
-  ): Promise<T | null> {
-    for (let i = 0; i <= retries; i++) {
-      try {
-        return await fn();
-      } catch (err) {
-        if (i < retries) await new Promise((r) => setTimeout(r, 1000));
-        else {
-          console.error("Failed to fetch reactions after retries:", err);
-          return null;
-        }
-      }
-    }
-    return null;
-  }
-
-  // Fetch comment reactions when conversation loads (batched + parallel)
+  // Fetch comment reactions when conversation loads (batched)
   useEffect(() => {
     if (conversation.length === 0) return;
 
-    const BATCH_SIZE = 5;
+    const commentItems = conversation
+      .filter((c) => c.node_id)
+      .map((c) => ({ nodeId: c.node_id!, databaseId: c.id }));
 
-    async function fetchCommentReactions() {
-      for (let i = 0; i < conversation.length; i += BATCH_SIZE) {
-        const batch = conversation.slice(i, i + BATCH_SIZE);
-        const results = await Promise.all(
-          batch.map(async (comment) => {
-            const data = await withRetry(() =>
-              github.getCommentReactions(owner, repo, comment.id)
-            );
-            if (data) {
-              return { key: `comment-${comment.id}`, data };
-            }
-            return null;
-          })
-        );
-        setReactions((prev) => {
-          const next = { ...prev };
-          for (const r of results) {
-            if (r) next[r.key] = r.data;
+    github
+      .prefetchReactionsBatch(owner, repo, commentItems, [], [])
+      .then((results) => {
+        if (results.size === 0 && commentItems.length > 0) {
+          // Batch failed, fall back to individual fetches
+          for (const item of commentItems) {
+            github
+              .getCommentReactions(owner, repo, item.databaseId)
+              .then((data) =>
+                setReactions((prev) => ({
+                  ...prev,
+                  [`comment-${item.databaseId}`]: data,
+                }))
+              );
           }
-          return next;
-        });
-      }
-    }
-
-    fetchCommentReactions();
+        } else {
+          setReactions((prev) => {
+            const next = { ...prev };
+            for (const [dbId, data] of results) {
+              next[`comment-${dbId}`] = data;
+            }
+            return next;
+          });
+        }
+      });
   }, [github, owner, repo, conversation]);
 
-  // Fetch review comment reactions (batched + parallel)
+  // Fetch review comment reactions (batched)
   useEffect(() => {
-    const comments: Array<{ id: number }> = [];
+    const reviewCommentItems: Array<{ nodeId: string; databaseId: number }> =
+      [];
     const seen = new Set<number>();
     for (const thread of reviewThreads) {
       for (const c of thread.comments.nodes) {
         if (!seen.has(c.databaseId)) {
           seen.add(c.databaseId);
-          comments.push({ id: c.databaseId });
+          reviewCommentItems.push({ nodeId: c.id, databaseId: c.databaseId });
         }
       }
     }
-    if (comments.length === 0) return;
+    if (reviewCommentItems.length === 0) return;
 
-    const BATCH_SIZE = 5;
-
-    async function fetchReviewCommentReactions() {
-      for (let i = 0; i < comments.length; i += BATCH_SIZE) {
-        const batch = comments.slice(i, i + BATCH_SIZE);
-        const results = await Promise.all(
-          batch.map(async (c) => {
-            const data = await withRetry(() =>
-              github.getReviewCommentReactions(owner, repo, c.id)
-            );
-            if (data) {
-              return { key: `review-comment-${c.id}`, data };
-            }
-            return null;
-          })
-        );
-        setReactions((prev) => {
-          const next = { ...prev };
-          for (const r of results) {
-            if (r) next[r.key] = r.data;
+    github
+      .prefetchReactionsBatch(owner, repo, [], reviewCommentItems, [])
+      .then((results) => {
+        if (results.size === 0 && reviewCommentItems.length > 0) {
+          for (const item of reviewCommentItems) {
+            github
+              .getReviewCommentReactions(owner, repo, item.databaseId)
+              .then((data) =>
+                setReactions((prev) => ({
+                  ...prev,
+                  [`review-comment-${item.databaseId}`]: data,
+                }))
+              );
           }
-          return next;
-        });
-      }
-    }
-
-    fetchReviewCommentReactions();
+        } else {
+          setReactions((prev) => {
+            const next = { ...prev };
+            for (const [dbId, data] of results) {
+              next[`review-comment-${dbId}`] = data;
+            }
+            return next;
+          });
+        }
+      });
   }, [github, owner, repo, reviewThreads]);
 
   const handleAddPRReaction = useCallback(

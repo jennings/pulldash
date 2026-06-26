@@ -2158,6 +2158,114 @@ function createGitHubStore() {
     );
   }
 
+  async function prefetchReactionsBatch(
+    owner: string,
+    repo: string,
+    commentItems: Array<{ nodeId: string; databaseId: number }>,
+    reviewCommentItems: Array<{ nodeId: string; databaseId: number }>,
+    reviewNodeIds: string[]
+  ): Promise<Map<number, Reaction[]>> {
+    const result = new Map<number, Reaction[]>();
+
+    // Build a map of alias -> { databaseId, type }
+    type BatchItem = {
+      nodeId: string;
+      databaseId: number;
+      type: "comment" | "review-comment" | "review";
+    };
+    const allItems: BatchItem[] = [
+      ...commentItems.map((i) => ({ ...i, type: "comment" as const })),
+      ...reviewCommentItems.map((i) => ({
+        ...i,
+        type: "review-comment" as const,
+      })),
+      ...reviewNodeIds.map((nodeId) => ({
+        nodeId,
+        databaseId: 0,
+        type: "review" as const,
+      })),
+    ];
+
+    if (allItems.length === 0) return result;
+
+    // Seed cache with empty data to prevent individual fetches
+    for (const item of allItems) {
+      if (item.type === "comment") {
+        queryClient.setQueryData(
+          ["reactions", "comment", owner, repo, item.databaseId],
+          []
+        );
+      } else if (item.type === "review-comment") {
+        queryClient.setQueryData(
+          ["reactions", "review-comment", owner, repo, item.databaseId],
+          []
+        );
+      }
+    }
+
+    // Build dynamic GraphQL query
+    const fields = allItems
+      .map(
+        (item, i) => `
+      n${i}: node(id: "${item.nodeId}") {
+        ... on IssueComment { reactions(first: 100) { nodes { id databaseId content user { login } } } }
+        ... on PullRequestReviewComment { reactions(first: 100) { nodes { id databaseId content user { login } } } }
+        ... on PullRequestReview { reactions(first: 100) { nodes { id databaseId content user { login } } } }
+      }`
+      )
+      .join("\n");
+
+    try {
+      const data = await octokit!.graphql<{
+        [key: string]: {
+          reactions: {
+            nodes: Array<{
+              id: string;
+              databaseId: number;
+              content: string;
+              user: { login: string };
+            }>;
+          };
+        } | null;
+      }>(`query { ${fields} }`, {});
+
+      for (let i = 0; i < allItems.length; i++) {
+        const node = data[`n${i}`];
+        if (!node?.reactions) continue;
+        const reactions = node.reactions.nodes.map(
+          (r) =>
+            ({
+              id: r.databaseId,
+              node_id: r.id,
+              content: GRAPHQL_REACTION_TO_CONTENT[r.content] ?? r.content,
+              user: { login: r.user.login },
+            }) as Reaction
+        );
+        const item = allItems[i];
+        if (item.type === "comment") {
+          queryClient.setQueryData(
+            ["reactions", "comment", owner, repo, item.databaseId],
+            reactions
+          );
+          result.set(item.databaseId, reactions);
+        } else if (item.type === "review-comment") {
+          queryClient.setQueryData(
+            ["reactions", "review-comment", owner, repo, item.databaseId],
+            reactions
+          );
+          result.set(item.databaseId, reactions);
+        } else if (item.type === "review") {
+          // Review reactions use local state, not React Query cache
+          result.set(-i - 1, reactions);
+        }
+      }
+    } catch {
+      // Individual fetches will be triggered as fallback
+    }
+
+    return result;
+  }
+
   // Map REST reaction content values to GraphQL enum values
   const REACTION_CONTENT_TO_GRAPHQL: Record<ReactionContent, string> = {
     "+1": "THUMBS_UP",
@@ -2400,6 +2508,7 @@ function createGitHubStore() {
     updatePendingComment,
     submitPendingReview,
     // Review reactions
+    prefetchReactionsBatch,
     getReviewReactions,
     addReviewReaction,
     deleteReviewReaction,
