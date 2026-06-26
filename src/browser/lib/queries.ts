@@ -92,7 +92,7 @@ export const queries = {
             statusRes.data as components["schemas"]["combined-commit-status"],
         };
       },
-      staleTime: 15_000,
+      staleTime: 300_000,
     }),
 
   workflowRunsByCommit: (owner: string, repo: string, sha: string) =>
@@ -114,7 +114,7 @@ export const queries = {
           }>,
         };
       },
-      staleTime: 15_000,
+      staleTime: 300_000,
     }),
 
   collaborators: (owner: string, repo: string) =>
@@ -176,7 +176,7 @@ export const queries = {
         });
         return res.data;
       },
-      staleTime: 30_000,
+      staleTime: 300_000,
       placeholderData: keepPreviousData,
     }),
 

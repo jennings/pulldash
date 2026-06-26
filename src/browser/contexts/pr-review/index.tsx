@@ -1640,39 +1640,6 @@ export class PRReviewStore {
     return "success";
   };
 
-  fetchChecksForSha = async (sha: string): Promise<void> => {
-    const { owner, repo } = this.state;
-    this.set({ loadingChecks: true });
-    const [checksData, workflowRunsData] = await Promise.all([
-      this.github.getPRChecks(owner, repo, sha).catch(() => null),
-      this.github.getWorkflowRuns(owner, repo, sha).catch(() => ({
-        workflow_runs: [] as Array<{
-          id: number;
-          name: string;
-          conclusion: string | null;
-          html_url: string;
-        }>,
-      })),
-    ]);
-    const awaitingApproval = workflowRunsData.workflow_runs
-      .filter(
-        (run) =>
-          run.conclusion === "action_required" &&
-          !this.recentlyApprovedWorkflowIds.has(run.id)
-      )
-      .map((run) => ({
-        id: run.id,
-        name: run.name || "Workflow",
-        html_url: run.html_url,
-      }));
-    this.set({
-      checks: checksData,
-      checksLastUpdated: new Date(),
-      loadingChecks: false,
-      workflowRunsAwaitingApproval: awaitingApproval,
-    });
-  };
-
   setCompareToCommitSha = async (sha: string | null): Promise<void> => {
     const { selectedCommitSha } = this.state;
     const interdiffEnabled = sha !== null && selectedCommitSha !== null;
@@ -3447,6 +3414,17 @@ export class PRReviewStore {
       const restoreCount = (timelineData as { event?: string }[]).filter(
         (event) => event.event === "head_ref_restored"
       ).length;
+
+      // Batch-fetch checks for force-push commits in the timeline
+      const forcePushShas = (
+        timelineData as Array<{ event?: string; commit_id?: string }>
+      )
+        .filter((e) => e.event === "head_ref_force_pushed" && e.commit_id)
+        .map((e) => e.commit_id!)
+        .filter(Boolean);
+      if (forcePushShas.length > 0) {
+        this.github.prefetchChecksBatch(owner, repo, forcePushShas);
+      }
 
       this.set({
         reviews: reviewsData,

@@ -931,6 +931,138 @@ function createGitHubStore() {
     return queryClient.fetchQuery(queries.checksByCommit(owner, repo, sha));
   }
 
+  type CheckContext =
+    | {
+        __typename: "CheckRun";
+        name: string;
+        conclusion: string | null;
+        status: string;
+        app?: { name: string; slug: string } | null;
+        detailsUrl?: string | null;
+        checkSuite?: { databaseId: number } | null;
+      }
+    | {
+        __typename: "StatusContext";
+        context: string;
+        state: string;
+        targetUrl?: string | null;
+        avatarUrl?: string | null;
+        description?: string | null;
+      };
+
+  async function prefetchChecksBatch(
+    owner: string,
+    repo: string,
+    shas: string[]
+  ): Promise<void> {
+    if (!octokit || shas.length === 0) return;
+    // Seed cache immediately so ChecksIcon components find data and skip fetching
+    for (const sha of shas) {
+      queryClient.setQueryData(["checks", owner, repo, sha], {
+        checkRuns: [],
+        status: { statuses: [] },
+      });
+    }
+    const queries = shas
+      .map(
+        (sha, i) => `
+      sha${i}: object(oid: "${sha}") {
+        ... on Commit {
+          statusCheckRollup {
+            state
+            contexts(first: 100) {
+              nodes {
+                __typename
+                ... on CheckRun {
+                  name
+                  conclusion
+                  status
+                  app { name slug }
+                  detailsUrl
+                  checkSuite { databaseId }
+                }
+                ... on StatusContext {
+                  context
+                  state
+                  targetUrl
+                  avatarUrl
+                  description
+                }
+              }
+            }
+          }
+        }
+      }`
+      )
+      .join("\n");
+
+    const query = `query($owner: String!, $repo: String!) {
+      repository(owner: $owner, name: $repo) {
+        ${queries}
+      }
+    }`;
+
+    try {
+      type CommitResult = {
+        statusCheckRollup: {
+          state: string;
+          contexts: { nodes: CheckContext[] };
+        } | null;
+      };
+      const data = await octokit.graphql<{
+        repository: Record<string, CommitResult | null>;
+      }>(query, { owner, repo });
+      for (let i = 0; i < shas.length; i++) {
+        const commitData = data.repository[`sha${i}`];
+        if (!commitData?.statusCheckRollup) continue;
+        const contexts = commitData.statusCheckRollup.contexts.nodes;
+        const checkRuns: Array<{
+          status: string;
+          conclusion: string | null;
+          name: string;
+          app?: { name: string; slug: string } | null;
+          details_url?: string | null;
+          check_suite?: { id: number } | null;
+        }> = [];
+        const statuses: Array<{
+          context: string;
+          state: string;
+          target_url?: string | null;
+          avatar_url?: string | null;
+          description?: string | null;
+        }> = [];
+        for (const ctx of contexts) {
+          if (ctx.__typename === "CheckRun") {
+            checkRuns.push({
+              status: ctx.status,
+              conclusion: ctx.conclusion,
+              name: ctx.name,
+              app: ctx.app ?? null,
+              details_url: ctx.detailsUrl ?? null,
+              check_suite: ctx.checkSuite
+                ? { id: ctx.checkSuite.databaseId }
+                : null,
+            });
+          } else {
+            statuses.push({
+              context: ctx.context,
+              state: ctx.state,
+              target_url: ctx.targetUrl ?? null,
+              avatar_url: ctx.avatarUrl ?? null,
+              description: ctx.description ?? null,
+            });
+          }
+        }
+        queryClient.setQueryData(["checks", owner, repo, shas[i]], {
+          checkRuns,
+          status: { statuses },
+        });
+      }
+    } catch {
+      // Individual fetches will be triggered as fallback
+    }
+  }
+
   function getWorkflowRunsForSha(owner: string, repo: string, sha: string) {
     if (!octokit) throw new Error("Not initialized");
     return queryClient.fetchQuery(
@@ -2215,6 +2347,7 @@ function createGitHubStore() {
     submitPRReview,
     deletePRReview,
     getPRChecks: getPRChecksForSha,
+    prefetchChecksBatch,
     getWorkflowRuns: getWorkflowRunsForSha,
     approveWorkflowRun,
     mergePR,
