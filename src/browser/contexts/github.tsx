@@ -17,9 +17,17 @@ import { queries } from "../lib/queries";
 
 export type UserTeam = { org: string; slug: string };
 let userTeamsCache: UserTeam[] | null = null;
+const teamListeners = new Set<() => void>();
 
 export function getCachedTeams(): UserTeam[] {
   return userTeamsCache ?? [];
+}
+
+export function subscribeTeams(cb: () => void): () => void {
+  teamListeners.add(cb);
+  return () => {
+    teamListeners.delete(cb);
+  };
 }
 
 // Re-export types
@@ -631,6 +639,7 @@ function createGitHubStore() {
       userTeamsCache = (
         result.data as Array<{ organization: { login: string }; slug: string }>
       ).map((t) => ({ org: t.organization.login, slug: t.slug }));
+      teamListeners.forEach((fn) => fn());
     } catch {
       // Silently fail — teams are optional
     }
@@ -639,14 +648,12 @@ function createGitHubStore() {
   async function fetchInvolvedPRs(): Promise<PRSearchResult[]> {
     try {
       const teams = getCachedTeams();
-      const MAX_OR = 5;
       const batches: string[] = [];
 
       batches.push("is:pr involves:@me sort:updated-desc");
 
-      for (let i = 0; i < teams.length; i += MAX_OR) {
-        const batch = teams.slice(i, i + MAX_OR);
-        const qualifiers = batch
+      if (teams.length > 0) {
+        const qualifiers = teams
           .map((t) => `team-review-requested:${t.org}/${t.slug}`)
           .join(" ");
         batches.push(`is:pr ${qualifiers} sort:updated-desc`);

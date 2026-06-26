@@ -46,6 +46,7 @@ import {
   useGitHubStore,
   useGitHubReady,
   getCachedTeams,
+  subscribeTeams,
   type PRSearchResult,
 } from "../contexts/github";
 import { getLastViewed, setLastViewed } from "../lib/waiting-prs";
@@ -206,11 +207,10 @@ function buildSearchQueries(config: FilterConfig): string[] {
 
     if (filter.mode === "involves") {
       const teams = getCachedTeams();
-      for (let i = 0; i < teams.length; i += 5) {
-        const batch = teams.slice(i, i + 5);
+      if (teams.length > 0) {
         const teamParts = ["is:pr", "archived:false"];
         if (stateFilter) teamParts.push(stateFilter);
-        for (const team of batch) {
+        for (const team of teams) {
           teamParts.push(`team-review-requested:${team.org}/${team.slug}`);
         }
         queries.push(teamParts.join(" "));
@@ -256,12 +256,11 @@ function buildSearchQueries(config: FilterConfig): string[] {
 
       if (mode === "involves") {
         const teams = getCachedTeams();
-        for (let i = 0; i < teams.length; i += 5) {
-          const batch = teams.slice(i, i + 5);
+        if (teams.length > 0) {
           const teamParts = ["is:pr", "archived:false"];
           if (stateFilter) teamParts.push(stateFilter);
           teamParts.push(...repos.map((r) => `repo:${r}`));
-          for (const team of batch) {
+          for (const team of teams) {
             teamParts.push(`team-review-requested:${team.org}/${team.slug}`);
           }
           queries.push(teamParts.join(" "));
@@ -372,8 +371,15 @@ export function Home() {
     );
   }, [showUpdatedOnly]);
 
+  // Re-memoize when teams finish loading (async after ready) so team-review-requested: queries appear
+  const [teamsKey, setTeamsKey] = useState(0);
+  useEffect(() => subscribeTeams(() => setTeamsKey((k) => k + 1)), []);
+
   // Build queries from config (one per mode group)
-  const searchQueries = useMemo(() => buildSearchQueries(config), [config]);
+  const searchQueries = useMemo(
+    () => buildSearchQueries(config),
+    [config, teamsKey]
+  );
 
   // Save config to localStorage whenever it changes
   useEffect(() => {
