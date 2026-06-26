@@ -2399,6 +2399,8 @@ const DiffViewer = memo(function DiffViewer({
 
   // Horizontal scroll state for split view
   const [hScroll, setHScroll] = useState(0);
+  const hScrollRef = useRef(hScroll);
+  hScrollRef.current = hScroll;
   const [containerPixelWidth, setContainerPixelWidth] = useState(0);
 
   // Reset hScroll when switching modes or files
@@ -2462,6 +2464,40 @@ const DiffViewer = memo(function DiffViewer({
     el.addEventListener("wheel", handler, { passive: false });
     return () => el.removeEventListener("wheel", handler);
   }, [isSplit, maxScroll]);
+
+  // Touch gesture handler for horizontal scroll on mobile (split view only)
+  useEffect(() => {
+    const el = parentRef.current;
+    if (!el || !isSplit) return;
+
+    let startX = 0;
+    let startScroll = 0;
+
+    const handleTouchStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return;
+      startX = e.touches[0].clientX;
+      startScroll = hScrollRef.current;
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return;
+      const dx = startX - e.touches[0].clientX;
+      if (Math.abs(dx) > 5) {
+        e.preventDefault();
+        const max = maxScroll;
+        if (max <= 0) return;
+        setHScroll(Math.max(0, Math.min(max, Math.round(startScroll + dx))));
+      }
+    };
+
+    el.addEventListener("touchstart", handleTouchStart, { passive: true });
+    el.addEventListener("touchmove", handleTouchMove, { passive: false });
+
+    return () => {
+      el.removeEventListener("touchstart", handleTouchStart);
+      el.removeEventListener("touchmove", handleTouchMove);
+    };
+  }, [maxScroll]);
 
   const onDragStart = useCallback(
     (lineNum: number, side: "old" | "new", shiftKey?: boolean) => {
@@ -2799,10 +2835,8 @@ const DiffViewer = memo(function DiffViewer({
       <div className="flex flex-col flex-1 min-h-0">
         <div
           ref={parentRef}
-          className={cn(
-            "flex-1 themed-scrollbar",
-            isSplit ? "overflow-y-auto overflow-x-hidden" : "overflow-auto"
-          )}
+          className="flex-1 themed-scrollbar overflow-y-auto overflow-x-hidden"
+          style={{ touchAction: "pan-y pinch-zoom" } as React.CSSProperties}
         >
           <div className="p-4">
             <div
