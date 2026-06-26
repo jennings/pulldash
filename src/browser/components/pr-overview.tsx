@@ -685,6 +685,17 @@ export const PROverview = memo(function PROverview() {
 
   // Reaction state - keyed by "issue" for PR body or comment ID
   const [reactions, setReactions] = useState<Record<string, Reaction[]>>({});
+  // Seed review reactions during render so ReviewBox finds cached data before its effect runs
+  const seededReactions = useMemo(() => {
+    if (reviews.length === 0) return reactions;
+    const next = { ...reactions };
+    for (const r of reviews) {
+      if (r.id && next[`review-${r.id}`] === undefined) {
+        next[`review-${r.id}`] = [];
+      }
+    }
+    return next;
+  }, [reactions, reviews]);
 
   // Fetch PR body reactions
   useEffect(() => {
@@ -778,6 +789,32 @@ export const PROverview = memo(function PROverview() {
         }
       });
   }, [github, owner, repo, reviewThreads]);
+
+  // Fetch review reactions (batched)
+  useEffect(() => {
+    const reviewNodeIds = reviews
+      .filter((r) => r.node_id)
+      .map((r) => r.node_id!);
+    if (reviewNodeIds.length === 0) return;
+
+    github
+      .prefetchReactionsBatch(owner, repo, [], [], reviewNodeIds)
+      .then((results) => {
+        if (results.size > 0) {
+          setReactions((prev) => {
+            const next = { ...prev };
+            for (const [idx, data] of results) {
+              const reviewIdx = Math.abs(idx) - 1;
+              const review = reviews[reviewIdx];
+              if (review?.id) {
+                next[`review-${review.id}`] = data;
+              }
+            }
+            return next;
+          });
+        }
+      });
+  }, [github, owner, repo, reviews]);
 
   const handleAddPRReaction = useCallback(
     async (content: ReactionContent) => {
@@ -1705,7 +1742,11 @@ export const PROverview = memo(function PROverview() {
                             key={`review-${entry.data.id}`}
                             className="space-y-3"
                           >
-                            <ReviewBox review={entry.data} />
+                            <ReviewBox
+                              review={entry.data}
+                              parentReactions={seededReactions}
+                              setParentReactions={setReactions}
+                            />
                             {/* Render associated threads under the review */}
                             {entry.threads.map((thread) => {
                               const threadId = `reviewthread-${thread.id}`;
@@ -2973,29 +3014,43 @@ function CommentBox({
 // Review Box Component
 // ============================================================================
 
-function ReviewBox({ review }: { review: Review }) {
+function ReviewBox({
+  review,
+  parentReactions,
+  setParentReactions,
+}: {
+  review: Review;
+  parentReactions: Record<string, Reaction[]>;
+  setParentReactions: React.Dispatch<
+    React.SetStateAction<Record<string, Reaction[]>>
+  >;
+}) {
   const store = usePRReviewStore();
   const github = useGitHub();
-  const owner = usePRReviewSelector((s) => s.owner);
-  const repo = usePRReviewSelector((s) => s.repo);
-  const prNumber = usePRReviewSelector((s) => s.pr.number);
   const currentUser = useCurrentUser()?.login ?? null;
   const viewerPermission = usePRReviewSelector((s) => s.viewerPermission);
   const canWrite =
     viewerPermission === "ADMIN" ||
     viewerPermission === "MAINTAIN" ||
     viewerPermission === "WRITE";
-  const [reactions, setReactions] = useState<Reaction[]>([]);
 
-  // Fetch reactions via GraphQL using the review's node_id
+  const cachedKey = review.id ? `review-${review.id}` : null;
+  const cachedReactions = cachedKey ? parentReactions[cachedKey] : undefined;
+  const [reactions, setReactions] = useState<Reaction[]>(cachedReactions ?? []);
+
+  // Fetch reactions via GraphQL if not cached by the parent batch
   useEffect(() => {
-    if (review.node_id) {
-      github
-        .getReviewReactions(review.node_id)
-        .then(setReactions)
-        .catch(() => {});
-    }
-  }, [github, review.node_id]);
+    if (cachedReactions || !review.node_id) return;
+    github
+      .getReviewReactions(review.node_id)
+      .then((data) => {
+        setReactions(data);
+        if (cachedKey) {
+          setParentReactions((prev) => ({ ...prev, [cachedKey]: data }));
+        }
+      })
+      .catch(() => {});
+  }, [github, review.node_id, cachedReactions, cachedKey, setParentReactions]);
 
   const handleAddReaction = useCallback(
     async (content: ReactionContent) => {
