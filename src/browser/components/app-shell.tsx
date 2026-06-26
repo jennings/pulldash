@@ -186,6 +186,7 @@ export function AppShell() {
     };
 
     const checkPRs = async () => {
+      if (!notifsEnabled()) return;
       try {
         const prTabs = tabs.filter(
           (t): t is Tab & { owner: string; repo: string; number: number } =>
