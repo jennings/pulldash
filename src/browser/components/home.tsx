@@ -159,14 +159,8 @@ function getModeFilter(mode: FilterMode, authoredBy?: string): string {
       return "author:@me";
     case "authored-by":
       return authoredBy ? `author:${authoredBy}` : "";
-    case "involves": {
-      const teams = getCachedTeams();
-      if (teams.length === 0) return "involves:@me";
-      const teamQualifiers = teams
-        .map((t) => `team-review-requested:${t.org}/${t.slug}`)
-        .join(" OR ");
-      return `(involves:@me OR ${teamQualifiers} )`;
-    }
+    case "involves":
+      return "involves:@me";
     default:
       return "";
   }
@@ -209,6 +203,19 @@ function buildSearchQueries(config: FilterConfig): string[] {
     ) {
       queries.push(parts.join(" "));
     }
+
+    if (filter.mode === "involves") {
+      const teams = getCachedTeams();
+      for (let i = 0; i < teams.length; i += 5) {
+        const batch = teams.slice(i, i + 5);
+        const teamParts = ["is:pr", "archived:false"];
+        if (stateFilter) teamParts.push(stateFilter);
+        for (const team of batch) {
+          teamParts.push(`team-review-requested:${team.org}/${team.slug}`);
+        }
+        queries.push(teamParts.join(" "));
+      }
+    }
   }
 
   // Group specific repos by mode+authoredBy (for authored-by, different authors need separate queries)
@@ -246,6 +253,20 @@ function buildSearchQueries(config: FilterConfig): string[] {
       const modeFilter = getModeFilter(mode, authoredBy);
       if (modeFilter) parts.push(modeFilter);
       queries.push(parts.join(" "));
+
+      if (mode === "involves") {
+        const teams = getCachedTeams();
+        for (let i = 0; i < teams.length; i += 5) {
+          const batch = teams.slice(i, i + 5);
+          const teamParts = ["is:pr", "archived:false"];
+          if (stateFilter) teamParts.push(stateFilter);
+          teamParts.push(...repos.map((r) => `repo:${r}`));
+          for (const team of batch) {
+            teamParts.push(`team-review-requested:${team.org}/${team.slug}`);
+          }
+          queries.push(teamParts.join(" "));
+        }
+      }
     }
   }
 

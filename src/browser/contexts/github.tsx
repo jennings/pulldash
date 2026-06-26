@@ -642,18 +642,14 @@ function createGitHubStore() {
       const MAX_OR = 5;
       const batches: string[] = [];
 
+      batches.push("is:pr involves:@me sort:updated-desc");
+
       for (let i = 0; i < teams.length; i += MAX_OR) {
         const batch = teams.slice(i, i + MAX_OR);
         const qualifiers = batch
           .map((t) => `team-review-requested:${t.org}/${t.slug}`)
-          .join(" OR ");
-        batches.push(
-          `is:pr (involves:@me OR ${qualifiers} ) sort:updated-desc`
-        );
-      }
-
-      if (batches.length === 0) {
-        batches.push("is:pr involves:@me sort:updated-desc");
+          .join(" ");
+        batches.push(`is:pr ${qualifiers} sort:updated-desc`);
       }
 
       const results = await Promise.all(
