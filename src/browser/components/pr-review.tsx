@@ -1597,7 +1597,7 @@ type VirtualRowType =
 interface HorizontalScrollBarProps {
   maxChars: number;
   contentWidthPx: number;
-  containerWidth: number;
+  viewportWidth: number;
   hScroll: number;
   onScroll: (value: number) => void;
 }
@@ -1605,12 +1605,10 @@ interface HorizontalScrollBarProps {
 const HorizontalScrollBar = memo(function HorizontalScrollBar({
   maxChars,
   contentWidthPx,
-  containerWidth,
+  viewportWidth,
   hScroll,
   onScroll,
 }: HorizontalScrollBarProps) {
-  const GUTTER_WIDTH = 53;
-  const viewportWidth = Math.max(1, containerWidth / 2 - GUTTER_WIDTH);
   const maxScroll = Math.max(0, contentWidthPx - viewportWidth);
   const thumbRatio = Math.min(1, viewportWidth / contentWidthPx);
   const scrollableRatio = 1 - thumbRatio;
@@ -2262,7 +2260,9 @@ const DiffViewer = memo(function DiffViewer({
   }, [staticRows]);
 
   const isSplit = viewMode === "split";
-  const contentWidthPx = maxLineChars.maxPerSide * 8 + 16;
+  const contentWidthPx = isSplit
+    ? maxLineChars.maxPerSide * 8 + 16
+    : maxLineChars.maxChars * 8.5 + 150;
 
   // Dynamic: Insert comment form into the correct position (only changes when commentingOnLine changes)
   const virtualRows = useMemo((): VirtualRowType[] => {
@@ -2429,27 +2429,26 @@ const DiffViewer = memo(function DiffViewer({
   }, [hScroll]);
 
   // Memoized scroll limits for reuse across effects
-  const halfViewport = useMemo(
-    () => Math.max(1, containerPixelWidth / 2 - 53),
-    [containerPixelWidth]
+  const viewportWidth = useMemo(
+    () => Math.max(1, containerPixelWidth / (isSplit ? 2 : 1) - 53),
+    [containerPixelWidth, isSplit]
   );
   const maxScroll = useMemo(
-    () => Math.max(0, contentWidthPx - halfViewport),
-    [contentWidthPx, halfViewport]
+    () => Math.max(0, contentWidthPx - viewportWidth),
+    [contentWidthPx, viewportWidth]
   );
 
   // Clamp hScroll when viewport shrinks
   useEffect(() => {
-    if (!isSplit) return;
     if (hScroll > maxScroll) {
       setHScroll(maxScroll);
     }
-  }, [isSplit, maxScroll, hScroll]);
+  }, [maxScroll, hScroll]);
 
   // Non-passive wheel listener for horizontal touchpad scroll anywhere in the diff area
   useEffect(() => {
     const el = parentRef.current;
-    if (!el || !isSplit) return;
+    if (!el) return;
 
     const handler = (e: WheelEvent) => {
       if (e.deltaX !== 0) {
@@ -2463,12 +2462,12 @@ const DiffViewer = memo(function DiffViewer({
 
     el.addEventListener("wheel", handler, { passive: false });
     return () => el.removeEventListener("wheel", handler);
-  }, [isSplit, maxScroll]);
+  }, [maxScroll]);
 
-  // Touch gesture handler for horizontal scroll on mobile (split view only)
+  // Touch gesture handler for horizontal scroll on mobile
   useEffect(() => {
     const el = parentRef.current;
-    if (!el || !isSplit) return;
+    if (!el) return;
 
     let startX = 0;
     let startScroll = 0;
@@ -2839,25 +2838,12 @@ const DiffViewer = memo(function DiffViewer({
           style={{ touchAction: "pan-y pinch-zoom" } as React.CSSProperties}
         >
           <div className="p-4">
-            <div
-              className="border border-border rounded-lg overflow-hidden"
-              style={
-                !isSplit && maxLineChars.maxChars > 0
-                  ? {
-                      minWidth: `max(100%, ${maxLineChars.maxChars * 8.5 + 150}px)`,
-                    }
-                  : undefined
-              }
-            >
+            <div className="border border-border rounded-lg overflow-hidden">
               <div
                 ref={containerRef}
                 className="relative font-mono text-[0.8rem] [--code-added:theme(colors.green.500)] [--code-removed:theme(colors.orange.600)] [--code-changed:theme(colors.blue.500)] diff-line-container"
                 style={{
                   height: `${virtualizer.getTotalSize()}px`,
-                  minWidth:
-                    !isSplit && maxLineChars.maxChars > 0
-                      ? `max(100%, ${maxLineChars.maxChars * 8.5 + 150}px)`
-                      : "100%",
                 }}
               >
                 {virtualizer.getVirtualItems().map((virtualRow) => {
@@ -2893,15 +2879,13 @@ const DiffViewer = memo(function DiffViewer({
             </div>
           </div>
         </div>
-        {isSplit && (
-          <HorizontalScrollBar
-            maxChars={maxLineChars.maxPerSide}
-            contentWidthPx={contentWidthPx}
-            containerWidth={containerPixelWidth}
-            hScroll={hScroll}
-            onScroll={setHScroll}
-          />
-        )}
+        <HorizontalScrollBar
+          maxChars={isSplit ? maxLineChars.maxPerSide : maxLineChars.maxChars}
+          contentWidthPx={contentWidthPx}
+          viewportWidth={viewportWidth}
+          hScroll={hScroll}
+          onScroll={setHScroll}
+        />
       </div>
     </LineDragContext.Provider>
   );
@@ -3281,35 +3265,45 @@ const DiffLineRow = memo(function DiffLineRow({
       </div>
       {/* Code content - click to focus line (unless selecting text) */}
       <div
-        className="flex-1 whitespace-pre pr-6 pl-2 cursor-text"
+        className="flex-1 overflow-hidden cursor-text"
         onMouseDown={handleContentMouseDown}
         onClick={handleContentClick}
       >
-        <Tag className="no-underline">
-          {processedContent.map((seg, i) => {
-            // For tiny inline changes, use more prominent styling
-            const isTinyChange = seg.type !== "normal" && seg.value.length <= 2;
-            return (
-              <span
-                key={i}
-                className={cn(
-                  seg.type === "insert" &&
-                    "bg-[var(--code-added)]/20 text-[var(--diff-insert-fg)]",
-                  seg.type === "delete" &&
-                    "bg-[var(--code-removed)]/20 text-[var(--diff-delete-fg)] line-through decoration-orange-500/50",
-                  // Extra emphasis for tiny changes
-                  isTinyChange &&
+        <div
+          className="whitespace-pre pr-6 pl-2"
+          style={
+            {
+              transform: "translateX(calc(-1 * var(--h-scroll)))",
+            } as React.CSSProperties
+          }
+        >
+          <Tag className="no-underline">
+            {processedContent.map((seg, i) => {
+              // For tiny inline changes, use more prominent styling
+              const isTinyChange =
+                seg.type !== "normal" && seg.value.length <= 2;
+              return (
+                <span
+                  key={i}
+                  className={cn(
                     seg.type === "insert" &&
-                    "bg-[var(--code-added)]/40 font-semibold",
-                  isTinyChange &&
+                      "bg-[var(--code-added)]/20 text-[var(--diff-insert-fg)]",
                     seg.type === "delete" &&
-                    "bg-[var(--code-removed)]/40 font-semibold"
-                )}
-                dangerouslySetInnerHTML={{ __html: seg.html }}
-              />
-            );
-          })}
-        </Tag>
+                      "bg-[var(--code-removed)]/20 text-[var(--diff-delete-fg)] line-through decoration-orange-500/50",
+                    // Extra emphasis for tiny changes
+                    isTinyChange &&
+                      seg.type === "insert" &&
+                      "bg-[var(--code-added)]/40 font-semibold",
+                    isTinyChange &&
+                      seg.type === "delete" &&
+                      "bg-[var(--code-removed)]/40 font-semibold"
+                  )}
+                  dangerouslySetInnerHTML={{ __html: seg.html }}
+                />
+              );
+            })}
+          </Tag>
+        </div>
       </div>
     </div>
   );
