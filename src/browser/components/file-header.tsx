@@ -197,15 +197,21 @@ export const FileHeader = memo(function FileHeader({
         <button
           onClick={onToggleViewed}
           className={cn(
-            "flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md transition-colors shrink-0",
+            "flex items-center gap-1.5 px-1.5 sm:px-3 py-1 sm:py-1.5 text-sm rounded-md transition-colors shrink-0",
             isViewed
               ? "bg-green-500/20 text-green-500 hover:bg-green-500/30"
               : "bg-muted hover:bg-muted/80 text-muted-foreground"
           )}
         >
           <Check className={cn("w-4 h-4", isViewed && "text-green-500")} />
-          {isViewed ? "Viewed" : "Mark as viewed"}
-          <Keycap keyName="v" size="xs" className="ml-1" />
+          <span className="hidden sm:inline">
+            {isViewed ? "Viewed" : "Mark as viewed"}
+          </span>
+          <Keycap
+            keyName="v"
+            size="xs"
+            className="ml-1 hidden sm:inline-block"
+          />
         </button>
       </div>
     </div>
