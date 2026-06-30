@@ -4685,6 +4685,13 @@ const SubmitReviewDropdown = memo(function SubmitReviewDropdown() {
       );
   }, []);
 
+  // Alt+S to approve without comment
+  useEffect(() => {
+    const handler = () => submitReview("APPROVE");
+    window.addEventListener("pr-review:approve", handler);
+    return () => window.removeEventListener("pr-review:approve", handler);
+  }, [submitReview]);
+
   // Reset openedViaKeyboard when dropdown closes
   useEffect(() => {
     if (!isOpen) {

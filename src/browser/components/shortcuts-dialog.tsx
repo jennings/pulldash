@@ -75,6 +75,7 @@ const SECTIONS: ShortcutSection[] = [
       { keys: [[["r"]]], description: "Reply to focused comment" },
       { keys: [[["d"]]], description: "Delete focused comment" },
       { keys: [[["s"]]], description: "Open submit-review menu" },
+      { keys: [[["alt", "s"]]], description: "Approve without comment" },
       { keys: [[["g"]]], description: "Enter goto-line mode" },
       {
         keys: [[["esc"]]],

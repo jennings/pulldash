@@ -29,6 +29,13 @@ export function useKeyboardNavigation() {
         return;
       }
 
+      // Alt+S to approve without comment
+      if (e.altKey && e.key === "s") {
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent("pr-review:approve"));
+        return;
+      }
+
       // Allow other Ctrl/Cmd shortcuts to pass through (refresh, etc)
       if (e.ctrlKey || e.metaKey) {
         return;
