@@ -69,6 +69,7 @@ const SECTIONS: ShortcutSection[] = [
       { keys: [[["v"]]], description: "Toggle viewed on current file" },
       { keys: [[["o"]]], description: "Go to PR overview" },
       { keys: [[["c"]]], description: "Comment on focused line" },
+      { keys: [[["w"]]], description: "Toggle word wrap" },
       { keys: [[["h"]]], description: "Toggle comments visibility" },
       { keys: [[["e"]]], description: "Edit focused comment" },
       { keys: [[["r"]]], description: "Reply to focused comment" },

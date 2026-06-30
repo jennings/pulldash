@@ -1205,6 +1205,7 @@ const DiffPanel = memo(function DiffPanel() {
   const selectedFiles = usePRReviewSelector((s) => s.selectedFiles);
   const showOverview = usePRReviewSelector((s) => s.showOverview);
   const diffViewMode = usePRReviewSelector((s) => s.diffViewMode);
+  const wordWrap = usePRReviewSelector((s) => s.wordWrap);
   const conversationsSidebarOpen = usePRReviewSelector(
     (s) => s.conversationsSidebarOpen
   );
@@ -1264,6 +1265,8 @@ const DiffPanel = memo(function DiffPanel() {
                 onNextFile={() => store.navigateToNextUnviewedFile()}
                 diffViewMode={diffViewMode}
                 onToggleDiffViewMode={() => store.toggleDiffViewMode()}
+                wordWrap={wordWrap}
+                onToggleWordWrap={() => store.toggleWordWrap()}
                 conversationsSidebarOpen={conversationsSidebarOpen}
                 onToggleConversationsSidebar={() =>
                   store.toggleConversationsSidebar()
@@ -1286,7 +1289,11 @@ const DiffPanel = memo(function DiffPanel() {
             {/* Scrollable diff content - DiffViewer handles its own virtualized scroll */}
             <div className="flex-1 min-h-0 flex flex-col">
               {parsedDiff && parsedDiff.hunks.length > 0 ? (
-                <DiffViewer diff={parsedDiff} viewMode={diffViewMode} />
+                <DiffViewer
+                  diff={parsedDiff}
+                  viewMode={diffViewMode}
+                  wordWrap={wordWrap}
+                />
               ) : isLoading || (currentFile.patch && !parsedDiff) ? (
                 // Show skeleton if loading OR if file has patch but diff isn't ready yet
                 <DiffSkeleton />
@@ -1705,11 +1712,13 @@ const HorizontalScrollBar = memo(function HorizontalScrollBar({
 interface DiffViewerProps {
   diff: ParsedDiff;
   viewMode: DiffViewMode;
+  wordWrap: boolean;
 }
 
 const DiffViewer = memo(function DiffViewer({
   diff,
   viewMode,
+  wordWrap,
 }: DiffViewerProps) {
   const hunks = diff?.hunks ?? [];
   const store = usePRReviewStore();
@@ -2355,9 +2364,9 @@ const DiffViewer = memo(function DiffViewer({
         case "skip":
           return 40;
         case "line":
-          return 20;
+          return wordWrap ? 40 : 20;
         case "split-line":
-          return 20;
+          return wordWrap ? 60 : 20;
         case "comment-form":
           return 180;
         case "pending-comment":
@@ -2368,7 +2377,7 @@ const DiffViewer = memo(function DiffViewer({
           return 20;
       }
     },
-    [virtualRows, commentsHidden]
+    [virtualRows, commentsHidden, wordWrap]
   );
 
   const virtualizer = useVirtualizer({
@@ -2377,7 +2386,7 @@ const DiffViewer = memo(function DiffViewer({
     estimateSize,
     // Include selectedFile in key to force React to re-render when switching files
     // This fixes dangerouslySetInnerHTML not updating when DOM elements are reused
-    getItemKey: (index) => `${selectedFile}-${index}`,
+    getItemKey: (index) => `${selectedFile}-${wordWrap ? "w" : "nw"}-${index}`,
     // High overscan for smooth navigation - rows pre-rendered above/below viewport
     overscan: 100,
     // Add padding at the end so we can scroll the last line to center
@@ -2871,6 +2880,7 @@ const DiffViewer = memo(function DiffViewer({
                         replyingToCommentId={replyingToCommentId}
                         expandSkipBlock={expandSkipBlock}
                         isExpanding={isExpanding}
+                        wordWrap={wordWrap}
                       />
                     </div>
                   );
@@ -2879,13 +2889,15 @@ const DiffViewer = memo(function DiffViewer({
             </div>
           </div>
         </div>
-        <HorizontalScrollBar
-          maxChars={isSplit ? maxLineChars.maxPerSide : maxLineChars.maxChars}
-          contentWidthPx={contentWidthPx}
-          viewportWidth={viewportWidth}
-          hScroll={hScroll}
-          onScroll={setHScroll}
-        />
+        {!wordWrap && (
+          <HorizontalScrollBar
+            maxChars={isSplit ? maxLineChars.maxPerSide : maxLineChars.maxChars}
+            contentWidthPx={contentWidthPx}
+            viewportWidth={viewportWidth}
+            hScroll={hScroll}
+            onScroll={setHScroll}
+          />
+        )}
       </div>
     </LineDragContext.Provider>
   );
@@ -2911,6 +2923,7 @@ interface VirtualRowRendererProps {
     count: number
   ) => void;
   isExpanding: (skipIndex: number) => boolean;
+  wordWrap: boolean;
 }
 
 const VirtualRowRenderer = memo(function VirtualRowRenderer({
@@ -2924,6 +2937,7 @@ const VirtualRowRenderer = memo(function VirtualRowRenderer({
   replyingToCommentId,
   expandSkipBlock,
   isExpanding,
+  wordWrap,
 }: VirtualRowRendererProps) {
   // Hide comment rows without removing them from the virtual list,
   // so the virtualizer's item count stays constant and scroll position is preserved.
@@ -2954,6 +2968,7 @@ const VirtualRowRenderer = memo(function VirtualRowRenderer({
           line={row.line}
           lineNum={row.lineNum}
           isRebaseArtifact={row.isRebaseArtifact}
+          wordWrap={wordWrap}
         />
       );
     case "split-line":
@@ -2961,6 +2976,7 @@ const VirtualRowRenderer = memo(function VirtualRowRenderer({
         <SplitDiffLineRow
           pair={row.pair}
           isRebaseArtifact={row.isRebaseArtifact}
+          wordWrap={wordWrap}
         />
       );
     case "comment-form":
@@ -2995,12 +3011,14 @@ interface DiffLineRowProps {
   line: DiffLine;
   lineNum: number | undefined;
   isRebaseArtifact?: boolean;
+  wordWrap: boolean;
 }
 
 const DiffLineRow = memo(function DiffLineRow({
   line,
   lineNum,
   isRebaseArtifact,
+  wordWrap,
 }: DiffLineRowProps) {
   const store = usePRReviewStore();
   const {
@@ -3193,7 +3211,8 @@ const DiffLineRow = memo(function DiffLineRow({
   return (
     <div
       className={cn(
-        "flex h-5 min-h-5 whitespace-pre box-border group diff-line-row relative",
+        "flex box-border group diff-line-row relative",
+        wordWrap ? "min-h-5" : "h-5 min-h-5 whitespace-pre",
         isRebaseArtifact && "opacity-40"
       )}
       style={styles}
@@ -3275,7 +3294,10 @@ const DiffLineRow = memo(function DiffLineRow({
           </div>
           {/* Code content - click to focus line (unless selecting text) */}
           <div
-            className="whitespace-pre pr-6 pl-2 cursor-text"
+            className={cn(
+              "pr-6 pl-2 cursor-text",
+              wordWrap ? "whitespace-pre-wrap" : "whitespace-pre"
+            )}
             onMouseDown={handleContentMouseDown}
             onClick={handleContentClick}
           >
@@ -3319,11 +3341,13 @@ const DiffLineRow = memo(function DiffLineRow({
 interface SplitDiffLineRowProps {
   pair: SplitLinePair;
   isRebaseArtifact?: boolean;
+  wordWrap: boolean;
 }
 
 const SplitDiffLineRow = memo(function SplitDiffLineRow({
   pair,
   isRebaseArtifact,
+  wordWrap,
 }: SplitDiffLineRowProps) {
   const store = usePRReviewStore();
   const {
@@ -3497,7 +3521,10 @@ const SplitDiffLineRow = memo(function SplitDiffLineRow({
           </div>
           {/* Code content */}
           <div
-            className="whitespace-pre pr-2 pl-2 cursor-text"
+            className={cn(
+              "pr-2 pl-2 cursor-text",
+              wordWrap ? "whitespace-pre-wrap" : "whitespace-pre"
+            )}
             onMouseDown={handleContentMouseDown}
             onClick={handleContentClick}
           >
@@ -3539,7 +3566,8 @@ const SplitDiffLineRow = memo(function SplitDiffLineRow({
   return (
     <div
       className={cn(
-        "flex h-5 min-h-5 whitespace-pre box-border group contain-layout split-diff-line-row font-mono text-[0.8rem]",
+        "flex box-border group contain-layout split-diff-line-row font-mono text-[0.8rem]",
+        wordWrap ? "min-h-5" : "h-5 min-h-5 whitespace-pre",
         isRebaseArtifact && "opacity-40"
       )}
       data-line-num={lineNum}

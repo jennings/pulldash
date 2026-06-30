@@ -164,6 +164,10 @@ export function useKeyboardNavigation() {
           e.preventDefault();
           store.toggleComments();
           break;
+        case "w":
+          e.preventDefault();
+          store.toggleWordWrap();
+          break;
         case "e":
           if (state.focusedCommentId) {
             // Check if user can edit this comment

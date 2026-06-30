@@ -7,6 +7,7 @@ import {
   AlignJustify,
   MessageSquare,
   MessageSquareOff,
+  TextWrap,
 } from "lucide-react";
 import { cn } from "../cn";
 import { Keycap } from "../ui/keycap";
@@ -29,6 +30,8 @@ interface FileHeaderProps {
   conversationsCount?: number;
   commentsHidden?: boolean;
   onToggleComments?: () => void;
+  wordWrap?: boolean;
+  onToggleWordWrap?: () => void;
   /** When viewing a historical push version, the version number for display */
   selectedVersion?: number;
 }
@@ -48,6 +51,8 @@ export const FileHeader = memo(function FileHeader({
   conversationsCount,
   commentsHidden,
   onToggleComments,
+  wordWrap,
+  onToggleWordWrap,
   selectedVersion,
 }: FileHeaderProps) {
   const fileStatusBadge = (() => {
@@ -157,6 +162,22 @@ export const FileHeader = memo(function FileHeader({
             title={`${commentsHidden ? "Show" : "Hide"} comments (h)`}
           >
             <MessageSquareOff className="w-3.5 h-3.5" />
+          </button>
+        )}
+
+        {/* Word wrap toggle */}
+        {onToggleWordWrap && (
+          <button
+            onClick={onToggleWordWrap}
+            className={cn(
+              "flex items-center gap-1.5 px-2 py-1 text-xs rounded transition-colors",
+              wordWrap
+                ? "bg-blue-500/20 text-blue-400"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted"
+            )}
+            title="Toggle word wrap (w)"
+          >
+            <TextWrap className="w-3.5 h-3.5" />
           </button>
         )}
 

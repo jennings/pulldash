@@ -259,6 +259,9 @@ interface PRReviewState {
   // Diff view mode (unified or split) - global user preference
   diffViewMode: DiffViewMode;
 
+  // Word wrap for diff lines
+  wordWrap: boolean;
+
   // File navigation
   selectedFile: string | null;
   selectedFiles: Set<string>;
@@ -657,6 +660,7 @@ export class PRReviewStore {
       viewedFiles,
       hideViewed: true,
       diffViewMode,
+      wordWrap: false,
       loadedDiffs: {},
       loadingFiles: new Set(),
       expandedSkipBlocks: {},
@@ -1166,6 +1170,10 @@ export class PRReviewStore {
   toggleDiffViewMode = () => {
     const newMode = this.state.diffViewMode === "unified" ? "split" : "unified";
     this.setDiffViewMode(newMode);
+  };
+
+  toggleWordWrap = () => {
+    this.set({ wordWrap: !this.state.wordWrap });
   };
 
   // ---------------------------------------------------------------------------
