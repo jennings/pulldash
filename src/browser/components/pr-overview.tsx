@@ -140,6 +140,15 @@ export const PROverview = memo(function PROverview() {
   const merging = usePRReviewSelector((s) => s.merging);
   const mergeMethod = usePRReviewSelector((s) => s.mergeMethod);
   const mergeError = usePRReviewSelector((s) => s.mergeError);
+  const repoAllowMergeCommit = usePRReviewSelector(
+    (s) => s.repoAllowMergeCommit
+  );
+  const repoAllowSquashMerge = usePRReviewSelector(
+    (s) => s.repoAllowSquashMerge
+  );
+  const repoAllowRebaseMerge = usePRReviewSelector(
+    (s) => s.repoAllowRebaseMerge
+  );
   const repoHasMergeQueue = usePRReviewSelector((s) => s.repoHasMergeQueue);
   const prInMergeQueue = usePRReviewSelector((s) => s.prInMergeQueue);
   const dequeueing = usePRReviewSelector((s) => s.dequeueing);
@@ -1899,6 +1908,9 @@ export const PROverview = memo(function PROverview() {
                       showMergeOptions={showMergeOptions}
                       mergeError={mergeError}
                       latestReviews={latestReviews}
+                      repoAllowMergeCommit={repoAllowMergeCommit}
+                      repoAllowSquashMerge={repoAllowSquashMerge}
+                      repoAllowRebaseMerge={repoAllowRebaseMerge}
                       hasMergeQueue={repoHasMergeQueue}
                       inMergeQueue={prInMergeQueue}
                       dequeueing={dequeueing}
@@ -3907,6 +3919,9 @@ function MergeSection({
   showMergeOptions,
   mergeError,
   latestReviews,
+  repoAllowMergeCommit,
+  repoAllowSquashMerge,
+  repoAllowRebaseMerge,
   hasMergeQueue,
   inMergeQueue,
   dequeueing,
@@ -3939,6 +3954,9 @@ function MergeSection({
   showMergeOptions: boolean;
   mergeError: string | null;
   latestReviews: Review[];
+  repoAllowMergeCommit: boolean;
+  repoAllowSquashMerge: boolean;
+  repoAllowRebaseMerge: boolean;
   hasMergeQueue: boolean;
   inMergeQueue: boolean;
   dequeueing: boolean;
@@ -4535,33 +4553,41 @@ function MergeSection({
                     width: Math.max(dropdownPosition.width, 280),
                   }}
                 >
-                  {(["squash", "merge", "rebase"] as const).map((method) => (
-                    <button
-                      key={method}
-                      onClick={() => {
-                        onSetMergeMethod(method);
-                        onToggleMergeOptions();
-                      }}
-                      className={cn(
-                        "w-full px-4 py-3 text-left hover:bg-muted transition-colors",
-                        mergeMethod === method && "bg-muted/50"
-                      )}
-                    >
-                      <div className="flex items-center gap-2">
-                        {mergeMethod === method ? (
-                          <Check className="w-4 h-4 text-green-500" />
-                        ) : (
-                          <div className="w-4 h-4" />
+                  {(
+                    [
+                      ["squash", repoAllowSquashMerge],
+                      ["merge", repoAllowMergeCommit],
+                      ["rebase", repoAllowRebaseMerge],
+                    ] as const
+                  )
+                    .filter(([, allowed]) => allowed)
+                    .map(([method]) => (
+                      <button
+                        key={method}
+                        onClick={() => {
+                          onSetMergeMethod(method);
+                          onToggleMergeOptions();
+                        }}
+                        className={cn(
+                          "w-full px-4 py-3 text-left hover:bg-muted transition-colors",
+                          mergeMethod === method && "bg-muted/50"
                         )}
-                        <span className="font-medium text-sm">
-                          {getMergeButtonText(method)}
-                        </span>
-                      </div>
-                      <p className="text-xs text-muted-foreground ml-6 mt-0.5">
-                        {mergeDescriptions[method]}
-                      </p>
-                    </button>
-                  ))}
+                      >
+                        <div className="flex items-center gap-2">
+                          {mergeMethod === method ? (
+                            <Check className="w-4 h-4 text-green-500" />
+                          ) : (
+                            <div className="w-4 h-4" />
+                          )}
+                          <span className="font-medium text-sm">
+                            {getMergeButtonText(method)}
+                          </span>
+                        </div>
+                        <p className="text-xs text-muted-foreground ml-6 mt-0.5">
+                          {mergeDescriptions[method]}
+                        </p>
+                      </button>
+                    ))}
                 </div>
               </>
             )}

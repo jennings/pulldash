@@ -477,10 +477,24 @@ export const queries = {
         const data = await getOctokit().graphql<{
           repository: {
             viewerPermission: string | null;
+            mergeCommitAllowed: boolean;
+            squashMergeAllowed: boolean;
+            rebaseMergeAllowed: boolean;
             mergeQueue: { id: string } | null;
             pullRequest: {
               viewerCanMergeAsAdmin: boolean;
               isInMergeQueue: boolean;
+              baseRef: {
+                rules: {
+                  nodes: Array<{
+                    type: string;
+                    parameters: {
+                      __typename: string;
+                      allowedMergeMethods?: string[];
+                    } | null;
+                  }>;
+                };
+              } | null;
               reviewThreads: { nodes: RawReviewThread[] };
             };
           };
@@ -489,12 +503,28 @@ export const queries = {
           query ($owner: String!, $repo: String!, $number: Int!) {
             repository(owner: $owner, name: $repo) {
               viewerPermission
+              mergeCommitAllowed
+              squashMergeAllowed
+              rebaseMergeAllowed
               mergeQueue {
                 id
               }
               pullRequest(number: $number) {
                 viewerCanMergeAsAdmin
                 isInMergeQueue
+                baseRef {
+                  rules(first: 50) {
+                    nodes {
+                      type
+                      parameters {
+                        __typename
+                        ... on PullRequestParameters {
+                          allowedMergeMethods
+                        }
+                      }
+                    }
+                  }
+                }
                 reviewThreads(first: 100) {
                   nodes {
                     id
@@ -538,11 +568,33 @@ export const queries = {
               pullRequestReview: firstComment?.pullRequestReview ?? null,
             };
           });
+        // Branch rulesets can restrict which merge methods are permitted on
+        // the base branch. If any PULL_REQUEST rule specifies a non-empty
+        // allowedMergeMethods list, intersect with the repo-level flags.
+        const ruleNodes =
+          data.repository.pullRequest.baseRef?.rules?.nodes ?? [];
+        let branchAllowsMerge = true;
+        let branchAllowsSquash = true;
+        let branchAllowsRebase = true;
+        for (const rule of ruleNodes) {
+          if (rule.type !== "PULL_REQUEST") continue;
+          const methods = rule.parameters?.allowedMergeMethods;
+          if (!methods || methods.length === 0) continue;
+          branchAllowsMerge = branchAllowsMerge && methods.includes("MERGE");
+          branchAllowsSquash = branchAllowsSquash && methods.includes("SQUASH");
+          branchAllowsRebase = branchAllowsRebase && methods.includes("REBASE");
+        }
         return {
           threads,
           viewerPermission: data.repository.viewerPermission,
           viewerCanMergeAsAdmin:
             data.repository.pullRequest.viewerCanMergeAsAdmin,
+          allowMergeCommit:
+            data.repository.mergeCommitAllowed && branchAllowsMerge,
+          allowSquashMerge:
+            data.repository.squashMergeAllowed && branchAllowsSquash,
+          allowRebaseMerge:
+            data.repository.rebaseMergeAllowed && branchAllowsRebase,
           hasMergeQueue: data.repository.mergeQueue !== null,
           isInMergeQueue: data.repository.pullRequest.isInMergeQueue,
         };
