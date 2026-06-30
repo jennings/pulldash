@@ -1353,6 +1353,28 @@ const KeybindsBar = memo(function KeybindsBar() {
     focusedSkipBlockIndex !== null ||
     commentingOnLine;
 
+  const leftRef = useRef<HTMLDivElement>(null);
+  const [tooNarrow, setTooNarrow] = useState(false);
+
+  useLayoutEffect(() => {
+    const el = leftRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      setTooNarrow(el.scrollWidth > el.clientWidth);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [tooNarrow]);
+
+  useEffect(() => {
+    if (!tooNarrow) return;
+    const onResize = () => setTooNarrow(false);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [tooNarrow]);
+
+  if (tooNarrow) return null;
+
   return (
     <div
       className={cn(
@@ -1369,7 +1391,10 @@ const KeybindsBar = memo(function KeybindsBar() {
           "bg-card/50"
       )}
     >
-      <div className="flex items-center justify-between text-xs">
+      <div
+        ref={leftRef}
+        className="flex items-center justify-between text-xs whitespace-nowrap"
+      >
         <div className="flex items-center gap-4">
           {gotoLineMode ? (
             <>
