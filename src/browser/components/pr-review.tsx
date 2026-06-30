@@ -3229,80 +3229,83 @@ const DiffLineRow = memo(function DiffLineRow({
       {hasCommentRange && (
         <div className="w-0.5 shrink-0 border-l-2 border-dotted border-blue-500/50" />
       )}
-      {/* Old line number (shown for delete and normal lines) */}
-      <div
-        data-line-gutter
-        className={cn(
-          "w-10 shrink-0 tabular-nums text-right opacity-50 pr-2 text-xs select-none pt-0.5",
-          line.type !== "insert" && "cursor-pointer hover:bg-blue-500/20"
-        )}
-        onMouseDown={line.type !== "insert" ? handleMouseDown : undefined}
-        onMouseUp={line.type !== "insert" ? handleMouseUp : undefined}
-        onMouseEnter={line.type !== "insert" ? handleMouseEnter : undefined}
-        onClick={line.type !== "insert" ? handleClick : undefined}
-      >
-        {line.type !== "insert" ? line.oldLineNumber : ""}
-      </div>
-      {/* New line number (shown for insert and normal lines) */}
-      <div
-        data-line-gutter
-        className={cn(
-          "relative w-10 shrink-0 tabular-nums text-right opacity-50 pr-2 text-xs select-none pt-0.5 border-r border-border/30",
-          line.type !== "delete" && "cursor-pointer hover:bg-blue-500/20"
-        )}
-        onMouseDown={line.type !== "delete" ? handleMouseDown : undefined}
-        onMouseUp={line.type !== "delete" ? handleMouseUp : undefined}
-        onMouseEnter={line.type !== "delete" ? handleMouseEnter : undefined}
-        onClick={line.type !== "delete" ? handleClick : undefined}
-      >
-        {line.type !== "delete" ? line.newLineNumber : ""}
-        {hasDraft && (
-          <span
-            className="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-amber-400"
-            title="Draft comment"
-          />
-        )}
-      </div>
-      {/* Code content - click to focus line (unless selecting text) */}
-      <div
-        className="flex-1 overflow-hidden cursor-text"
-        onMouseDown={handleContentMouseDown}
-        onClick={handleContentClick}
-      >
+      {/* Scrollable content: line numbers + code */}
+      <div className="flex-1 overflow-hidden">
         <div
-          className="whitespace-pre pr-6 pl-2"
+          className="flex"
           style={
             {
               transform: "translateX(calc(-1 * var(--h-scroll)))",
             } as React.CSSProperties
           }
         >
-          <Tag className="no-underline">
-            {processedContent.map((seg, i) => {
-              // For tiny inline changes, use more prominent styling
-              const isTinyChange =
-                seg.type !== "normal" && seg.value.length <= 2;
-              return (
-                <span
-                  key={i}
-                  className={cn(
-                    seg.type === "insert" &&
-                      "bg-[var(--code-added)]/20 text-[var(--diff-insert-fg)]",
-                    seg.type === "delete" &&
-                      "bg-[var(--code-removed)]/20 text-[var(--diff-delete-fg)] line-through decoration-orange-500/50",
-                    // Extra emphasis for tiny changes
-                    isTinyChange &&
+          {/* Old line number (shown for delete and normal lines) */}
+          <div
+            data-line-gutter
+            className={cn(
+              "w-10 shrink-0 tabular-nums text-right opacity-50 pr-2 text-xs select-none pt-0.5",
+              line.type !== "insert" && "cursor-pointer hover:bg-blue-500/20"
+            )}
+            onMouseDown={line.type !== "insert" ? handleMouseDown : undefined}
+            onMouseUp={line.type !== "insert" ? handleMouseUp : undefined}
+            onMouseEnter={line.type !== "insert" ? handleMouseEnter : undefined}
+            onClick={line.type !== "insert" ? handleClick : undefined}
+          >
+            {line.type !== "insert" ? line.oldLineNumber : ""}
+          </div>
+          {/* New line number (shown for insert and normal lines) */}
+          <div
+            data-line-gutter
+            className={cn(
+              "relative w-10 shrink-0 tabular-nums text-right opacity-50 pr-2 text-xs select-none pt-0.5 border-r border-border/30",
+              line.type !== "delete" && "cursor-pointer hover:bg-blue-500/20"
+            )}
+            onMouseDown={line.type !== "delete" ? handleMouseDown : undefined}
+            onMouseUp={line.type !== "delete" ? handleMouseUp : undefined}
+            onMouseEnter={line.type !== "delete" ? handleMouseEnter : undefined}
+            onClick={line.type !== "delete" ? handleClick : undefined}
+          >
+            {line.type !== "delete" ? line.newLineNumber : ""}
+            {hasDraft && (
+              <span
+                className="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-amber-400"
+                title="Draft comment"
+              />
+            )}
+          </div>
+          {/* Code content - click to focus line (unless selecting text) */}
+          <div
+            className="whitespace-pre pr-6 pl-2 cursor-text"
+            onMouseDown={handleContentMouseDown}
+            onClick={handleContentClick}
+          >
+            <Tag className="no-underline">
+              {processedContent.map((seg, i) => {
+                // For tiny inline changes, use more prominent styling
+                const isTinyChange =
+                  seg.type !== "normal" && seg.value.length <= 2;
+                return (
+                  <span
+                    key={i}
+                    className={cn(
                       seg.type === "insert" &&
-                      "bg-[var(--code-added)]/40 font-semibold",
-                    isTinyChange &&
+                        "bg-[var(--code-added)]/20 text-[var(--diff-insert-fg)]",
                       seg.type === "delete" &&
-                      "bg-[var(--code-removed)]/40 font-semibold"
-                  )}
-                  dangerouslySetInnerHTML={{ __html: seg.html }}
-                />
-              );
-            })}
-          </Tag>
+                        "bg-[var(--code-removed)]/20 text-[var(--diff-delete-fg)] line-through decoration-orange-500/50",
+                      // Extra emphasis for tiny changes
+                      isTinyChange &&
+                        seg.type === "insert" &&
+                        "bg-[var(--code-added)]/40 font-semibold",
+                      isTinyChange &&
+                        seg.type === "delete" &&
+                        "bg-[var(--code-removed)]/40 font-semibold"
+                    )}
+                    dangerouslySetInnerHTML={{ __html: seg.html }}
+                  />
+                );
+              })}
+            </Tag>
+          </div>
         </div>
       </div>
     </div>
