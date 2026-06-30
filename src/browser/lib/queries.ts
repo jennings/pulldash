@@ -11,6 +11,10 @@
 //   sessions via PersistQueryClientProvider. Use for slow-changing data (user
 //   profile, collaborators, labels) but NOT for fast-moving data (PR list).
 //
+// - Queries with `meta: { immutable: true }` are tied to an immutable identifier
+//   (e.g. a commit SHA) and will never change. The global query client uses
+//   this flag to suppress refetch-on-window-focus. Pair with `staleTime: Infinity`.
+//
 // - Mutations follow this pattern:
 //     useMutation({
 //       mutationFn: myMutationFn,
@@ -634,6 +638,7 @@ export const queries = {
       },
       staleTime: Infinity,
       gcTime: 5 * 60_000,
+      meta: { immutable: true },
     }),
 
   singleCommit: (owner: string, repo: string, ref: string, prKey?: string) =>
@@ -653,6 +658,7 @@ export const queries = {
       },
       staleTime: Infinity,
       gcTime: 5 * 60_000,
+      meta: { immutable: true },
     }),
 
   rawGitCommit: (owner: string, repo: string, ref: string, prKey?: string) =>
@@ -673,6 +679,7 @@ export const queries = {
       },
       staleTime: Infinity,
       gcTime: 5 * 60_000,
+      meta: { immutable: true },
     }),
 
   mergeCommitFiles: (
@@ -703,6 +710,7 @@ export const queries = {
       },
       staleTime: Infinity,
       gcTime: 5 * 60_000,
+      meta: { immutable: true },
     }),
 
   rawCompareDiff: (
@@ -734,6 +742,7 @@ export const queries = {
       },
       staleTime: Infinity,
       gcTime: 5 * 60_000,
+      meta: { immutable: true },
     }),
 
   prFilesForRange: (
@@ -765,6 +774,7 @@ export const queries = {
       },
       staleTime: Infinity,
       gcTime: 5 * 60_000,
+      meta: { immutable: true },
     }),
 
   commitsForHeadSha: (
@@ -797,6 +807,7 @@ export const queries = {
       },
       staleTime: Infinity,
       gcTime: 5 * 60_000,
+      meta: { immutable: true },
     }),
 
   fileContent: (
@@ -842,6 +853,7 @@ export const queries = {
       },
       staleTime: Infinity,
       gcTime: 5 * 60_000,
+      meta: { immutable: true },
     }),
 
   prList: (queryStrings: string[], page = 1, perPage = 30) =>
