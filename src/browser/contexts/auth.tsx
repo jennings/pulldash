@@ -249,6 +249,34 @@ export function hasRefreshToken(): boolean {
   return !!getStoredRefreshToken();
 }
 
+// Validate the current token by hitting /user. A 401 from a single
+// request can be request-specific (SAML/SSO for one org, fine-grained
+// PAT permission loss on one repo, removed app installation, transient
+// failure) — only /user returning 401 confirms the token itself is dead.
+let tokenValidationPromise: Promise<boolean> | null = null;
+
+export async function isTokenStillValid(token: string): Promise<boolean> {
+  if (tokenValidationPromise) return tokenValidationPromise;
+  tokenValidationPromise = (async () => {
+    try {
+      const res = await fetch("https://api.github.com/user", {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/vnd.github.v3+json",
+        },
+      });
+      return res.status !== 401;
+    } catch {
+      return true;
+    }
+  })();
+  try {
+    return await tokenValidationPromise;
+  } finally {
+    tokenValidationPromise = null;
+  }
+}
+
 function hasRefreshTokenValue(refreshToken?: string): boolean {
   return !!refreshToken;
 }

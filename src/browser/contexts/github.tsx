@@ -2556,10 +2556,15 @@ export function GitHubProvider({ children }: { children: ReactNode }) {
   // Set up unauthorized handler: try refresh for web flow before logging out
   useEffect(() => {
     store.setOnUnauthorized(async () => {
+      const { getEffectiveToken, isTokenStillValid } = await import("./auth");
+      const currentToken = getEffectiveToken();
+      // GitHub returns 401 for many request-specific reasons; only treat
+      // it as a session-killer if /user also rejects the token.
+      if (currentToken && (await isTokenStillValid(currentToken))) return;
+
       if (authFlow === "web") {
         const refreshed = await refreshAccessToken();
         if (refreshed) {
-          const { getEffectiveToken } = await import("./auth");
           const newToken = getEffectiveToken();
           if (newToken) store.initialize(newToken);
           return;
