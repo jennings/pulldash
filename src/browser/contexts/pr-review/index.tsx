@@ -233,6 +233,9 @@ interface PRReviewState {
   versionDataLoaded: boolean;
 
   // Repository merge settings
+  repoAllowMergeCommit: boolean;
+  repoAllowSquashMerge: boolean;
+  repoAllowRebaseMerge: boolean;
   repoHasMergeQueue: boolean;
   // Whether this PR is currently in the merge queue
   prInMergeQueue: boolean;
@@ -625,7 +628,10 @@ export class PRReviewStore {
       overviewLoading: true,
       versionDataLoaded: false,
 
-      // Repository merge settings
+      // Repository merge settings (defaults allow all; updated after load)
+      repoAllowMergeCommit: true,
+      repoAllowSquashMerge: true,
+      repoAllowRebaseMerge: true,
       repoHasMergeQueue: false,
       prInMergeQueue: false,
 
@@ -3330,6 +3336,9 @@ export class PRReviewStore {
             threads: [] as ReviewThread[],
             viewerPermission: null,
             viewerCanMergeAsAdmin: false,
+            allowMergeCommit: true,
+            allowSquashMerge: true,
+            allowRebaseMerge: true,
             hasMergeQueue: false,
             isInMergeQueue: false,
           })),
@@ -3369,6 +3378,15 @@ export class PRReviewStore {
         viewerPermission:
           reviewThreadsResult.viewerPermission ?? this.state.viewerPermission,
         viewerCanMergeAsAdmin: reviewThreadsResult.viewerCanMergeAsAdmin,
+        repoAllowMergeCommit: reviewThreadsResult.allowMergeCommit,
+        repoAllowSquashMerge: reviewThreadsResult.allowSquashMerge,
+        repoAllowRebaseMerge: reviewThreadsResult.allowRebaseMerge,
+        mergeMethod: this.resolveAllowedMergeMethod(
+          this.state.mergeMethod,
+          reviewThreadsResult.allowSquashMerge,
+          reviewThreadsResult.allowMergeCommit,
+          reviewThreadsResult.allowRebaseMerge
+        ),
         repoHasMergeQueue: reviewThreadsResult.hasMergeQueue,
         prInMergeQueue: reviewThreadsResult.isInMergeQueue,
         loading: false,
@@ -3623,6 +3641,21 @@ export class PRReviewStore {
   // ---------------------------------------------------------------------------
   // PR Mutations
   // ---------------------------------------------------------------------------
+
+  private resolveAllowedMergeMethod = (
+    current: MergeMethod,
+    allowSquash: boolean,
+    allowMerge: boolean,
+    allowRebase: boolean
+  ): MergeMethod => {
+    const allowed: Array<[MergeMethod, boolean]> = [
+      ["squash", allowSquash],
+      ["merge", allowMerge],
+      ["rebase", allowRebase],
+    ];
+    if (allowed.find(([m]) => m === current)?.[1]) return current;
+    return allowed.find(([, ok]) => ok)?.[0] ?? current;
+  };
 
   setMergeMethod = (method: MergeMethod) => {
     this.set({ mergeMethod: method });
