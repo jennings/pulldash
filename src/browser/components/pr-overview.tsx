@@ -2663,7 +2663,11 @@ function LabelsSection({
   canWrite = true,
 }: LabelsSectionProps) {
   const { ready } = useGitHubReady();
-  const { data: repoLabels = [], isLoading: loadingLabels } = useQuery({
+  const {
+    data: repoLabels = [],
+    isLoading: loadingLabels,
+    refetch,
+  } = useQuery({
     ...queries.labels(owner, repo),
     enabled: ready,
   });

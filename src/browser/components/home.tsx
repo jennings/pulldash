@@ -1694,14 +1694,28 @@ function PRListItem({ pr, onSelect }: PRListItemProps) {
           <CIStatusBadge />
           <ReviewStatusBadge />
           {pr.hasNewChanges && (
-            <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-blue-500/20 text-blue-400 border border-blue-500/30 shrink-0">
-              NEW
-            </span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-blue-500/20 text-blue-400 border border-blue-500/30 shrink-0 cursor-default">
+                  NEW CHANGES
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" align="start">
+                New commits have been pushed since your last review
+              </TooltipContent>
+            </Tooltip>
           )}
           {hasNewContent && (
-            <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-amber-500/20 text-amber-400 border border-amber-500/30 shrink-0">
-              UPDATED
-            </span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-amber-500/20 text-amber-400 border border-amber-500/30 shrink-0 cursor-default">
+                  NEW ACTIVITY
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" align="start">
+                This PR has activity since you last viewed it
+              </TooltipContent>
+            </Tooltip>
           )}
           {/* Labels - hide on mobile to save space */}
           {pr.labels.slice(0, 3).map((label) => (
