@@ -50,6 +50,7 @@ import {
   type PRSearchResult,
 } from "../contexts/github";
 import { getLastViewed, setLastViewed } from "../lib/waiting-prs";
+import { getEnabled as notifsEnabled } from "../lib/notifications";
 import { useAuth } from "../contexts/auth";
 import { getTimeAgo } from "../lib/dates";
 
@@ -400,6 +401,8 @@ export function Home() {
   } = useQuery({
     ...queries.prList(searchQueries, page, perPage),
     enabled: githubReady,
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: notifsEnabled(),
   });
 
   const refreshPRList = useCallback(() => {
