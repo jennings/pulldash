@@ -3,6 +3,25 @@ const TIMESTAMPS_KEY = "pulldash_notified_timestamps";
 const MAX_ENTRIES = 1000;
 const MAX_AGE_MS = 60 * 24 * 60 * 60 * 1000;
 
+const enabledListeners = new Set<() => void>();
+
+function notifyEnabledListeners(): void {
+  for (const cb of enabledListeners) cb();
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (e) => {
+    if (e.key === ENABLED_KEY) notifyEnabledListeners();
+  });
+}
+
+export function subscribeEnabled(cb: () => void): () => void {
+  enabledListeners.add(cb);
+  return () => {
+    enabledListeners.delete(cb);
+  };
+}
+
 function prune(data: Record<string, string>): void {
   const cutoff = Date.now() - MAX_AGE_MS;
   for (const [id, timestamp] of Object.entries(data)) {
@@ -39,6 +58,7 @@ export function setEnabled(enabled: boolean): void {
   } catch {
     // ignore
   }
+  notifyEnabledListeners();
 }
 
 export async function requestPermission(): Promise<boolean> {

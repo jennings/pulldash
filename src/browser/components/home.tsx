@@ -1,4 +1,10 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  useSyncExternalStore,
+} from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queries } from "../lib/queries";
 import {
@@ -50,7 +56,10 @@ import {
   type PRSearchResult,
 } from "../contexts/github";
 import { getLastViewed, setLastViewed } from "../lib/waiting-prs";
-import { getEnabled as notifsEnabled } from "../lib/notifications";
+import {
+  getEnabled as notifsEnabled,
+  subscribeEnabled as subscribeNotifsEnabled,
+} from "../lib/notifications";
 import { useAuth } from "../contexts/auth";
 import { getTimeAgo } from "../lib/dates";
 
@@ -392,6 +401,12 @@ export function Home() {
     setPage(1);
   }, [config.repos, config.state]);
 
+  const notificationsEnabled = useSyncExternalStore(
+    subscribeNotifsEnabled,
+    notifsEnabled,
+    notifsEnabled
+  );
+
   // PR list via React Query
   const {
     data: prListData,
@@ -402,7 +417,7 @@ export function Home() {
     ...queries.prList(searchQueries, page, perPage),
     enabled: githubReady,
     refetchInterval: 60_000,
-    refetchIntervalInBackground: notifsEnabled(),
+    refetchIntervalInBackground: notificationsEnabled,
   });
 
   const refreshPRList = useCallback(() => {
