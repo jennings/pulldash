@@ -92,7 +92,6 @@ import {
   usePendingCommentCountsByFile,
   useCommentingRange,
   useCommentRangeLookup,
-  useCommentAnchorLookup,
   type LocalPendingComment,
   type ParsedDiff,
   type DiffLine,
@@ -1569,7 +1568,7 @@ interface LineDragContextValue {
   onClickFallback: (lineNum: number, side: "old" | "new") => void;
   commentingRange: { start: number; end: number } | null;
   commentRangeLookup: Set<number> | null;
-  commentAnchorLookup: Set<number> | null;
+  commentAnchorLookup: Set<string> | null;
 }
 
 const LineDragContext = React.createContext<LineDragContextValue | null>(null);
@@ -1764,7 +1763,6 @@ const DiffViewer = memo(function DiffViewer({
   // Note: selectionState removed from context - rows subscribe directly to avoid re-renders
   const commentingRange = useCommentingRange();
   const commentRangeLookup = useCommentRangeLookup();
-  const commentAnchorLookup = useCommentAnchorLookup();
 
   // Subscribe to expanded skip blocks directly for re-render triggering
   const expandedSkipBlocks = usePRReviewSelector((s) => s.expandedSkipBlocks);
@@ -1859,6 +1857,24 @@ const DiffViewer = memo(function DiffViewer({
     }
     return [...threadMap.values()];
   }, [comments]);
+
+  // Anchor lines derived from re-anchored comments + pending comments,
+  // replacing the store's raw-line-based commentAnchorLookup
+  // Keyed by "${lineNum}:${side}" so RIGHT-side comments only light up new-side rows, etc.
+  const commentAnchorLines = useMemo(() => {
+    const lines = new Set<string>();
+    for (const [lineNum, lineComments] of commentsByLine) {
+      for (const comment of lineComments) {
+        const side = comment.side === "LEFT" ? "old" : "new";
+        lines.add(`${lineNum}:${side}`);
+      }
+    }
+    for (const pc of pendingComments) {
+      const side = pc.side === "LEFT" ? "old" : "new";
+      lines.add(`${pc.line}:${side}`);
+    }
+    return lines;
+  }, [commentsByLine, pendingComments]);
 
   const pendingCommentsByLine = useMemo(() => {
     const map = new Map<number, LocalPendingComment[]>();
@@ -2732,7 +2748,7 @@ const DiffViewer = memo(function DiffViewer({
       onClickFallback,
       commentingRange,
       commentRangeLookup,
-      commentAnchorLookup,
+      commentAnchorLookup: commentAnchorLines,
     }),
     [
       isDraggingState,
@@ -2742,7 +2758,7 @@ const DiffViewer = memo(function DiffViewer({
       onClickFallback,
       commentingRange,
       commentRangeLookup,
-      commentAnchorLookup,
+      commentAnchorLines,
     ]
   );
 
@@ -3117,8 +3133,8 @@ const DiffLineRow = memo(function DiffLineRow({
   }, [lineNum, commentRangeLookup]);
   const hasCommentAnchor = useMemo(() => {
     if (lineNum === undefined || !commentAnchorLookup) return false;
-    return commentAnchorLookup.has(lineNum);
-  }, [lineNum, commentAnchorLookup]);
+    return commentAnchorLookup.has(`${lineNum}:${lineSide}`);
+  }, [lineNum, lineSide, commentAnchorLookup]);
 
   const Tag =
     line.type === "insert" ? "ins" : line.type === "delete" ? "del" : "span";
@@ -3397,10 +3413,6 @@ const SplitDiffLineRow = memo(function SplitDiffLineRow({
     if (lineNum === undefined || !commentRangeLookup) return false;
     return commentRangeLookup.has(lineNum);
   }, [lineNum, commentRangeLookup]);
-  const hasCommentAnchor = useMemo(() => {
-    if (lineNum === undefined || !commentAnchorLookup) return false;
-    return commentAnchorLookup.has(lineNum);
-  }, [lineNum, commentAnchorLookup]);
   const rowCommentsHidden = usePRReviewSelector((s) => s.commentsHidden);
 
   // Render one side of the split view
@@ -3518,12 +3530,13 @@ const SplitDiffLineRow = memo(function SplitDiffLineRow({
           <div className="w-0.5 shrink-0 border-l-2 border-dotted border-blue-500/50" />
         )}
         {/* Comment anchor dot — fixed */}
-        {rowCommentsHidden && hasCommentAnchor && (
-          <span
-            className="absolute left-0 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-blue-500 ring-1 ring-background z-10"
-            title="Has comment"
-          />
-        )}
+        {rowCommentsHidden &&
+          commentAnchorLookup?.has(`${lineNumber}:${side}`) && (
+            <span
+              className="absolute left-0 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-blue-500 ring-1 ring-background z-10"
+              title="Has comment"
+            />
+          )}
         {/* Scrollable content: line number + code */}
         <div
           className="flex flex-1 min-w-0"

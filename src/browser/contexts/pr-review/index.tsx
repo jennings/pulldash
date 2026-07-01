@@ -3028,6 +3028,7 @@ export class PRReviewStore {
       comments: [...this.state.comments, reply],
       replyingToCommentId: null,
     });
+    this.recomputeCommentRangeLookup();
   };
 
   // ---------------------------------------------------------------------------
@@ -3372,6 +3373,7 @@ export class PRReviewStore {
         prInMergeQueue: reviewThreadsResult.isInMergeQueue,
         loading: false,
       });
+      this.recomputeCommentRangeLookup();
 
       // If compareToSha was restored from the URL before commit history was
       // available, auto-match or compute branch interdiff now that we have the data.
@@ -4077,6 +4079,7 @@ export class PRReviewStore {
       rewritten
     );
     this.set({ reviewThreads: rewritten, comments: enrichedComments });
+    this.recomputeCommentRangeLookup();
   };
 
   updateReviewThread = (
@@ -4091,6 +4094,7 @@ export class PRReviewStore {
       updatedThreads
     );
     this.set({ reviewThreads: updatedThreads, comments: enrichedComments });
+    this.recomputeCommentRangeLookup();
   };
 }
 
