@@ -606,10 +606,14 @@ export function Home() {
               ),
             };
           } else {
-            // Shift+click on disabled: enable all filters
+            // Shift+click on disabled: isolate — enable this one, disable others
             return {
               ...prev,
-              repos: prev.repos.map((r) => ({ ...r, enabled: true })),
+              repos: prev.repos.map((r) =>
+                r.name === repoName
+                  ? { ...r, enabled: true }
+                  : { ...r, enabled: false }
+              ),
             };
           }
         }
