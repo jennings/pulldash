@@ -179,7 +179,10 @@ function getModeFilter(mode: FilterMode, authoredBy?: string): string {
 
 // Build queries grouped by mode (GitHub doesn't support per-repo qualifiers with OR)
 // Multiple repo: qualifiers act as OR, but user filters apply to all repos
-function buildSearchQueries(config: FilterConfig): string[] {
+function buildSearchQueries(
+  config: FilterConfig,
+  stalledThreshold?: string
+): string[] {
   // Filter out disabled repos (enabled defaults to true if not specified)
   const enabledRepos = config.repos.filter((r) => r.enabled !== false);
 
@@ -196,6 +199,11 @@ function buildSearchQueries(config: FilterConfig): string[] {
 
   const queries: string[] = [];
 
+  // Server-side stalled filter: only PRs updated before this date
+  const stalledFilter = stalledThreshold
+    ? `updated:<${stalledThreshold}`
+    : undefined;
+
   // Separate "All Repos" filters from specific repo filters
   const allReposFilters = enabledRepos.filter(isAllReposFilter);
   const specificRepos = enabledRepos.filter((r) => !isAllReposFilter(r));
@@ -204,6 +212,7 @@ function buildSearchQueries(config: FilterConfig): string[] {
   for (const filter of allReposFilters) {
     const parts = ["is:pr", "archived:false"];
     if (stateFilter) parts.push(stateFilter);
+    if (stalledFilter) parts.push(stalledFilter);
     const modeFilter = getModeFilter(filter.mode, filter.authoredBy);
     if (modeFilter) parts.push(modeFilter);
     // Note: "all" mode on All Repos would be too broad, so we skip it
@@ -220,6 +229,7 @@ function buildSearchQueries(config: FilterConfig): string[] {
       if (teams.length > 0) {
         const teamParts = ["is:pr", "archived:false"];
         if (stateFilter) teamParts.push(stateFilter);
+        if (stalledFilter) teamParts.push(stalledFilter);
         for (const team of teams) {
           teamParts.push(`team-review-requested:${team.org}/${team.slug}`);
         }
@@ -258,6 +268,7 @@ function buildSearchQueries(config: FilterConfig): string[] {
 
       const parts = ["is:pr", "archived:false"];
       if (stateFilter) parts.push(stateFilter);
+      if (stalledFilter) parts.push(stalledFilter);
       // Multiple repo: qualifiers act as OR
       parts.push(...repos.map((r) => `repo:${r}`));
       const modeFilter = getModeFilter(mode, authoredBy);
@@ -269,6 +280,7 @@ function buildSearchQueries(config: FilterConfig): string[] {
         if (teams.length > 0) {
           const teamParts = ["is:pr", "archived:false"];
           if (stateFilter) teamParts.push(stateFilter);
+          if (stalledFilter) teamParts.push(stalledFilter);
           teamParts.push(...repos.map((r) => `repo:${r}`));
           for (const team of teams) {
             teamParts.push(`team-review-requested:${team.org}/${team.slug}`);
@@ -368,7 +380,6 @@ export function Home() {
 
   // Pagination
   const [page, setPage] = useState(1);
-  const perPage = 30;
 
   // Client-side filter for UPDATED PRs, persisted across reloads
   const [showUpdatedOnly, setShowUpdatedOnly] = useState(
@@ -381,14 +392,26 @@ export function Home() {
     );
   }, [showUpdatedOnly]);
 
+  const STALLED_DAYS = 14;
+  const [showStalledOnly, setShowStalledOnly] = useState(false);
+
+  const perPage = 30;
+
   // Re-memoize when teams finish loading (async after ready) so team-review-requested: queries appear
   const [teamsKey, setTeamsKey] = useState(0);
   useEffect(() => subscribeTeams(() => setTeamsKey((k) => k + 1)), []);
 
+  // Server-side stalled filter: date threshold 14 days ago
+  const stalledThreshold = useMemo(() => {
+    if (!showStalledOnly) return undefined;
+    const d = new Date(Date.now() - STALLED_DAYS * 86400000);
+    return d.toISOString().slice(0, 10);
+  }, [showStalledOnly]);
+
   // Build queries from config (one per mode group)
   const searchQueries = useMemo(
-    () => buildSearchQueries(config),
-    [config, teamsKey]
+    () => buildSearchQueries(config, stalledThreshold),
+    [config, teamsKey, stalledThreshold]
   );
 
   // Save config to localStorage whenever it changes
@@ -678,7 +701,7 @@ export function Home() {
             ))}
           </div>
 
-          {/* UPDATED Filter Toggle */}
+          {/* UPDATED / STALLED Filter Toggles */}
           <button
             onClick={() => setShowUpdatedOnly((v) => !v)}
             className={cn(
@@ -689,6 +712,17 @@ export function Home() {
             )}
           >
             Updated
+          </button>
+          <button
+            onClick={() => setShowStalledOnly((v) => !v)}
+            className={cn(
+              "shrink-0 px-2 py-1 text-xs font-medium rounded transition-colors",
+              showStalledOnly
+                ? "bg-red-500/20 text-red-400 border border-red-500/30"
+                : "text-muted-foreground hover:text-foreground border border-transparent"
+            )}
+          >
+            Stalled
           </button>
 
           {/* Repo Chips with Mode Dropdowns */}
@@ -1119,6 +1153,16 @@ export function Home() {
           <div className="flex-1 overflow-auto">
             {config.repos.length > 0 && prListPending ? (
               <PRListSkeleton count={8} />
+            ) : filteredPrs.length === 0 && showStalledOnly ? (
+              <div className="flex flex-col items-center justify-center py-20 text-center">
+                <GitPullRequest className="w-12 h-12 text-muted-foreground/30 mb-4" />
+                <p className="text-lg font-medium text-muted-foreground">
+                  No stalled pull requests
+                </p>
+                <p className="text-sm text-muted-foreground/70 mt-1 max-w-md">
+                  All open PRs have been active recently
+                </p>
+              </div>
             ) : prs.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-20 text-center">
                 <GitPullRequest className="w-12 h-12 text-muted-foreground/30 mb-4" />
@@ -1133,7 +1177,7 @@ export function Home() {
                       : "Try adjusting your filter settings"}
                 </p>
               </div>
-            ) : showUpdatedOnly && filteredPrs.length === 0 ? (
+            ) : filteredPrs.length === 0 && showUpdatedOnly ? (
               <div className="flex flex-col items-center justify-center py-20 text-center">
                 <GitPullRequest className="w-12 h-12 text-muted-foreground/30 mb-4" />
                 <p className="text-lg font-medium text-muted-foreground">
@@ -1264,6 +1308,13 @@ function PRListItem({ pr, onSelect }: PRListItemProps) {
   const repoInfo = extractRepoFromUrl(pr.repository_url);
   const isMerged = pr.pull_request?.merged_at != null;
   const isClosed = pr.state === "closed" && !isMerged;
+
+  // Compute whether the PR is stalled (no activity in 14+ days)
+  const isStalled = useMemo(() => {
+    if (!pr.updated_at || pr.state !== "open") return false;
+    const threshold = Date.now() - 14 * 86400000;
+    return new Date(pr.updated_at).getTime() < threshold;
+  }, [pr.updated_at, pr.state]);
 
   // Compute whether the PR has new content since the user last saw it
   const hasNewContent = useMemo(() => {
@@ -1678,7 +1729,7 @@ function PRListItem({ pr, onSelect }: PRListItemProps) {
           )}
           <span>#{pr.number}</span>
           <span className="hidden xs:inline">•</span>
-          <span className="hidden xs:inline">
+          <span className={cn("hidden xs:inline", isStalled && "text-red-500")}>
             {getTimeAgo(new Date(pr.updated_at))}
           </span>
           {pr.user && (
