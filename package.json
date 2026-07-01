@@ -64,7 +64,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
-    "concurrently": "^9.2.1",
+    "concurrently": "^10.0.1",
     "diff": "^9.0.0",
     "fake-indexeddb": "^6.2.5",
     "geist": "^1.5.1",
