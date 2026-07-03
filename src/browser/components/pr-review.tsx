@@ -1596,6 +1596,7 @@ type VirtualRowType =
       hunk: DiffSkipBlock;
       skipIndex: number;
       startLine: number;
+      oldStartLine: number;
       index: number;
     }
   | {
@@ -1914,30 +1915,39 @@ const DiffViewer = memo(function DiffViewer({
     return result;
   }, [commentsByLine]);
 
-  // Pre-compute skip block start lines by looking at adjacent hunks
+  // Pre-compute skip block start line pairs (new-side and old-side) by
+  // walking adjacent hunks. The two sides can drift when hunks add or remove
+  // lines, so context revealed on expand must carry both numbers.
   const skipBlockStartLines = useMemo(() => {
-    const startLines: number[] = [];
-    let expectedNextLine = 1;
+    const starts: Array<{ newStart: number; oldStart: number }> = [];
+    let expectedNextNew = 1;
+    let expectedNextOld = 1;
 
     for (let i = 0; i < hunks.length; i++) {
       const hunk = hunks[i];
       if (hunk.type === "skip") {
-        // Skip block starts at expectedNextLine
-        startLines.push(expectedNextLine);
-        expectedNextLine += hunk.count;
+        starts.push({
+          newStart: expectedNextNew,
+          oldStart: expectedNextOld,
+        });
+        expectedNextNew += hunk.count;
+        expectedNextOld += hunk.count;
       } else {
-        // Hunk - update expected next line based on where this hunk ends
-        // The hunk contains lines, find the max newLineNumber
         let maxNewLine = hunk.newStart;
+        let maxOldLine = hunk.oldStart;
         for (const line of hunk.lines) {
           if (line.newLineNumber && line.newLineNumber > maxNewLine) {
             maxNewLine = line.newLineNumber;
           }
+          if (line.oldLineNumber && line.oldLineNumber > maxOldLine) {
+            maxOldLine = line.oldLineNumber;
+          }
         }
-        expectedNextLine = maxNewLine + 1;
+        expectedNextNew = maxNewLine + 1;
+        expectedNextOld = maxOldLine + 1;
       }
     }
-    return startLines;
+    return starts;
   }, [hunks]);
 
   // Helper to convert lines to split pairs for side-by-side view
@@ -2196,7 +2206,10 @@ const DiffViewer = memo(function DiffViewer({
     for (const hunk of hunks) {
       if (hunk.type === "skip") {
         const currentSkipIndex = skipIndex++;
-        const startLine = skipBlockStartLines[currentSkipIndex] ?? 1;
+        const coords = skipBlockStartLines[currentSkipIndex] ?? {
+          newStart: 1,
+          oldStart: 1,
+        };
         const expandedLines = getExpandedLines(currentSkipIndex);
 
         if (expandedLines && expandedLines.length > 0) {
@@ -2225,7 +2238,8 @@ const DiffViewer = memo(function DiffViewer({
             type: "skip",
             hunk,
             skipIndex: currentSkipIndex,
-            startLine,
+            startLine: coords.newStart,
+            oldStartLine: coords.oldStart,
             index: index++,
           });
           rows.push({ type: "skip-spacer", position: "after", index: index++ });
@@ -2647,7 +2661,10 @@ const DiffViewer = memo(function DiffViewer({
   useEffect(() => {
     const handleExpandSkipBlock = (e: CustomEvent<{ skipIndex: number }>) => {
       const { skipIndex } = e.detail;
-      const startLine = skipBlockStartLines[skipIndex] ?? 1;
+      const coords = skipBlockStartLines[skipIndex] ?? {
+        newStart: 1,
+        oldStart: 1,
+      };
       // Find the skip block to get its count
       let count = 0;
       let currentSkipIndex = 0;
@@ -2661,7 +2678,7 @@ const DiffViewer = memo(function DiffViewer({
         }
       }
       if (count > 0) {
-        expandSkipBlock(skipIndex, startLine, count);
+        expandSkipBlock(skipIndex, coords.newStart, coords.oldStart, count);
       }
     };
 
@@ -2961,6 +2978,7 @@ interface VirtualRowRendererProps {
   expandSkipBlock: (
     skipIndex: number,
     startLine: number,
+    oldStartLine: number,
     count: number
   ) => void;
   isExpanding: (skipIndex: number) => boolean;
@@ -2999,7 +3017,12 @@ const VirtualRowRenderer = memo(function VirtualRowRenderer({
           isFocused={focusedSkipBlockIndex === row.skipIndex}
           isExpanding={isExpanding(row.skipIndex)}
           onExpand={() =>
-            expandSkipBlock(row.skipIndex, row.startLine, row.hunk.count)
+            expandSkipBlock(
+              row.skipIndex,
+              row.startLine,
+              row.oldStartLine,
+              row.hunk.count
+            )
           }
         />
       );

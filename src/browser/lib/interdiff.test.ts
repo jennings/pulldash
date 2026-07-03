@@ -1,7 +1,7 @@
 import { test, expect, describe } from "bun:test";
 import { computeInterdiff, buildPostImageLines } from "./interdiff";
 import { escapeHtml, hastToHtml } from "../../shared/diff-utils";
-import type { DiffHunk } from "./diff-worker";
+import type { DiffHunk, DiffSkipBlock } from "./diff-worker";
 import type { RootContent } from "hast";
 
 describe("escapeHtml", () => {
@@ -621,6 +621,57 @@ describe("computeInterdiff", () => {
     expect(
       inserts.some((l) => l.content.some((s) => s.value.includes("after_v2")))
     ).toBe(true);
+  });
+
+  test("skip-block counts match real file-line gaps, not flat-array indices", () => {
+    // v1 changes line 617; v2 changes line 617 differently. The patches carry
+    // only ~7 lines of on-patch content each. A correct interdiff must report
+    // a leading skip of 616 lines (to the file's first shown line) and a
+    // trailing "to end" sentinel — NOT small counts derived from positions in
+    // the internal flat array.
+    const patch1 = [
+      "@@ -614,7 +614,7 @@",
+      " ctx_a",
+      " ctx_b",
+      " ctx_c",
+      "-old617",
+      "+new617_v1",
+      " ctx_d",
+      " ctx_e",
+    ].join("\n");
+    const patch2 = [
+      "@@ -614,7 +614,7 @@",
+      " ctx_a",
+      " ctx_b",
+      " ctx_c",
+      "-old617",
+      "+new617_v2",
+      " ctx_d",
+      " ctx_e",
+    ].join("\n");
+
+    const result = computeInterdiff(patch1, patch2);
+
+    const firstHunk = result.hunks.find((h) => h.type === "hunk") as DiffHunk;
+    expect(firstHunk).toBeDefined();
+    // Hunk is anchored around line 617 in the post-image (head file).
+    expect(firstHunk.newStart).toBe(614);
+
+    const skips = result.hunks.filter(
+      (h) => h.type === "skip"
+    ) as DiffSkipBlock[];
+    expect(skips.length).toBeGreaterThanOrEqual(2);
+
+    const leading = skips[0];
+    // Bug regression check: leading count used to be ~7 (flat-array size);
+    // must now be 613 (lines 1..613 preceding the hunk at line 614).
+    expect(leading.count).toBe(613);
+
+    // Trailing skip carries a sentinel — the worker doesn't know EOF, so the
+    // expansion path clamps it to the fetched file's actual length.
+    const trailing = skips[skips.length - 1];
+    expect(trailing.count).toBe(Number.MAX_SAFE_INTEGER);
+    expect(trailing.content.length).toBeGreaterThan(0);
   });
 
   test("both patches add same line: insert/insert equals to equal", () => {

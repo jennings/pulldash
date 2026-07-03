@@ -110,6 +110,7 @@ export class DiffWorkerPool {
     content: string,
     filename: string,
     startLine: number,
+    oldStartLine: number,
     count: number
   ): Promise<DiffLine[]> {
     const id = this.generateId();
@@ -124,6 +125,7 @@ export class DiffWorkerPool {
         content,
         filename,
         startLine,
+        oldStartLine,
         count,
       } as WorkerRequest);
     });

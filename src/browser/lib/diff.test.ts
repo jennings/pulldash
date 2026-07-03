@@ -120,11 +120,12 @@ describe("request dispatch", () => {
 
   test("highlightLines sends highlight-lines message to a worker", async () => {
     const pool = new DiffWorkerPool();
-    await pool.highlightLines("content", "test.ts", 1, 5);
+    await pool.highlightLines("content", "test.ts", 10, 7, 5);
     const allMessages = FakeWorker.instances.flatMap((w) => w.messages);
     const msg = allMessages.find((m) => m.type === "highlight-lines");
     expect(msg).toBeDefined();
-    expect(msg.startLine).toBe(1);
+    expect(msg.startLine).toBe(10);
+    expect(msg.oldStartLine).toBe(7);
     expect(msg.count).toBe(5);
   });
 

@@ -326,20 +326,40 @@ export function computeInterdiff(
   ranges.push([rangeStart, rangeEnd]);
 
   const output: (DiffHunk | DiffSkipBlock)[] = [];
-  let prevEnd = -1;
+  // Track the next post-image (newLineNumber) file line the diff should cover.
+  // Skip-block counts are expressed as gaps in real file line numbers so that
+  // expansion fetches the correct range from the head file; using indices into
+  // `flat` (which only contains lines the two patches touched) undercounts by
+  // orders of magnitude.
+  let nextFileLine = 1;
 
   for (const [start, end] of ranges) {
-    if (start > prevEnd + 1) {
+    const hunkBlock = flat.slice(start, end + 1);
+
+    // Determine this hunk's first and last post-image line numbers. Hunks
+    // include CONTEXT_LINES of equal context on each side, so newLineNumber is
+    // almost always populated on the edge entries; fall back defensively.
+    let firstNewLine: number | undefined;
+    let lastNewLine: number | undefined;
+    for (const fl of hunkBlock) {
+      if (fl.newLineNumber != null) {
+        if (firstNewLine === undefined) firstNewLine = fl.newLineNumber;
+        lastNewLine = fl.newLineNumber;
+      }
+    }
+    const hunkStart = firstNewLine ?? flat[start].oldLineNumber ?? nextFileLine;
+    const hunkEnd = lastNewLine ?? hunkStart;
+
+    if (hunkStart > nextFileLine) {
       output.push({
         type: "skip",
-        count: start - (prevEnd + 1),
+        count: hunkStart - nextFileLine,
         content: "",
       });
     }
 
     const hunkLines: DiffLine[] = [];
     const lang = filename ? guessLang(filename) : null;
-    const hunkBlock = flat.slice(start, end + 1);
     const hunkHtml = lang
       ? highlightFileByLines(hunkBlock.map((fl) => fl.content).join("\n"), lang)
       : hunkBlock.map((fl) => escapeHtml(fl.content));
@@ -373,9 +393,6 @@ export function computeInterdiff(
       }
     });
 
-    const hunkStart =
-      flat[start].newLineNumber ?? flat[start].oldLineNumber ?? 1;
-
     output.push({
       type: "hunk",
       oldStart: flat[start].oldLineNumber ?? hunkStart,
@@ -383,16 +400,18 @@ export function computeInterdiff(
       lines: hunkLines,
     });
 
-    prevEnd = end;
+    nextFileLine = hunkEnd + 1;
   }
 
-  if (prevEnd < flat.length - 1) {
-    output.push({
-      type: "skip",
-      count: flat.length - 1 - prevEnd,
-      content: "",
-    });
-  }
+  // Trailing skip: total file length is not known here (the worker only sees
+  // the two patches). Emit a sentinel count that the expansion handler clamps
+  // to the fetched file's actual length. `content` provides the user-visible
+  // label since the count is not meaningful on its own.
+  output.push({
+    type: "skip",
+    count: Number.MAX_SAFE_INTEGER,
+    content: "Show remainder of file",
+  });
 
   return { hunks: output };
 }
