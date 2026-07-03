@@ -182,6 +182,21 @@ export function computeInterdiff(
   let idxA = 0;
   let idxB = 0;
 
+  // Track the expected next old/new post-image line numbers as we walk the
+  // aligned sequences. A-only / B-only context lines (present in one patch's
+  // window but not the other's) don't carry the missing side's real number,
+  // so we synthesize it from this counter to keep the sequence monotonic and
+  // consistent with surrounding paired equals. 0 means "no anchor yet"; fall
+  // back to the visible side's number in that case.
+  let nextOld = 0;
+  let nextNew = 0;
+
+  const pushFlat = (line: FlatLine) => {
+    flat.push(line);
+    if (line.oldLineNumber != null) nextOld = line.oldLineNumber + 1;
+    if (line.newLineNumber != null) nextNew = line.newLineNumber + 1;
+  };
+
   for (const chunk of chunks) {
     if (!chunk.added && !chunk.removed) {
       // LCS equal: same content in both sequences.  Disambiguate by kind.
@@ -190,14 +205,14 @@ export function computeInterdiff(
         const eb = entriesB[idxB++];
         if (ea.kind === "insert" && eb.kind === "delete") {
           // v1 added it; v2 removed it.  Net: line is gone in v2.
-          flat.push({
+          pushFlat({
             type: "delete",
             content,
             oldLineNumber: ea.newLineNumber,
           });
         } else if (ea.kind === "delete" && eb.kind === "insert") {
           // v1 removed it; v2 re-added it.  Net: line is present in v2 only.
-          flat.push({
+          pushFlat({
             type: "insert",
             content,
             newLineNumber: eb.newLineNumber,
@@ -207,7 +222,7 @@ export function computeInterdiff(
           // post-image, so skip rather than emitting a context line.
         } else if (ea.kind === "insert" && eb.kind === "insert") {
           // Both patches add the same line — equal, rebase noise.
-          flat.push({
+          pushFlat({
             type: "equal",
             content,
             oldLineNumber: ea.newLineNumber,
@@ -215,14 +230,14 @@ export function computeInterdiff(
           });
         } else if (ea.kind === "context" && eb.kind === "delete") {
           // v1 kept it as context; v2 deleted it → DELETE.
-          flat.push({
+          pushFlat({
             type: "delete",
             content,
             oldLineNumber: eb.oldLineNumber,
           });
         } else if (ea.kind === "delete" && eb.kind === "context") {
           // v1 deleted it; v2 kept it as context → INSERT.
-          flat.push({
+          pushFlat({
             type: "insert",
             content,
             newLineNumber: eb.newLineNumber,
@@ -231,7 +246,7 @@ export function computeInterdiff(
           // Other pairs (context/insert, insert/context) are typically LCS
           // misalignment — same content matched from different file positions.
           // Emit as equal to avoid spurious changes.
-          flat.push({
+          pushFlat({
             type: "equal",
             content,
             oldLineNumber: ea.newLineNumber ?? ea.oldLineNumber,
@@ -245,7 +260,7 @@ export function computeInterdiff(
         const ea = entriesA[idxA++];
         if (ea.kind === "insert") {
           // v1 deliberately added this line; v2 doesn't have it → delete.
-          flat.push({
+          pushFlat({
             type: "delete",
             content,
             oldLineNumber: ea.newLineNumber,
@@ -253,20 +268,24 @@ export function computeInterdiff(
         } else if (ea.kind === "delete") {
           // v1 removed this line; v2's patch doesn't touch it (so v2 still has
           // it) → present in v2 but absent in v1 → insert.
-          flat.push({
+          pushFlat({
             type: "insert",
             content,
             newLineNumber: ea.oldLineNumber,
           });
         } else {
           // kind="context": line is in v1's patch window but not v2's.
-          // Most often it's genuine surrounding context outside v2's patch
-          // window — keep it as equal so nearby changes have visible context.
-          flat.push({
+          // Treat as equal (both versions have it, but v2 just doesn't include
+          // it in its patch window). Old-side gets v1's real number; new-side
+          // is synthesized from the running counter so it stays consistent
+          // with surrounding paired equals.
+          const oldLineNumber = ea.newLineNumber;
+          const newLineNumber = nextNew || oldLineNumber;
+          pushFlat({
             type: "equal",
             content,
-            oldLineNumber: ea.newLineNumber,
-            newLineNumber: ea.newLineNumber,
+            oldLineNumber,
+            newLineNumber,
           });
         }
       }
@@ -276,7 +295,7 @@ export function computeInterdiff(
         const eb = entriesB[idxB++];
         if (eb.kind === "insert") {
           // v2 deliberately added this line; v1 doesn't have it → insert.
-          flat.push({
+          pushFlat({
             type: "insert",
             content,
             newLineNumber: eb.newLineNumber,
@@ -284,18 +303,21 @@ export function computeInterdiff(
         } else if (eb.kind === "delete") {
           // v2 removed this line; v1's patch doesn't touch it (so v1 still had
           // it) → present in v1 but absent in v2 → delete.
-          flat.push({
+          pushFlat({
             type: "delete",
             content,
             oldLineNumber: eb.oldLineNumber,
           });
         } else {
-          // kind="context": same logic as the A-only branch — keep as equal.
-          flat.push({
+          // kind="context": mirror of the A-only branch. New-side gets v2's
+          // real number; old-side is synthesized from the running counter.
+          const newLineNumber = eb.newLineNumber;
+          const oldLineNumber = nextOld || newLineNumber;
+          pushFlat({
             type: "equal",
             content,
-            oldLineNumber: eb.newLineNumber,
-            newLineNumber: eb.newLineNumber,
+            oldLineNumber,
+            newLineNumber,
           });
         }
       }
