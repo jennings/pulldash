@@ -674,6 +674,44 @@ describe("computeInterdiff", () => {
     expect(trailing.content.length).toBeGreaterThan(0);
   });
 
+  test("B-only trailing context uses running old-side counter, not v2 number", () => {
+    // Reproduces the jj-vcs/jj#9728 cli-reference@.md.snap case: patch2
+    // extends farther in inserts than patch1, so v2's trailing context blanks
+    // fall into a B-only chunk. Previously we set oldLine = newLine on those,
+    // producing a hunk with a phantom gap on the old side.
+    const patch1 = [
+      "@@ -100,3 +100,5 @@",
+      " ctx",
+      "+ins_a",
+      "+ins_b",
+      " tail1",
+      " tail2",
+    ].join("\n");
+    const patch2 = [
+      "@@ -100,3 +100,7 @@",
+      " ctx",
+      "+ins_a",
+      "+ins_b",
+      "+ins_c",
+      "+ins_d",
+      " tail1",
+      " tail2",
+    ].join("\n");
+
+    const result = computeInterdiff(patch1, patch2);
+    const hunk = result.hunks.find((h) => h.type === "hunk") as DiffHunk;
+    expect(hunk).toBeDefined();
+
+    // Find the last two equal (normal) lines and confirm the pair advances by
+    // 1 on both sides, not with a phantom jump on the old side.
+    const equals = hunk.lines.filter((l) => l.type === "normal");
+    expect(equals.length).toBeGreaterThanOrEqual(2);
+    const last = equals[equals.length - 1];
+    const prev = equals[equals.length - 2];
+    expect(last.oldLineNumber! - prev.oldLineNumber!).toBe(1);
+    expect(last.newLineNumber! - prev.newLineNumber!).toBe(1);
+  });
+
   test("both patches add same line: insert/insert equals to equal", () => {
     const patch1 = [
       "@@ -1,3 +1,4 @@",
