@@ -14,7 +14,12 @@ export function useSkipBlockExpansion() {
   const expandingSkipBlocks = usePRReviewSelector((s) => s.expandingSkipBlocks);
 
   const expandSkipBlock = useCallback(
-    async (skipIndex: number, startLine: number, count: number) => {
+    async (
+      skipIndex: number,
+      startLine: number,
+      oldStartLine: number,
+      count: number
+    ) => {
       if (!selectedFile) return;
 
       const key = store.getSkipBlockKey(selectedFile, skipIndex);
@@ -39,11 +44,14 @@ export function useSkipBlockExpansion() {
           return;
         }
 
-        // Get highlighted lines via WebWorker
+        // Get highlighted lines via WebWorker. oldStartLine tracks the paired
+        // old-side line number so revealed context lines carry the right pair
+        // when the two files have drifted (hunks above added or removed lines).
         const expandedLines = await diffService.highlightLines(
           content,
           selectedFile,
           startLine,
+          oldStartLine,
           count
         );
 

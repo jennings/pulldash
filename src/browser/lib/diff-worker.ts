@@ -106,6 +106,11 @@ export type WorkerRequest =
       content: string;
       filename: string;
       startLine: number;
+      // Old-side line number that pairs with `startLine`. Expansion reveals
+      // equal (context) lines, so oldLine and newLine advance in lockstep from
+      // here. Callers that only care about post-image numbering can pass the
+      // same value as `startLine`.
+      oldStartLine: number;
       count: number;
     }
   | {
@@ -618,6 +623,7 @@ function highlightFileLines(
   content: string,
   filename: string,
   startLine: number,
+  oldStartLine: number,
   count: number
 ): DiffLine[] {
   const language = guessLang(filename);
@@ -626,19 +632,29 @@ function highlightFileLines(
   // Pre-highlight the entire file for proper context
   const highlightedLines = highlightFileByLines(content, language);
 
+  // `split("\n")` on a file with a trailing newline produces a final "" entry
+  // that is not a real line; treat it as EOF.
+  const availableLines =
+    allLines.length > 0 && allLines[allLines.length - 1] === ""
+      ? allLines.length - 1
+      : allLines.length;
+  const remaining = Math.max(0, availableLines - startLine + 1);
+  const effectiveCount = Math.min(count, remaining);
+
   const result: DiffLine[] = [];
 
-  for (let i = 0; i < count; i++) {
-    const lineNum = startLine + i;
-    const lineContent = allLines[lineNum - 1] ?? "";
+  for (let i = 0; i < effectiveCount; i++) {
+    const newLineNum = startLine + i;
+    const oldLineNum = oldStartLine + i;
+    const lineContent = allLines[newLineNum - 1] ?? "";
     // Use pre-highlighted HTML, fallback to individual highlighting
     const highlighted =
-      highlightedLines[lineNum - 1] ?? highlight(lineContent, language);
+      highlightedLines[newLineNum - 1] ?? highlight(lineContent, language);
 
     result.push({
       type: "normal",
-      oldLineNumber: lineNum,
-      newLineNumber: lineNum,
+      oldLineNumber: oldLineNum,
+      newLineNumber: newLineNum,
       content: [{ value: lineContent, html: highlighted, type: "normal" }],
     });
   }
@@ -676,6 +692,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
           request.content,
           request.filename,
           request.startLine,
+          request.oldStartLine,
           request.count
         );
         self.postMessage({

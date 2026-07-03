@@ -99,6 +99,7 @@ describe("highlight-lines message", () => {
         content: "const x = 1;\nconst y = 2;\nconst z = 3;",
         filename: "test.ts",
         startLine: 1,
+        oldStartLine: 1,
         count: 2,
       },
     });
@@ -118,12 +119,75 @@ describe("highlight-lines message", () => {
         content: "line1\nline2\nline3",
         filename: "test.ts",
         startLine: 1,
+        oldStartLine: 1,
         count: 3,
       },
     });
 
     const lines = posted[0].result;
     expect(lines.every((l: any) => l.type === "normal")).toBe(true);
+  });
+
+  test("old and new line numbers can differ (drift from hunks above)", () => {
+    // Simulates expanding a skip block below a hunk that added 3 net lines:
+    // the same visible content is at newLine=10 but oldLine=7 in the base file.
+    handler({
+      data: {
+        type: "highlight-lines",
+        id: "drift-1",
+        content: Array.from({ length: 15 }, (_, i) => `line${i + 1}`).join(
+          "\n"
+        ),
+        filename: "test.ts",
+        startLine: 10,
+        oldStartLine: 7,
+        count: 3,
+      },
+    });
+
+    expect(posted[0].result).toHaveLength(3);
+    expect(posted[0].result[0].newLineNumber).toBe(10);
+    expect(posted[0].result[0].oldLineNumber).toBe(7);
+    expect(posted[0].result[2].newLineNumber).toBe(12);
+    expect(posted[0].result[2].oldLineNumber).toBe(9);
+  });
+
+  test("count clamps to end of file", () => {
+    // Trailing-newline file with 3 real lines; asking for a huge count must
+    // return exactly 3, not iterate past EOF with empty content.
+    handler({
+      data: {
+        type: "highlight-lines",
+        id: "clamp-1",
+        content: "line1\nline2\nline3\n",
+        filename: "test.ts",
+        startLine: 1,
+        oldStartLine: 1,
+        count: Number.MAX_SAFE_INTEGER,
+      },
+    });
+
+    expect(posted[0].result).toHaveLength(3);
+    expect(posted[0].result[0].newLineNumber).toBe(1);
+    expect(posted[0].result[2].newLineNumber).toBe(3);
+  });
+
+  test("count clamps when startLine is partway through the file", () => {
+    handler({
+      data: {
+        type: "highlight-lines",
+        id: "clamp-2",
+        content: "a\nb\nc\nd\ne",
+        filename: "test.ts",
+        startLine: 4,
+        oldStartLine: 4,
+        count: 999,
+      },
+    });
+
+    expect(posted[0].result).toHaveLength(2);
+    expect(posted[0].result[0].newLineNumber).toBe(4);
+    expect(posted[0].result[1].newLineNumber).toBe(5);
   });
 });
 
