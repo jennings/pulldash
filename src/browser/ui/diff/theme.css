@@ -79,6 +79,13 @@
     white-space: normal;
   }
 
+  /* Prism token class names (e.g. "table" for TOML section headers, "hidden",
+     "block", "grid") collide with Tailwind display utilities and would
+     otherwise reflow the inline span. Force spans to stay inline. */
+  span.token {
+    display: inline;
+  }
+
   .token.comment,
   .token.prolog,
   .token.cdata {
@@ -538,6 +545,11 @@
     pre[class*="language-"] {
       text-shadow: none;
     }
+  }
+
+  /* See light-theme note above about Tailwind display-utility collisions. */
+  span.token {
+    display: inline;
   }
 
   .token.comment,
