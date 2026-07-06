@@ -1133,17 +1133,20 @@ export function Home() {
           {/* Results Header */}
           <div className="flex items-center justify-between px-4 py-2 border-b border-border shrink-0">
             <span className="text-xs text-muted-foreground">
-              {loadingPrs ? (
+              {prListPending ? (
                 <span className="flex items-center gap-2">
                   <Loader2 className="w-3 h-3 animate-spin" />
                   Loading...
                 </span>
               ) : (
-                <span>
-                  <span className="font-medium text-foreground">
-                    {totalCount.toLocaleString()}
-                  </span>{" "}
-                  pull requests
+                <span className="flex items-center gap-2">
+                  <span>
+                    <span className="font-medium text-foreground">
+                      {totalCount.toLocaleString()}
+                    </span>{" "}
+                    pull requests
+                  </span>
+                  {loadingPrs && <Loader2 className="w-3 h-3 animate-spin" />}
                 </span>
               )}
             </span>
