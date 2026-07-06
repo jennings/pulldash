@@ -325,6 +325,47 @@ describe("error propagation", () => {
     expect(contextLine2.type).toBe("normal");
     expect(contextLine2.content[0].value).toBe("context");
   });
+  test("crossing content-based pairings unpair the worse match only", () => {
+    const patch = [
+      "@@ -767,4 +767,4 @@",
+      "-apple banana cherry",
+      "-xray yankee zulu",
+      "+xray yankee alpha",
+      "+apple banana delta",
+    ].join("\n");
+
+    handler({
+      data: {
+        type: "parse-diff",
+        id: "crossed-pairings",
+        patch,
+        filename: "test.py",
+      },
+    });
+
+    const result = posted[0].result;
+    const hunks = result.hunks;
+    const hunk = hunks.find((h: any) => h.type === "hunk");
+    expect(hunk).toBeDefined();
+
+    // Crossing has equal deltas (both =1), so first pair (D767→I768) is unpaired
+    // Only the better match (D768→I767, delta=1) remains merged
+    const mergedLines = hunk.lines.filter(
+      (l: any) =>
+        l.type === "normal" && l.content.some((s: any) => s.type !== "normal")
+    );
+    expect(mergedLines).toHaveLength(1);
+    expect(mergedLines[0].oldLineNumber).toBe(768);
+    expect(mergedLines[0].newLineNumber).toBe(767);
+
+    // The unpaired delete (old 767) and unpaired insert (new 768) remain separate
+    const deletes = hunk.lines.filter((l: any) => l.type === "delete");
+    const inserts = hunk.lines.filter((l: any) => l.type === "insert");
+    expect(deletes).toHaveLength(1);
+    expect(inserts).toHaveLength(1);
+    expect(deletes[0].oldLineNumber).toBe(767);
+    expect(inserts[0].newLineNumber).toBe(768);
+  });
 
   test("merges delete+insert pair when change only differs by digit inside underscore-separated word", () => {
     // Old: %{python2_sitearch}/*   New: %{python3_sitearch}/*

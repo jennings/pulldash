@@ -192,28 +192,43 @@ function buildInitialPairs(
   return { pairOfDel, pairOfAdd };
 }
 
-function buildUnpairedDeletePrefix(changes: _Change[], pairOfDel: Int32Array) {
-  const n = changes.length;
-  const prefix = new Int32Array(n + 1);
-
-  for (let i = 0; i < n; i++) {
-    const c = changes[i];
-    const isInitiallyUnpairedDelete =
-      c.type === "delete" && pairOfDel[i] === UNPAIRED;
-    prefix[i + 1] = prefix[i] + (isInitiallyUnpairedDelete ? 1 : 0);
-  }
-
-  return prefix;
-}
-
-function hasUnpairedDeleteBetween(
-  unpairedDelPrefix: Int32Array,
-  deleteIdx: number,
-  insertIdx: number
+function detectAndUnpairCrossings(
+  changes: _Change[],
+  pairOfDel: Int32Array,
+  pairOfAdd: Int32Array,
+  deleteIdxs: number[]
 ) {
-  const lower = Math.max(0, deleteIdx);
-  const upper = Math.max(lower, insertIdx);
-  return unpairedDelPrefix[upper] - unpairedDelPrefix[lower] > 0;
+  for (let ii = 0; ii < deleteIdxs.length; ii++) {
+    const i = deleteIdxs[ii];
+    const pi = pairOfDel[i];
+    if (pi === UNPAIRED) continue;
+    for (let jj = ii + 1; jj < deleteIdxs.length; jj++) {
+      const j = deleteIdxs[jj];
+      const pj = pairOfDel[j];
+      if (pj === UNPAIRED) continue;
+      if (pi > pj) {
+        const del1 = changes[i] as DeleteChange;
+        const add1 = changes[pi] as InsertChange;
+        const del2 = changes[j] as DeleteChange;
+        const add2 = changes[pj] as InsertChange;
+        const d1 = Math.abs(del1.lineNumber - add1.lineNumber);
+        const d2 = Math.abs(del2.lineNumber - add2.lineNumber);
+        if (d1 >= d2) {
+          pairOfDel[i] = UNPAIRED;
+          pairOfAdd[pi] = UNPAIRED;
+        } else {
+          pairOfDel[j] = UNPAIRED;
+          pairOfAdd[pj] = UNPAIRED;
+        }
+        return detectAndUnpairCrossings(
+          changes,
+          pairOfDel,
+          pairOfAdd,
+          deleteIdxs
+        );
+      }
+    }
+  }
 }
 
 function emitNormal(out: Line[], c: _Change) {
@@ -243,7 +258,6 @@ function emitLines(
   changes: _Change[],
   pairOfDel: Int32Array,
   pairOfAdd: Int32Array,
-  unpairedDelPrefix: Int32Array,
   options: ParseOptions
 ): Line[] {
   const out: Line[] = [];
@@ -262,21 +276,6 @@ function emitLines(
       if (pairedAddIdx === UNPAIRED) {
         processed[i] = 1;
         emitNormal(out, c);
-      } else if (pairedAddIdx > i) {
-        const shouldUnpair = hasUnpairedDeleteBetween(
-          unpairedDelPrefix,
-          i + 1,
-          pairedAddIdx
-        );
-
-        if (shouldUnpair) {
-          pairOfAdd[pairedAddIdx] = UNPAIRED;
-          processed[i] = 1;
-          emitNormal(out, c);
-        } else {
-          // Defer emission to paired insert
-          processed[i] = 1;
-        }
       } else {
         const add = changes[pairedAddIdx] as InsertChange;
         emitModified(out, c, add, options);
@@ -314,9 +313,9 @@ export function mergeModifiedLines(
     options
   );
 
-  const unpairedDelPrefix = buildUnpairedDeletePrefix(changes, pairOfDel);
+  detectAndUnpairCrossings(changes, pairOfDel, pairOfAdd, deleteIdxs);
 
-  return emitLines(changes, pairOfDel, pairOfAdd, unpairedDelPrefix, options);
+  return emitLines(changes, pairOfDel, pairOfAdd, options);
 }
 
 const parseHunk = (hunk: _Hunk, options: ParseOptions): Hunk => {
