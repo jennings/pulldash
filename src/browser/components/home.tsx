@@ -706,28 +706,42 @@ export function Home() {
           </div>
 
           {/* UPDATED / STALLED Filter Toggles */}
-          <button
-            onClick={() => setShowUpdatedOnly((v) => !v)}
-            className={cn(
-              "shrink-0 px-2 py-1 text-xs font-medium rounded transition-colors",
-              showUpdatedOnly
-                ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
-                : "text-muted-foreground hover:text-foreground border border-transparent"
-            )}
-          >
-            Updated
-          </button>
-          <button
-            onClick={() => setShowStalledOnly((v) => !v)}
-            className={cn(
-              "shrink-0 px-2 py-1 text-xs font-medium rounded transition-colors",
-              showStalledOnly
-                ? "bg-red-500/20 text-red-400 border border-red-500/30"
-                : "text-muted-foreground hover:text-foreground border border-transparent"
-            )}
-          >
-            Stalled
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => setShowUpdatedOnly((v) => !v)}
+                className={cn(
+                  "shrink-0 px-2 py-1 text-xs font-medium rounded transition-colors",
+                  showUpdatedOnly
+                    ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+                    : "text-muted-foreground hover:text-foreground border border-transparent"
+                )}
+              >
+                Updated
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" align="start">
+              PRs with activity since your last review or visit
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => setShowStalledOnly((v) => !v)}
+                className={cn(
+                  "shrink-0 px-2 py-1 text-xs font-medium rounded transition-colors",
+                  showStalledOnly
+                    ? "bg-red-500/20 text-red-400 border border-red-500/30"
+                    : "text-muted-foreground hover:text-foreground border border-transparent"
+                )}
+              >
+                Stalled
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" align="start">
+              No activity for at least {STALLED_DAYS} days
+            </TooltipContent>
+          </Tooltip>
 
           {/* Repo Chips with Mode Dropdowns */}
           <div className="flex items-center gap-1.5 shrink-0">

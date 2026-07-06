@@ -42,12 +42,7 @@ import {
 import type { Reaction, ReactionContent } from "../contexts/github";
 import { Skeleton } from "../ui/skeleton";
 import { PROverview } from "./pr-overview";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "../ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 import { EmojiReactions } from "./emoji-reactions";
 import { cn } from "../cn";
 import { PRHeader } from "./pr-header";
@@ -665,30 +660,28 @@ const FilePanel = memo(function FilePanel({
           <span className="flex-1 text-left">Search...</span>
           <KeycapGroup keys={["cmd", "k"]} size="xs" />
         </button>
-        <TooltipProvider delayDuration={300}>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={store.toggleHideViewed}
-                className={cn(
-                  "p-1.5 rounded-md border border-border transition-colors",
-                  hideViewed
-                    ? "bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 border-blue-500/30"
-                    : "text-muted-foreground bg-muted/50 hover:bg-muted"
-                )}
-              >
-                {hideViewed ? (
-                  <EyeOff className="w-3.5 h-3.5" />
-                ) : (
-                  <Eye className="w-3.5 h-3.5" />
-                )}
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>
-              {hideViewed ? "Show viewed files" : "Hide viewed files"}
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={store.toggleHideViewed}
+              className={cn(
+                "p-1.5 rounded-md border border-border transition-colors",
+                hideViewed
+                  ? "bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 border-blue-500/30"
+                  : "text-muted-foreground bg-muted/50 hover:bg-muted"
+              )}
+            >
+              {hideViewed ? (
+                <EyeOff className="w-3.5 h-3.5" />
+              ) : (
+                <Eye className="w-3.5 h-3.5" />
+              )}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>
+            {hideViewed ? "Show viewed files" : "Hide viewed files"}
+          </TooltipContent>
+        </Tooltip>
       </div>
 
       <div className="border-t border-border/50" />

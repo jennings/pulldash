@@ -5,6 +5,7 @@ import { GitHubProvider } from "./contexts/github";
 import { TabProvider } from "./contexts/tabs";
 import { ThemeProvider } from "./contexts/theme";
 import { CommandPaletteProvider } from "./components/command-palette";
+import { TooltipProvider } from "./ui/tooltip";
 import { AppShell } from "./components/app-shell";
 import { WelcomeDialog } from "./components/welcome-dialog";
 import { ShortcutsDialog } from "./components/shortcuts-dialog";
@@ -40,23 +41,25 @@ createRoot(document.getElementById("app")!).render(
           <BrowserRouter>
             <TabProvider>
               <CommandPaletteProvider>
-                <Routes>
-                  {/* Home */}
-                  <Route path="/" element={<AppShell />} />
-                  {/* PR review - URL like /:owner/:repo/pull/:number/[commits|checks|changes] */}
-                  <Route
-                    path="/:owner/:repo/pull/:number"
-                    element={<AppShell />}
-                  />
-                  <Route
-                    path="/:owner/:repo/pull/:number/:tab"
-                    element={<AppShell />}
-                  />
-                </Routes>
-                {/* Auth dialog - shown when not authenticated */}
-                <WelcomeDialog />
-                {/* Keyboard shortcuts reference - opened with `?` */}
-                <ShortcutsDialog />
+                <TooltipProvider delayDuration={300}>
+                  <Routes>
+                    {/* Home */}
+                    <Route path="/" element={<AppShell />} />
+                    {/* PR review - URL like /:owner/:repo/pull/:number/[commits|checks|changes] */}
+                    <Route
+                      path="/:owner/:repo/pull/:number"
+                      element={<AppShell />}
+                    />
+                    <Route
+                      path="/:owner/:repo/pull/:number/:tab"
+                      element={<AppShell />}
+                    />
+                  </Routes>
+                  {/* Auth dialog - shown when not authenticated */}
+                  <WelcomeDialog />
+                  {/* Keyboard shortcuts reference - opened with `?` */}
+                  <ShortcutsDialog />
+                </TooltipProvider>
               </CommandPaletteProvider>
             </TabProvider>
           </BrowserRouter>
