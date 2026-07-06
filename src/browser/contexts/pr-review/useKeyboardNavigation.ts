@@ -107,15 +107,35 @@ export function useKeyboardNavigation() {
         store.navigateLine("up", e.shiftKey, 1);
         return;
       }
-      // Left/Right arrows to switch between sides in split view
+      // Left/Right arrows to navigate files
       if (e.key === "ArrowLeft") {
         e.preventDefault();
-        store.navigateSide("left");
+        startTransition(() => {
+          store.navigateToPrevUnviewedFile();
+        });
         return;
       }
       if (e.key === "ArrowRight") {
         e.preventDefault();
-        store.navigateSide("right");
+        startTransition(() => {
+          store.navigateToNextUnviewedFile();
+        });
+        return;
+      }
+
+      // Home/End to navigate commits
+      if (e.key === "Home") {
+        e.preventDefault();
+        startTransition(() => {
+          store.navigateToPrevCommit();
+        });
+        return;
+      }
+      if (e.key === "End") {
+        e.preventDefault();
+        startTransition(() => {
+          store.navigateToNextCommit();
+        });
         return;
       }
 

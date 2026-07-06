@@ -1028,40 +1028,39 @@ export class PRReviewStore {
   };
 
   navigateToNextUnviewedFile = () => {
-    const { files, selectedFile, viewedFiles } = this.state;
-    const currentIdx = selectedFile
-      ? files.findIndex((f) => f.filename === selectedFile)
-      : -1;
+    const { files, selectedFile, viewedFiles, selectedCommitSha } = this.state;
+    const navFilenames = selectedCommitSha
+      ? [":commit", ...files.map((f) => f.filename)]
+      : files.map((f) => f.filename);
+    const currentIdx = selectedFile ? navFilenames.indexOf(selectedFile) : -1;
 
     // Search forward then wrap
-    for (let i = 0; i < files.length; i++) {
-      const idx = (currentIdx + 1 + i) % files.length;
-      const file = files[idx];
-      if (
-        !viewedFiles.has(file.filename) &&
-        !this.isNoChangeFile(file.filename)
-      ) {
-        this.selectFile(file.filename);
+    for (let i = 0; i < navFilenames.length; i++) {
+      const idx = (currentIdx + 1 + i) % navFilenames.length;
+      const fn = navFilenames[idx];
+      if (!viewedFiles.has(fn) && !this.isNoChangeFile(fn)) {
+        this.selectFile(fn);
         return;
       }
     }
   };
 
   navigateToPrevUnviewedFile = () => {
-    const { files, selectedFile, viewedFiles } = this.state;
+    const { files, selectedFile, viewedFiles, selectedCommitSha } = this.state;
+    const navFilenames = selectedCommitSha
+      ? [":commit", ...files.map((f) => f.filename)]
+      : files.map((f) => f.filename);
     const currentIdx = selectedFile
-      ? files.findIndex((f) => f.filename === selectedFile)
-      : files.length;
+      ? navFilenames.indexOf(selectedFile)
+      : navFilenames.length;
 
     // Search backward then wrap
-    for (let i = 0; i < files.length; i++) {
-      const idx = (currentIdx - 1 - i + files.length) % files.length;
-      const file = files[idx];
-      if (
-        !viewedFiles.has(file.filename) &&
-        !this.isNoChangeFile(file.filename)
-      ) {
-        this.selectFile(file.filename);
+    for (let i = 0; i < navFilenames.length; i++) {
+      const idx =
+        (currentIdx - 1 - i + navFilenames.length) % navFilenames.length;
+      const fn = navFilenames[idx];
+      if (!viewedFiles.has(fn) && !this.isNoChangeFile(fn)) {
+        this.selectFile(fn);
         return;
       }
     }
