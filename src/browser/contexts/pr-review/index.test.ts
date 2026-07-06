@@ -256,20 +256,20 @@ test("navigateToFile moves between files", () => {
 test("toggleViewed marks file as viewed", () => {
   const store = createStore();
 
-  expect(store.getSnapshot().viewedFiles.has("src/index.ts")).toBe(false);
+  expect(store.getSnapshot().viewedFilenames.has("src/index.ts")).toBe(false);
 
   store.toggleViewed("src/index.ts");
 
-  expect(store.getSnapshot().viewedFiles.has("src/index.ts")).toBe(true);
+  expect(store.getSnapshot().viewedFilenames.has("src/index.ts")).toBe(true);
 });
 
-test("toggleViewed persists to localStorage", () => {
+test("toggleViewed persists to localStorage with sha", () => {
   const store = createStore();
   store.toggleViewed("src/index.ts");
 
   const stored = storage.get("pr-test-repo-1-viewed");
   expect(stored).toBeDefined();
-  expect(JSON.parse(stored!)).toContain("src/index.ts");
+  expect(JSON.parse(stored!)).toContain("src/index.ts:abc123");
 });
 
 test("toggleViewed unmarks viewed file", () => {
@@ -277,7 +277,7 @@ test("toggleViewed unmarks viewed file", () => {
   store.toggleViewed("src/index.ts");
   store.toggleViewed("src/index.ts");
 
-  expect(store.getSnapshot().viewedFiles.has("src/index.ts")).toBe(false);
+  expect(store.getSnapshot().viewedFilenames.has("src/index.ts")).toBe(false);
 });
 
 test("toggleViewed navigates to next file when marking current file as viewed", () => {
@@ -286,7 +286,7 @@ test("toggleViewed navigates to next file when marking current file as viewed", 
 
   store.toggleViewed("src/index.ts");
 
-  expect(store.getSnapshot().viewedFiles.has("src/index.ts")).toBe(true);
+  expect(store.getSnapshot().viewedFilenames.has("src/index.ts")).toBe(true);
   expect(store.getSnapshot().selectedFile).toBe("src/utils.ts");
 });
 
@@ -295,9 +295,34 @@ test("toggleViewedMultiple marks multiple files", () => {
 
   store.toggleViewedMultiple(["src/index.ts", "src/utils.ts"]);
 
-  const { viewedFiles } = store.getSnapshot();
-  expect(viewedFiles.has("src/index.ts")).toBe(true);
-  expect(viewedFiles.has("src/utils.ts")).toBe(true);
+  const { viewedFilenames } = store.getSnapshot();
+  expect(viewedFilenames.has("src/index.ts")).toBe(true);
+  expect(viewedFilenames.has("src/utils.ts")).toBe(true);
+});
+
+test("viewed state is scoped by file sha (different sha = not viewed)", () => {
+  // Seed localStorage with a sha-scoped entry for old sha
+  storage.set("pr-test-repo-1-viewed", JSON.stringify(["src/index.ts:abc123"]));
+
+  // New store loads with same sha → should match
+  const store = createStore({
+    files: [{ ...createMockFile("src/index.ts"), sha: "abc123" }],
+  });
+  expect(store.getSnapshot().viewedFilenames.has("src/index.ts")).toBe(true);
+
+  // Different sha → should NOT match (until re-toggled)
+  const store2 = createStore({
+    files: [{ ...createMockFile("src/index.ts"), sha: "def456" }],
+  });
+  expect(store2.getSnapshot().viewedFilenames.has("src/index.ts")).toBe(false);
+});
+
+test("legacy viewed entry (bare filename) still matches", () => {
+  // Pre-seed localStorage with legacy format
+  storage.set("pr-test-repo-1-viewed", JSON.stringify(["src/index.ts"]));
+
+  const store = createStore();
+  expect(store.getSnapshot().viewedFilenames.has("src/index.ts")).toBe(true);
 });
 
 // ============================================================================

@@ -287,8 +287,10 @@ interface PRReviewState {
   // First comment database ID (number) of the thread to scroll to in the diff view
   conversationScrollTarget: number | null;
 
-  // Viewed files
+  // Viewed files (entries are `${filename}:${sha}` or bare `filename` for legacy)
   viewedFiles: Set<string>;
+  // Derived: filenames currently viewed (intersected with current file SHAs)
+  viewedFilenames: Set<string>;
   hideViewed: boolean;
 
   // Diffs
@@ -664,6 +666,7 @@ export class PRReviewStore {
       conversationsFilters,
       conversationScrollTarget: null,
       viewedFiles,
+      viewedFilenames: new Set<string>(),
       hideViewed: true,
       diffViewMode,
       wordWrap: false,
@@ -702,6 +705,7 @@ export class PRReviewStore {
     if (rewritten !== this.state.comments) {
       this.state.comments = rewritten;
     }
+    this.state.viewedFilenames = this.computeViewedFilenames();
   }
 
   setCurrentUser = (username: string) => {
@@ -729,7 +733,29 @@ export class PRReviewStore {
 
   private set(partial: Partial<PRReviewState>) {
     this.state = { ...this.state, ...partial };
+    if ("files" in partial || "viewedFiles" in partial) {
+      this.state.viewedFilenames = this.computeViewedFilenames();
+    }
     this.emit();
+  }
+
+  private computeViewedFilenames(): Set<string> {
+    const { files, viewedFiles } = this.state;
+    const shaMap = new Map(files.map((f) => [f.filename, f.sha || ""]));
+    const result = new Set<string>();
+    for (const key of viewedFiles) {
+      const colon = key.lastIndexOf(":");
+      if (colon === -1) {
+        result.add(key);
+      } else {
+        const fn = key.slice(0, colon);
+        const sha = key.slice(colon + 1);
+        if (sha === (shaMap.get(fn) || "")) {
+          result.add(fn);
+        }
+      }
+    }
+    return result;
   }
 
   private async refreshFiles(): Promise<void> {
@@ -1028,7 +1054,8 @@ export class PRReviewStore {
   };
 
   navigateToNextUnviewedFile = () => {
-    const { files, selectedFile, viewedFiles, selectedCommitSha } = this.state;
+    const { files, selectedFile, viewedFilenames, selectedCommitSha } =
+      this.state;
     const navFilenames = selectedCommitSha
       ? [":commit", ...files.map((f) => f.filename)]
       : files.map((f) => f.filename);
@@ -1038,7 +1065,7 @@ export class PRReviewStore {
     for (let i = 0; i < navFilenames.length; i++) {
       const idx = (currentIdx + 1 + i) % navFilenames.length;
       const fn = navFilenames[idx];
-      if (!viewedFiles.has(fn) && !this.isNoChangeFile(fn)) {
+      if (!viewedFilenames.has(fn) && !this.isNoChangeFile(fn)) {
         this.selectFile(fn);
         return;
       }
@@ -1046,7 +1073,8 @@ export class PRReviewStore {
   };
 
   navigateToPrevUnviewedFile = () => {
-    const { files, selectedFile, viewedFiles, selectedCommitSha } = this.state;
+    const { files, selectedFile, viewedFilenames, selectedCommitSha } =
+      this.state;
     const navFilenames = selectedCommitSha
       ? [":commit", ...files.map((f) => f.filename)]
       : files.map((f) => f.filename);
@@ -1059,7 +1087,7 @@ export class PRReviewStore {
       const idx =
         (currentIdx - 1 - i + navFilenames.length) % navFilenames.length;
       const fn = navFilenames[idx];
-      if (!viewedFiles.has(fn) && !this.isNoChangeFile(fn)) {
+      if (!viewedFilenames.has(fn) && !this.isNoChangeFile(fn)) {
         this.selectFile(fn);
         return;
       }
@@ -1109,13 +1137,20 @@ export class PRReviewStore {
     } catch {}
   }
 
+  private viewedKey(filename: string): string {
+    const file = this.state.files.find((f) => f.filename === filename);
+    const sha = file?.sha || "";
+    return sha ? `${filename}:${sha}` : filename;
+  }
+
   toggleViewed = (filename: string) => {
+    const key = this.viewedKey(filename);
     const next = new Set(this.state.viewedFiles);
-    const wasViewed = next.has(filename);
-    if (wasViewed) {
-      next.delete(filename);
-    } else {
-      next.add(filename);
+    const wasViewed = next.has(key) || next.has(filename);
+    next.delete(filename);
+    next.delete(key);
+    if (!wasViewed) {
+      next.add(key);
     }
     this.persistViewedFiles(next);
     this.set({ viewedFiles: next });
@@ -1128,13 +1163,15 @@ export class PRReviewStore {
 
   toggleViewedMultiple = (filenames: string[]) => {
     const next = new Set(this.state.viewedFiles);
-    const allViewed = filenames.every((f) => next.has(f));
+    const allViewed = filenames.every(
+      (f) => next.has(this.viewedKey(f)) || next.has(f)
+    );
 
     for (const filename of filenames) {
-      if (allViewed) {
-        next.delete(filename);
-      } else {
-        next.add(filename);
+      next.delete(filename);
+      next.delete(this.viewedKey(filename));
+      if (!allViewed) {
+        next.add(this.viewedKey(filename));
       }
     }
     this.persistViewedFiles(next);
@@ -1148,10 +1185,10 @@ export class PRReviewStore {
   ) => {
     const next = new Set(this.state.viewedFiles);
     for (const filename of filenames) {
+      next.delete(filename);
+      next.delete(this.viewedKey(filename));
       if (markAsViewed) {
-        next.add(filename);
-      } else {
-        next.delete(filename);
+        next.add(this.viewedKey(filename));
       }
     }
     this.persistViewedFiles(next);

@@ -546,7 +546,7 @@ const FilePanel = memo(function FilePanel({
   const files = usePRReviewSelector((s) => s.files);
   const selectedFile = usePRReviewSelector((s) => s.selectedFile);
   const selectedFiles = usePRReviewSelector((s) => s.selectedFiles);
-  const viewedFiles = usePRReviewSelector((s) => s.viewedFiles);
+  const viewedFilenames = usePRReviewSelector((s) => s.viewedFilenames);
   const hideViewed = usePRReviewSelector((s) => s.hideViewed);
   const showOverview = usePRReviewSelector((s) => s.showOverview);
   const interdiffEnabled = usePRReviewSelector((s) => s.interdiffEnabled);
@@ -697,7 +697,7 @@ const FilePanel = memo(function FilePanel({
         files={displayFiles}
         selectedFile={selectedFile}
         selectedFiles={selectedFiles}
-        viewedFiles={viewedFiles}
+        viewedFiles={viewedFilenames}
         hideViewed={hideViewed}
         commentCounts={commentCounts}
         pendingCommentCounts={pendingCommentCounts}
@@ -1200,7 +1200,7 @@ const DiffPanel = memo(function DiffPanel() {
   const pr = usePRReviewSelector((s) => s.pr);
   const files = usePRReviewSelector((s) => s.files);
   const selectedFile = usePRReviewSelector((s) => s.selectedFile);
-  const viewedFiles = usePRReviewSelector((s) => s.viewedFiles);
+  const viewedFilenames = usePRReviewSelector((s) => s.viewedFilenames);
   const selectedFiles = usePRReviewSelector((s) => s.selectedFiles);
   const showOverview = usePRReviewSelector((s) => s.showOverview);
   const diffViewMode = usePRReviewSelector((s) => s.diffViewMode);
@@ -1256,7 +1256,7 @@ const DiffPanel = memo(function DiffPanel() {
             <div className="px-3 py-1.5">
               <FileHeader
                 file={currentFile}
-                isViewed={viewedFiles.has(currentFile.filename)}
+                isViewed={viewedFilenames.has(currentFile.filename)}
                 onToggleViewed={() => store.toggleViewed(currentFile.filename)}
                 currentIndex={currentIndex}
                 totalFiles={displayFiles.length}

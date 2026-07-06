@@ -197,7 +197,7 @@ export const CommandPalette = memo(function CommandPalette({
   const listRef = useRef<HTMLDivElement>(null);
   const store = usePRReviewStore();
   const files = usePRReviewSelector((s) => s.files);
-  const viewedFiles = usePRReviewSelector((s) => s.viewedFiles);
+  const viewedFilenames = usePRReviewSelector((s) => s.viewedFilenames);
 
   // Defer the search query so typing stays responsive
   const deferredSearch = useDeferredValue(search);
@@ -357,7 +357,7 @@ export const CommandPalette = memo(function CommandPalette({
                       >
                         <FileItem
                           file={file}
-                          isViewed={viewedFiles.has(file.filename)}
+                          isViewed={viewedFilenames.has(file.filename)}
                           isSelected={selectedValue === file.filename}
                           onSelect={handleSelect}
                         />
