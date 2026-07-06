@@ -48,12 +48,7 @@ import { Checkbox } from "../ui/checkbox";
 import { cn } from "../cn";
 import { Markdown, MarkdownEditor } from "../ui/markdown";
 import { UserHoverCard, UserAvatar } from "../ui/user-hover-card";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "../ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 import { EmojiReactions } from "./emoji-reactions";
 import {
   usePRReviewSelector,
@@ -2226,74 +2221,72 @@ export const PROverview = memo(function PROverview() {
                 ) : undefined
               }
             >
-              <TooltipProvider delayDuration={200}>
-                <div className="space-y-2">
-                  {allReviewers.length > 0 ? (
-                    allReviewers.map((reviewer) => (
-                      <div
-                        key={reviewer.login}
-                        className="flex items-center gap-2 group"
-                      >
-                        {reviewer.isTeam ? (
-                          <Users className="w-5 h-5 p-0.5 rounded-full text-muted-foreground shrink-0" />
-                        ) : (
-                          <UserHoverCard login={reviewer.login}>
-                            <img
-                              src={reviewer.avatar_url}
-                              alt={reviewer.login}
-                              className="w-5 h-5 rounded-full cursor-pointer"
-                            />
-                          </UserHoverCard>
-                        )}
-                        {reviewer.isTeam ? (
-                          <span className="text-sm flex-1 font-medium text-muted-foreground">
+              <div className="space-y-2">
+                {allReviewers.length > 0 ? (
+                  allReviewers.map((reviewer) => (
+                    <div
+                      key={reviewer.login}
+                      className="flex items-center gap-2 group"
+                    >
+                      {reviewer.isTeam ? (
+                        <Users className="w-5 h-5 p-0.5 rounded-full text-muted-foreground shrink-0" />
+                      ) : (
+                        <UserHoverCard login={reviewer.login}>
+                          <img
+                            src={reviewer.avatar_url}
+                            alt={reviewer.login}
+                            className="w-5 h-5 rounded-full cursor-pointer"
+                          />
+                        </UserHoverCard>
+                      )}
+                      {reviewer.isTeam ? (
+                        <span className="text-sm flex-1 font-medium text-muted-foreground">
+                          {reviewer.login}
+                        </span>
+                      ) : (
+                        <UserHoverCard login={reviewer.login}>
+                          <span className="text-sm flex-1 hover:text-blue-400 hover:underline cursor-pointer">
                             {reviewer.login}
                           </span>
-                        ) : (
-                          <UserHoverCard login={reviewer.login}>
-                            <span className="text-sm flex-1 hover:text-blue-400 hover:underline cursor-pointer">
-                              {reviewer.login}
-                            </span>
-                          </UserHoverCard>
-                        )}
-                        {reviewer.state === "PENDING" ? (
-                          <>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span className="ml-auto cursor-default">
-                                  <Clock className="w-3.5 h-3.5 text-yellow-500" />
-                                </span>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                {reviewer.isTeam
-                                  ? "Awaiting review from this team"
-                                  : "Awaiting review from this user"}
-                              </TooltipContent>
-                            </Tooltip>
-                            {!reviewer.isTeam && canMergeRepo && !pr.merged && (
-                              <button
-                                onClick={() =>
-                                  handleRemoveReviewer(reviewer.login)
-                                }
-                                className="p-0.5 text-muted-foreground hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
-                                title="Remove reviewer"
-                              >
-                                <X className="w-3 h-3" />
-                              </button>
-                            )}
-                          </>
-                        ) : (
-                          <ReviewStateIcon state={reviewer.state} showTooltip />
-                        )}
-                      </div>
-                    ))
-                  ) : (
-                    <span className="text-sm text-muted-foreground">
-                      No reviews yet
-                    </span>
-                  )}
-                </div>
-              </TooltipProvider>
+                        </UserHoverCard>
+                      )}
+                      {reviewer.state === "PENDING" ? (
+                        <>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="ml-auto cursor-default">
+                                <Clock className="w-3.5 h-3.5 text-yellow-500" />
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              {reviewer.isTeam
+                                ? "Awaiting review from this team"
+                                : "Awaiting review from this user"}
+                            </TooltipContent>
+                          </Tooltip>
+                          {!reviewer.isTeam && canMergeRepo && !pr.merged && (
+                            <button
+                              onClick={() =>
+                                handleRemoveReviewer(reviewer.login)
+                              }
+                              className="p-0.5 text-muted-foreground hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                              title="Remove reviewer"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          )}
+                        </>
+                      ) : (
+                        <ReviewStateIcon state={reviewer.state} showTooltip />
+                      )}
+                    </div>
+                  ))
+                ) : (
+                  <span className="text-sm text-muted-foreground">
+                    No reviews yet
+                  </span>
+                )}
+              </div>
               {pr.state === "open" && !pr.merged && (
                 <div className="mt-2 pt-2 border-t border-border">
                   <p className="text-xs text-muted-foreground">
@@ -4165,26 +4158,19 @@ function MergeSection({
             )}
             {/* Individual reviewers */}
             {latestReviews.length > 0 && (
-              <TooltipProvider delayDuration={200}>
-                <div className="pt-2 border-t border-border/50">
-                  {latestReviews.map((review) => (
-                    <div
-                      key={review.id}
-                      className="flex items-center gap-2 py-2"
-                    >
-                      <img
-                        src={review.user?.avatar_url}
-                        alt={review.user?.login}
-                        className="w-5 h-5 rounded-full"
-                      />
-                      <span className="text-sm">
-                        {review.user?.login ?? ""}
-                      </span>
-                      <ReviewStateIcon state={review.state} showTooltip />
-                    </div>
-                  ))}
-                </div>
-              </TooltipProvider>
+              <div className="pt-2 border-t border-border/50">
+                {latestReviews.map((review) => (
+                  <div key={review.id} className="flex items-center gap-2 py-2">
+                    <img
+                      src={review.user?.avatar_url}
+                      alt={review.user?.login}
+                      className="w-5 h-5 rounded-full"
+                    />
+                    <span className="text-sm">{review.user?.login ?? ""}</span>
+                    <ReviewStateIcon state={review.state} showTooltip />
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         )}

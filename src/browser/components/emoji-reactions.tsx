@@ -1,12 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { Smile } from "lucide-react";
 import type { Reaction, ReactionContent } from "../contexts/github";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "../ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 import { cn } from "../cn";
 
@@ -117,23 +112,21 @@ export function EmojiReactions({
     >
       {onAddReaction && (
         <Popover open={showPicker} onOpenChange={setShowPicker}>
-          <TooltipProvider delayDuration={200}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <PopoverTrigger asChild>
-                  <button
-                    className={cn(
-                      "inline-flex items-center justify-center text-xs rounded-full border border-border hover:border-blue-500/50 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors",
-                      triggerSize
-                    )}
-                  >
-                    <Smile className={triggerIconSize} />
-                  </button>
-                </PopoverTrigger>
-              </TooltipTrigger>
-              <TooltipContent>Add reaction</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <PopoverTrigger asChild>
+                <button
+                  className={cn(
+                    "inline-flex items-center justify-center text-xs rounded-full border border-border hover:border-blue-500/50 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors",
+                    triggerSize
+                  )}
+                >
+                  <Smile className={triggerIconSize} />
+                </button>
+              </PopoverTrigger>
+            </TooltipTrigger>
+            <TooltipContent>Add reaction</TooltipContent>
+          </Tooltip>
           <PopoverContent align="start" className="w-auto p-2 flex gap-1">
             {REACTION_ORDER.map((content) => (
               <button
@@ -152,35 +145,33 @@ export function EmojiReactions({
         </Popover>
       )}
 
-      <TooltipProvider delayDuration={200}>
-        {sortedReactions.map((content) => {
-          const group = groupedReactions[content];
-          const isUserReaction = !!group.userReactionId;
+      {sortedReactions.map((content) => {
+        const group = groupedReactions[content];
+        const isUserReaction = !!group.userReactionId;
 
-          return (
-            <Tooltip key={content}>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={() => handleReactionClick(content)}
-                  className={cn(
-                    "inline-flex items-center text-xs rounded-full border transition-colors",
-                    pillSize,
-                    isUserReaction
-                      ? "bg-blue-500/20 border-blue-500/50 text-blue-400"
-                      : "bg-muted/50 border-border hover:border-blue-500/50"
-                  )}
-                >
-                  <span>{REACTION_EMOJIS[content]}</span>
-                  <span>{group.count}</span>
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {formatUsersTooltip(group.users, REACTION_EMOJIS[content])}
-              </TooltipContent>
-            </Tooltip>
-          );
-        })}
-      </TooltipProvider>
+        return (
+          <Tooltip key={content}>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => handleReactionClick(content)}
+                className={cn(
+                  "inline-flex items-center text-xs rounded-full border transition-colors",
+                  pillSize,
+                  isUserReaction
+                    ? "bg-blue-500/20 border-blue-500/50 text-blue-400"
+                    : "bg-muted/50 border-border hover:border-blue-500/50"
+                )}
+              >
+                <span>{REACTION_EMOJIS[content]}</span>
+                <span>{group.count}</span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {formatUsersTooltip(group.users, REACTION_EMOJIS[content])}
+            </TooltipContent>
+          </Tooltip>
+        );
+      })}
     </div>
   );
 }
