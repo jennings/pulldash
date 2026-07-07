@@ -232,10 +232,20 @@ const isSimilarEnough = (
   return calculateChangeRatio(a, b) <= maxChangeRatio;
 };
 
-const changeToLine = (change: _Change): Line => ({
-  ...change,
-  content: [{ value: change.content, type: "normal" }],
-});
+const changeToLine = (change: _Change): Line => {
+  const line: Line = {
+    ...change,
+    content: [{ value: change.content, type: "normal" }],
+  };
+  if ("lineNumber" in change && change.lineNumber != null) {
+    if (change.type === "insert") {
+      (line as any).newLineNumber = change.lineNumber;
+    } else {
+      (line as any).oldLineNumber = change.lineNumber;
+    }
+  }
+  return line;
+};
 
 const UNPAIRED = -1;
 
@@ -258,8 +268,6 @@ function findBestInsertForDelete(
   options: ParseOptions
 ): number {
   const del = changes[delIdx] as DeleteChange;
-  const lower = delIdx;
-  const upper = delIdx + options.maxDiffDistance;
 
   let bestAddIdx = UNPAIRED;
   let bestRatio = Infinity;
@@ -267,8 +275,7 @@ function findBestInsertForDelete(
   for (const addIdx of insertIdxs) {
     const add = changes[addIdx] as InsertChange;
     if (pairOfAdd[addIdx] !== UNPAIRED) continue;
-    if (addIdx < lower) continue;
-    if (addIdx > upper) break;
+    if (addIdx < delIdx) continue;
 
     const ratio = calculateChangeRatio(del.content, add.content);
     if (ratio > options.maxChangeRatio) continue;
@@ -361,6 +368,7 @@ function emitLines(
   options: ParseOptions
 ): Line[] {
   const out: Line[] = [];
+  const unpairedInserts: Line[] = [];
   const processed = new Uint8Array(changes.length);
 
   for (let i = 0; i < changes.length; i++) {
@@ -398,7 +406,7 @@ function emitLines(
       const pairedDelIdx = pairOfAdd[i];
       if (pairedDelIdx === UNPAIRED) {
         processed[i] = 1;
-        emitNormal(out, c);
+        unpairedInserts.push(changeToLine(c));
       } else {
         const del = changes[pairedDelIdx] as DeleteChange;
         emitModified(out, del, c, options);
@@ -408,7 +416,61 @@ function emitLines(
     }
   }
 
-  return out;
+  const deletePosition = new Map<Line, number>();
+  for (let i = 0; i < out.length; i++) {
+    const line = out[i];
+    if ((line as any).newLineNumber != null) continue;
+    if (line.type !== "delete") continue;
+    for (let j = i + 1; j < out.length; j++) {
+      const next = out[j];
+      const n = (next as any).newLineNumber;
+      if (n != null) {
+        deletePosition.set(line, n);
+        break;
+      }
+    }
+  }
+
+  const result = [...out, ...unpairedInserts];
+  result.sort((a, b) => {
+    const aPos =
+      (a as any).newLineNumber ??
+      deletePosition.get(a) ??
+      (a as any).lineNumber ??
+      -Infinity;
+    const bPos =
+      (b as any).newLineNumber ??
+      deletePosition.get(b) ??
+      (b as any).lineNumber ??
+      -Infinity;
+    if (aPos !== bPos) return aPos - bPos;
+    return 0;
+  });
+
+  for (let i = 0; i < result.length - 1; i++) {
+    const a = result[i];
+    const b = result[i + 1];
+    if (
+      a.type === "delete" &&
+      b.type === "insert" &&
+      a.content.length === 1 &&
+      b.content.length === 1 &&
+      a.content[0].value.trim() === "" &&
+      b.content[0].value.trim() === ""
+    ) {
+      result[i] = {
+        type: "normal",
+        isNormal: true,
+        oldLineNumber: (a as any).lineNumber,
+        newLineNumber: (b as any).lineNumber,
+        content: b.content,
+      } as Line;
+      result.splice(i + 1, 1);
+      i--;
+    }
+  }
+
+  return result;
 }
 
 function mergeModifiedLines(changes: _Change[], options: ParseOptions): Line[] {
@@ -420,6 +482,22 @@ function mergeModifiedLines(changes: _Change[], options: ParseOptions): Line[] {
     options
   );
   const unpairedDelPrefix = buildUnpairedDeletePrefix(changes, pairOfDel);
+
+  for (const di of deleteIdxs) {
+    if (pairOfDel[di] !== UNPAIRED) continue;
+    const del = changes[di] as DeleteChange;
+    for (const ai of insertIdxs) {
+      if (pairOfAdd[ai] !== UNPAIRED) continue;
+      if (ai < di) continue;
+      const add = changes[ai] as InsertChange;
+      if (del.content.trim() !== add.content.trim()) continue;
+      if (del.content.trim() === "") continue;
+      pairOfDel[di] = ai;
+      pairOfAdd[ai] = di;
+      break;
+    }
+  }
+
   return emitLines(changes, pairOfDel, pairOfAdd, unpairedDelPrefix, options);
 }
 

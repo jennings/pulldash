@@ -1,4 +1,5 @@
 import { test, expect, describe, beforeEach } from "bun:test";
+import gitDiffParser from "gitdiff-parser";
 
 // Must be set before the module loads, since diff-worker.ts calls `self.postMessage`
 // inside the handler (not at load time), but we set it here for clarity.
@@ -9,12 +10,253 @@ const posted: any[] = [];
 
 // Import the module: this sets globalThis.onmessage to the worker handler
 import "./diff-worker";
+import { mergeModifiedLines } from "./diff-worker";
 
 const handler = (globalThis as any).onmessage as (e: { data: any }) => void;
 
 beforeEach(() => {
   posted.length = 0;
 });
+
+const patchForImportSrpm = `@@ -6,7 +6,11 @@
+ import os
+ import shutil
+ import subprocess
++from contextlib import nullcontext
+ from glob import glob
++from tempfile import TemporaryDirectory
++from urllib.parse import urlparse
++from urllib.request import urlretrieve
+ 
+ 
+ def call_process(args):
+@@ -40,6 +44,13 @@
+ 
+     return final_stdout
+ 
++def is_url(url_string):
++    try:
++        result = urlparse(url_string)
++        return all([result.scheme, result.netloc])
++    except ValueError:
++        return False
++
+ def main():
+     parser = argparse.ArgumentParser(description='Imports the contents of a source RPM into a git repository')
+     parser.add_argument('source_rpm', help='local path to source RPM')
+@@ -64,110 +75,120 @@
+         if shutil.which(dep) is None:
+             parser.error(f"{dep} can't be found.")
+ 
+-    # check that the source RPM file exists
+-    if not os.path.isfile(args.source_rpm):
+-        parser.error("File %s does not exist." % args.source_rpm)
+-    if not args.source_rpm.endswith('.src.rpm'):
+-        parser.error("File %s does not appear to be a source RPM." % args.source_rpm)
+-    source_rpm_abs = os.path.abspath(args.source_rpm)
+-
+-    # enter repository directory
+-    if not os.path.isdir(args.repository):
+-        parser.error("Repository directory %s does not exist." % args.repository)
+-    os.chdir(args.repository)
+-
+-    # check that the working copy is clean
+-    try:
+-        call_process(['git', 'diff-index', '--quiet',  'HEAD', '--'])
+-        print("Working copy is clean.")
+-    except:
+-        raise
+-        parser.error("Git repository seems to have local modifications.")
+-
+-    # check that there are no untracked files
+-    if len(subprocess.check_output(['git', 'ls-files', '--others', '--exclude-standard'])):
+-        parser.error("There are untracked files.")
+-
+-    print(" checking out parent ref...")
+-
+-    if args.push:
+-        call_process(['git', 'fetch'])
+-    call_process(['git', 'checkout', args.parent_branch])
+-    if args.push:
+-        call_process(['git', 'pull'])
+-
+-    print(" removing everything from SOURCES and SPECS...")
+-
+-    if os.path.isdir('SOURCES') and len(os.listdir('SOURCES')) > 0:
+-        call_process(['git', 'rm', 'SOURCES/*', '-r'])
+-    if os.path.isdir('SOURCES') and len(os.listdir('SOURCES')) > 0:
+-        parser.error("Files remaining in SOURCES/ after removing the tracked ones. ")
+-        parser.error("Delete them (including hidden files), reset --hard.")
+-    os.mkdir('SOURCES')
+-
+-    if os.path.isdir('SPECS'):
+-        call_process(['git', 'rm', 'SPECS/*', '-r'])
+-    os.mkdir('SPECS')
+-
+-    print(" extracting SRPM...")
+-
+-    os.chdir('SOURCES')
+-    pipe_commands(['rpm2cpio', source_rpm_abs], ['cpio', '-idmv'])
+-    os.chdir('..')
+-    for f in glob('SOURCES/*.spec'):
+-        shutil.move(f, 'SPECS')
+-
+-    print(" removing trademarked or copyrighted files...")
+-
+-    sources = os.listdir('SOURCES')
+-    deletemsg = "File deleted from the original sources for trademark-related or copyright-related legal reasons.\\n"
+-    deleted = []
+-    for f in ['Citrix_Logo_Black.png', 'COPYING.CitrixCommercial']:
+-        if f in sources:
+-            os.unlink(os.path.join('SOURCES', f))
+-            open(os.path.join('SOURCES', "%s.deleted-by-XCP-ng.txt" % f), 'w').write(deletemsg)
+-            deleted.append(f)
+-
+-    if subprocess.call(['git', 'rev-parse', '--quiet', '--verify', args.branch]) != 0:
+-        call_process(['git', 'checkout', '-b', args.branch])
+-    else:
+-        call_process(['git', 'checkout', args.branch])
+-    call_process(['git', 'add', '--all'])
+-
+-    print(" committing...")
+-    has_changes = False
+-    try:
+-        call_process(['git', 'diff-index', '--quiet',  'HEAD', '--'])
+-    except:
+-        has_changes = True
+-
+-    if not has_changes:
+-        print("\\nWorking copy has no modifications. Nothing to commit. No changes from previous release?\\n")
+-    else:
+-        msg = 'Import %s' % os.path.basename(args.source_rpm)
+-        if deleted:
+-            msg += "\\n\\nFiles deleted for legal reasons:\\n - " + '\\n - '.join(deleted)
+-        call_process(['git', 'commit', '-s', '-m', msg])
+-
+-    # tag
+-    if args.tag is not None:
+-        call_process(['git', 'tag', args.tag])
+-
+-    # push to remote
+-    if args.push:
+-        call_process(['git', 'push', '--set-upstream', 'origin', args.branch])
++    # handle URL source
++    source_rpm = args.source_rpm
++    is_remote_rpm = is_url(source_rpm)
++
++    with TemporaryDirectory() if is_remote_rpm else nullcontext() as temp_dir:
++        if is_remote_rpm:
++            # get the src.rpm locally, and continue with the actual file
++            local_filename = f'{temp_dir}/{os.path.basename(source_rpm)}'
++            urlretrieve(source_rpm, local_filename)
++            source_rpm = local_filename
++
++        # check that the source RPM file exists
++        if not os.path.isfile(source_rpm):
++            parser.error("File %s does not exist." % source_rpm)
++        if not source_rpm.endswith('.src.rpm'):
++            parser.error("File %s does not appear to be a source RPM." % source_rpm)
++        source_rpm_abs = os.path.abspath(source_rpm)
++
++        # enter repository directory
++        if not os.path.isdir(args.repository):
++            parser.error("Repository directory %s does not exist." % args.repository)
++        os.chdir(args.repository)
++
++        # check that the working copy is clean
++        try:
++            call_process(['git', 'diff-index', '--quiet', 'HEAD', '--'])
++            print("Working copy is clean.")
++        except Exception:
++            parser.error("Git repository seems to have local modifications.")
++
++        # check that there are no untracked files
++        if len(subprocess.check_output(['git', 'ls-files', '--others', '--exclude-standard'])):
++            parser.error("There are untracked files.")
++
++        print(" checking out parent ref...")
++
++        if args.push:
++            call_process(['git', 'fetch'])
++        call_process(['git', 'checkout', args.parent_branch])
++        if args.push:
++            call_process(['git', 'pull'])
++
++        print(" removing everything from SOURCES and SPECS...")
++
++        if os.path.isdir('SOURCES') and len(os.listdir('SOURCES')) > 0:
++            call_process(['git', 'rm', 'SOURCES/*', '-r'])
++        if os.path.isdir('SOURCES') and len(os.listdir('SOURCES')) > 0:
++            parser.error("Files remaining in SOURCES/ after removing the tracked ones. ")
++            parser.error("Delete them (including hidden files), reset --hard.")
++        os.mkdir('SOURCES')
++
++        if os.path.isdir('SPECS'):
++            call_process(['git', 'rm', 'SPECS/*', '-r'])
++        os.mkdir('SPECS')
++
++        print(" extracting SRPM...")
++
++        os.chdir('SOURCES')
++        pipe_commands(['rpm2cpio', source_rpm_abs], ['cpio', '-idmv'])
++        os.chdir('..')
++        for f in glob('SOURCES/*.spec'):
++            shutil.move(f, 'SPECS')
++
++        print(" removing trademarked or copyrighted files...")
++
++        sources = os.listdir('SOURCES')
++        deletemsg = "File deleted from the original sources for trademark-related or copyright-related legal reasons.\\n"
++        deleted = []
++        for f in ['Citrix_Logo_Black.png', 'COPYING.CitrixCommercial']:
++            if f in sources:
++                os.unlink(os.path.join('SOURCES', f))
++                open(os.path.join('SOURCES', "%s.deleted-by-XCP-ng.txt" % f), 'w').write(deletemsg)
++                deleted.append(f)
++
++        if subprocess.call(['git', 'rev-parse', '--quiet', '--verify', args.branch]) != 0:
++            call_process(['git', 'checkout', '-b', args.branch])
++        else:
++            call_process(['git', 'checkout', args.branch])
++        call_process(['git', 'add', '--all'])
++
++        print(" committing...")
++        has_changes = False
++        try:
++            call_process(['git', 'diff-index', '--quiet', 'HEAD', '--'])
++        except Exception:
++            has_changes = True
++
++        if not has_changes:
++            print("\\nWorking copy has no modifications. Nothing to commit. No changes from previous release?\\n")
++        else:
++            msg = 'Import %s' % os.path.basename(source_rpm)
++            if deleted:
++                msg += "\\n\\nFiles deleted for legal reasons:\\n - " + '\\n - '.join(deleted)
++            call_process(['git', 'commit', '-s', '-m', msg])
++
++        # tag
++        if args.tag is not None:
++            call_process(['git', 'tag', args.tag])
++
++        # push to remote
++        if args.push:
++            call_process(['git', 'push', '--set-upstream', 'origin', args.branch])
++            if args.tag is not None:
++                call_process(['git', 'push', 'origin', args.tag])
++
++        print(" switching to master before leaving...")
++
++        call_process(['git', 'checkout', 'master'])
++
++        # merge to master if needed
++        if args.push and args.master:
++            print(" merging to master...")
++            call_process(['git', 'push', 'origin', '%s:master' % args.branch])
++            call_process(['git', 'pull'])
++
++
+ if __name__ == "__main__":`;
 
 // ============================================================================
 // parse-diff dispatch
@@ -416,5 +658,367 @@ describe("error propagation", () => {
     // Third line: context
     expect(contextLine2.type).toBe("normal");
     expect(contextLine2.content[0].value).toBe("context");
+  });
+
+  test("indentation-only try lines merge in the full import_srpm diff", () => {
+    const diffContent = `diff --git a/scripts/import_srpm.py b/scripts/import_srpm.py\n--- a/scripts/import_srpm.py\n+++ b/scripts/import_srpm.py\n${patchForImportSrpm}`;
+    const files = gitDiffParser.parse(diffContent);
+    expect(files.length).toBeGreaterThanOrEqual(1);
+    const thirdHunk = files[0].hunks[2];
+    expect(thirdHunk).toBeDefined();
+
+    const opts = {
+      maxDiffDistance: 30,
+      maxChangeRatio: 0.45,
+      mergeModifiedLines: true,
+      inlineMaxCharEdits: 30,
+    };
+    const lines = mergeModifiedLines(thirdHunk.changes, opts);
+
+    // Find old=139 in any form
+    const try139norm = lines.find(
+      (l: any) => l.type === "normal" && l.oldLineNumber === 139
+    );
+    const try139del = lines.find(
+      (l: any) => l.type === "delete" && l.oldLineNumber === 139
+    );
+    const try160norm = lines.find(
+      (l: any) => l.type === "normal" && l.newLineNumber === 160
+    );
+    const try160ins = lines.find(
+      (l: any) => l.type === "insert" && l.newLineNumber === 160
+    );
+
+    // Dump changes near old=139 to diagnose
+    const del139Idx = thirdHunk.changes.findIndex(
+      (c: any) => c.type === "delete" && c.lineNumber === 139
+    );
+    const near =
+      del139Idx >= 0
+        ? thirdHunk.changes.slice(
+            Math.max(0, del139Idx - 1),
+            Math.min(thirdHunk.changes.length, del139Idx + 2)
+          )
+        : [];
+    const del139Norm = thirdHunk.changes[del139Idx];
+    const ins160Idx = thirdHunk.changes.findIndex(
+      (c: any) => c.type === "insert" && c.lineNumber === 160
+    );
+    const ins160Norm = thirdHunk.changes[ins160Idx];
+
+    const try80paired = lines.find(
+      (l: any) => l.type === "normal" && l.oldLineNumber === 80
+    );
+    const try139paired = lines.find(
+      (l: any) => l.type === "normal" && l.oldLineNumber === 139
+    );
+    const try160paired = lines.find(
+      (l: any) => l.type === "normal" && l.newLineNumber === 160
+    );
+
+    // Dump all lines to find old=139 or new=160
+    const allLines = lines
+      .map((l: any, i: number) => ({
+        i,
+        type: l.type,
+        old: l.oldLineNumber ?? "none",
+        new: l.newLineNumber ?? "none",
+        maybeOld: l.lineNumber ?? "none",
+        content: l.content?.[0]?.value?.includes?.("try") ?? false,
+      }))
+      .filter((l: any) => l.content || l.old !== "none" || l.new !== "none");
+
+    // Check that old=139 is merged (not a separate delete)
+    const has139delete = lines.some(
+      (l: any) => l.type === "delete" && (l as any).lineNumber === 139
+    );
+    const has139normal = lines.some(
+      (l: any) => l.type === "normal" && (l as any).oldLineNumber === 139
+    );
+    const has160insert = lines.some(
+      (l: any) => l.type === "insert" && (l as any).lineNumber === 160
+    );
+    const has160normal = lines.some(
+      (l: any) => l.type === "normal" && (l as any).newLineNumber === 160
+    );
+
+    expect({
+      scenario: "try lines after second pass",
+      has139delete,
+      has139normal,
+      has160insert,
+      has160normal,
+    }).toMatchObject({
+      has139delete: false,
+      has139normal: true,
+      has160insert: false,
+      has160normal: true,
+    });
+
+    // Verify overall output structure:
+    // 1. New-line numbers are monotonic (non-decreasing)
+    let prevNew: number | null = null;
+    for (const l of lines) {
+      const n = (l as any).newLineNumber;
+      if (n != null) {
+        if (prevNew != null) {
+          expect(n).toBeGreaterThanOrEqual(prevNew);
+        }
+        prevNew = n;
+      }
+    }
+
+    // 2. The standalone `raise` delete (old=84) is positioned near the
+    //    except block, not at its own old-line number far from context.
+    const raiseDel = lines.find(
+      (l: any) =>
+        l.type === "delete" && l.content[0]?.value?.includes?.("raise")
+    );
+    expect(raiseDel).toBeDefined();
+    const raiseIdx = lines.indexOf(raiseDel!);
+
+    // The raise line should be between the `except:`→`except Exception:`
+    // merged line (old=83) and the `parser.error` line (old=85) which are
+    // their paired counterparts in the output.
+    const exceptLine = lines.find(
+      (l: any) => l.type === "normal" && (l as any).oldLineNumber === 83
+    );
+    const parserErrorLine = lines.find(
+      (l: any) =>
+        l.type === "insert" && l.content[0]?.value?.includes?.("parser.error")
+    );
+    if (exceptLine && parserErrorLine) {
+      const exceptIdx = lines.indexOf(exceptLine);
+      const errorIdx = lines.indexOf(parserErrorLine);
+      expect(raiseIdx).toBeGreaterThan(exceptIdx);
+      expect(raiseIdx).toBeLessThan(errorIdx);
+    }
+
+    // 3. No delete line appears after an insert with a higher new-line number
+    //    (deletes must be interleaved correctly)
+    let lastNewLineNumber: number | null = null;
+    for (const l of lines) {
+      if (l.type === "insert" && (l as any).newLineNumber != null) {
+        lastNewLineNumber = (l as any).newLineNumber;
+      }
+      if (l.type === "delete") {
+        const delOld = (l as any).lineNumber ?? (l as any).oldLineNumber;
+        if (lastNewLineNumber != null && delOld != null) {
+          // The delete's estimated position must not exceed the last seen new-line number
+          expect(delOld).toBeLessThan(lastNewLineNumber + 50);
+        }
+      }
+    }
+  });
+
+  test("standalone del/ins lines produce monotonic new-line numbers in all-deletes-first blocks", () => {
+    // A block replacement where all deletes precede all inserts.
+    // With maxChangeRatio=0.45, different-content lines won't pair,
+    // so they remain as standalone deletes and inserts.  The output
+    // must be sorted by new-line position so line numbers don't jump.
+    const patch = [
+      "@@ -1,4 +1,4 @@",
+      " context1",
+      "-apple",
+      "-banana",
+      "+cherry",
+      "+date",
+    ].join("\n");
+
+    const diffContent = `diff --git a/file b/file\n--- a/file\n+++ b/file\n${patch}`;
+    const files = gitDiffParser.parse(diffContent);
+    const changes = files[0].hunks[0].changes;
+
+    const opts = {
+      maxDiffDistance: 30,
+      maxChangeRatio: 0.45,
+      mergeModifiedLines: true,
+      inlineMaxCharEdits: 30,
+    };
+    const lines = mergeModifiedLines(changes, opts);
+
+    // All new-line-number values (where present) must be non-decreasing
+    let prevNew: number | null = null;
+    for (const l of lines) {
+      const n = (l as any).newLineNumber;
+      if (n != null) {
+        if (prevNew != null) {
+          expect(n).toBeGreaterThanOrEqual(prevNew);
+        }
+        prevNew = n;
+      }
+    }
+
+    // Lines are sorted by position: deletes and inserts at the same
+    // change-index position are placed in their original insertion order,
+    // so a delete (old=2) and its matching insert (new=2) are adjacent
+    // with the delete first (it appeared first in the changes array).
+    const appleDel = lines.find(
+      (l: any) => l.type === "delete" && l.content[0]?.value === "apple"
+    );
+    const cherryIns = lines.find(
+      (l: any) => l.type === "insert" && l.content[0]?.value === "cherry"
+    );
+    const bananaDel = lines.find(
+      (l: any) => l.type === "delete" && l.content[0]?.value === "banana"
+    );
+    const dateIns = lines.find(
+      (l: any) => l.type === "insert" && l.content[0]?.value === "date"
+    );
+    expect(appleDel).toBeDefined();
+    expect(cherryIns).toBeDefined();
+    expect(bananaDel).toBeDefined();
+    expect(dateIns).toBeDefined();
+
+    // apple (old=2) and cherry (new=2) share the same sort position;
+    // apple came first in the original change array so it sorts first.
+    const appleIdx = lines.indexOf(appleDel!);
+    const cherryIdx = lines.indexOf(cherryIns!);
+    expect(appleIdx).toBeLessThan(cherryIdx);
+
+    // banana (old=3, pos=3) sorts after cherry (new=2, pos=2)
+    // because position 3 > 2.
+    const bananaIdx = lines.indexOf(bananaDel!);
+    expect(bananaIdx).toBeGreaterThan(cherryIdx);
+
+    // banana (pos=3) and date (pos=3) share the same position;
+    // banana came first so it sorts before date.
+    const dateIdx = lines.indexOf(dateIns!);
+    expect(bananaIdx).toBeLessThan(dateIdx);
+  });
+
+  test("delete-only line positioned after its surrounding paired lines", () => {
+    // A standalone delete (old=3) surrounded by paired lines above and below
+    // must be placed between them — its estimated position comes from the
+    // next paired line's new-line number.
+    // "hello world" → "hello_world" pairs (ratio ≈ 0.17 < 0.45).
+    // "standalone" is unpaired.
+    // "foo bar" → "foo baz" pairs via calculateChangeRatio
+    // (tokenized: "foo"," ","bar" vs "foo"," ","baz"; only "bar" vs "baz" differ)
+    const patch = [
+      "@@ -1,6 +1,5 @@",
+      " context1",
+      "-hello world",
+      "+hello_world",
+      "-standalone",
+      "-foo bar",
+      "+foo baz",
+      " context2",
+    ].join("\n");
+
+    const diffContent = `diff --git a/file b/file\n--- a/file\n+++ b/file\n${patch}`;
+    const files = gitDiffParser.parse(diffContent);
+    const changes = files[0].hunks[0].changes;
+
+    const opts = {
+      maxDiffDistance: 30,
+      maxChangeRatio: 0.45,
+      mergeModifiedLines: true,
+      inlineMaxCharEdits: 30,
+    };
+    const lines = mergeModifiedLines(changes, opts);
+
+    const standaloneDel = lines.find(
+      (l: any) => l.type === "delete" && l.content[0]?.value === "standalone"
+    );
+    const helloSegments = lines.find(
+      (l: any) => l.type === "normal" && (l as any).oldLineNumber === 2
+    );
+    // "foo bar" → "foo baz" paired line: old=4
+    const foobarSegments = lines.find(
+      (l: any) => l.type === "normal" && (l as any).oldLineNumber === 4
+    );
+    expect(standaloneDel).toBeDefined();
+    expect(helloSegments).toBeDefined();
+    expect(foobarSegments).toBeDefined();
+
+    // The standalone delete must appear between its surrounding paired lines
+    const delIdx = lines.indexOf(standaloneDel!);
+    const beforeIdx = lines.indexOf(helloSegments!);
+    const afterIdx = lines.indexOf(foobarSegments!);
+    expect(delIdx).toBeGreaterThan(beforeIdx);
+    expect(delIdx).toBeLessThan(afterIdx);
+  });
+
+  test("adjacent empty delete+insert lines merge into one normal line", () => {
+    // An empty line deleted and an empty line inserted adjacent to each
+    // other.  The result should be a single normal (context) line.
+    const patch = ["@@ -1,3 +1,3 @@", " one", "-", "+", " two"].join("\n");
+
+    const diffContent = `diff --git a/file b/file\n--- a/file\n+++ b/file\n${patch}`;
+    const files = gitDiffParser.parse(diffContent);
+    const changes = files[0].hunks[0].changes;
+
+    const opts = {
+      maxDiffDistance: 30,
+      maxChangeRatio: 0.45,
+      mergeModifiedLines: true,
+      inlineMaxCharEdits: 30,
+    };
+    const lines = mergeModifiedLines(changes, opts);
+
+    // Should be 3 lines: one, (merged empty), two
+    expect(lines).toHaveLength(3);
+
+    expect(lines[0].type).toBe("normal");
+    expect((lines[0] as any).newLineNumber).toBe(1);
+    expect(lines[0].content[0]?.value).toBe("one");
+
+    // The merged line — the delete and insert are merged into one normal line
+    expect(lines[1].type).toBe("normal");
+    expect((lines[1] as any).oldLineNumber).toBe(2);
+    expect((lines[1] as any).newLineNumber).toBe(2);
+    expect(lines[1].content[0]?.value).toBe("");
+
+    expect(lines[2].type).toBe("normal");
+    expect((lines[2] as any).newLineNumber).toBe(3);
+    expect(lines[2].content[0]?.value).toBe("two");
+  });
+
+  test("indentation-only content re-paired after crossing unpairing", () => {
+    // Rotate three content-identical lines.  D1→I3, D2→I1, D3→I2 cross;
+    // crossing unpaips D1→I3 (larger line distance).  The second pass must
+    // re-pair D1→I3 since they are content-identical (ratio=0).
+    const patch = [
+      "@@ -1,3 +1,3 @@",
+      "-foo",
+      "-bar",
+      "-baz",
+      "+bar",
+      "+baz",
+      "+foo",
+    ].join("\n");
+
+    const diffContent = `diff --git a/file b/file\n--- a/file\n+++ b/file\n${patch}`;
+    const files = gitDiffParser.parse(diffContent);
+    const changes = files[0].hunks[0].changes;
+
+    const opts = {
+      maxDiffDistance: 30,
+      maxChangeRatio: 0.45,
+      mergeModifiedLines: true,
+      inlineMaxCharEdits: 30,
+    };
+    const lines = mergeModifiedLines(changes, opts);
+
+    // All three must be merged (content-identical)
+    const fooLine = lines.find(
+      (l: any) => l.type === "normal" && l.content[0]?.value === "foo"
+    );
+    const barLine = lines.find(
+      (l: any) => l.type === "normal" && l.content[0]?.value === "bar"
+    );
+    const bazLine = lines.find(
+      (l: any) => l.type === "normal" && l.content[0]?.value === "baz"
+    );
+    expect(fooLine).toBeDefined();
+    expect(barLine).toBeDefined();
+    expect(bazLine).toBeDefined();
+
+    // No delete or insert lines should remain
+    const deletes = lines.filter((l: any) => l.type === "delete");
+    const inserts = lines.filter((l: any) => l.type === "insert");
+    expect(deletes).toHaveLength(0);
+    expect(inserts).toHaveLength(0);
   });
 });
