@@ -2809,7 +2809,7 @@ const DiffViewer = memo(function DiffViewer({
             <div className="border border-border rounded-lg overflow-hidden">
               <div
                 ref={containerRef}
-                className="relative font-mono text-[0.8rem] [--code-added:theme(colors.green.500)] [--code-removed:theme(colors.orange.600)] [--code-changed:theme(colors.blue.500)] diff-line-container"
+                className="relative font-mono text-[0.8rem] [--code-added:theme(colors.green.500)] [--code-removed:theme(colors.orange.600)] [--code-changed:theme(colors.yellow.500)] diff-line-container"
                 style={{
                   height: `${virtualizer.getTotalSize()}px`,
                 }}
