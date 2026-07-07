@@ -3526,12 +3526,25 @@ const SplitDiffLineRow = memo(function SplitDiffLineRow({
         }
       : {};
 
+    const onThisSideMouseDown = () => {
+      // Clear previous protection so the current side is selectable
+      document
+        .querySelectorAll("[data-line-side]")
+        .forEach((el) => ((el as HTMLElement).style.userSelect = ""));
+      // Protect the opposite side until next mousedown
+      const other = side === "old" ? "new" : "old";
+      document
+        .querySelectorAll(`[data-line-side="${other}"]`)
+        .forEach((el) => ((el as HTMLElement).style.userSelect = "none"));
+    };
+
     return (
       <div
         className="flex flex-1 min-w-0 overflow-hidden split-diff-side relative"
         style={bgStyle}
         data-line-num={lineNumber}
         data-line-side={side}
+        onMouseDown={onThisSideMouseDown}
       >
         {/* Left border indicator — fixed */}
         <div
