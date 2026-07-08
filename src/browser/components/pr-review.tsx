@@ -85,7 +85,6 @@ import {
   useCommentCountsByFile,
   usePendingCommentCountsByFile,
   useCommentingRange,
-  useCommentRangeLookup,
   type LocalPendingComment,
   type ParsedDiff,
   type DiffLine,
@@ -1760,7 +1759,6 @@ const DiffViewer = memo(function DiffViewer({
 
   // Note: selectionState removed from context - rows subscribe directly to avoid re-renders
   const commentingRange = useCommentingRange();
-  const commentRangeLookup = useCommentRangeLookup();
 
   // Subscribe to expanded skip blocks directly for re-render triggering
   const expandedSkipBlocks = usePRReviewSelector((s) => s.expandedSkipBlocks);
@@ -1883,6 +1881,18 @@ const DiffViewer = memo(function DiffViewer({
     }
     return map;
   }, [pendingComments]);
+
+  // Re-anchored comment range lookup, replacing the store's raw-line-based commentRangeLookup
+  const reanchoredCommentRangeLookup = useMemo(() => {
+    const lines = new Set<number>();
+    for (const lineNum of commentsByLine.keys()) {
+      lines.add(lineNum);
+    }
+    for (const lineNum of pendingCommentsByLine.keys()) {
+      lines.add(lineNum);
+    }
+    return lines;
+  }, [commentsByLine, pendingCommentsByLine]);
 
   // Group comments into threads (pre-computed)
   const threadsByLine = useMemo(() => {
@@ -2670,7 +2680,7 @@ const DiffViewer = memo(function DiffViewer({
       onDragEnd,
       onClickFallback,
       commentingRange,
-      commentRangeLookup,
+      commentRangeLookup: reanchoredCommentRangeLookup,
       commentAnchorLookup: commentAnchorLines,
     }),
     [
@@ -2680,7 +2690,7 @@ const DiffViewer = memo(function DiffViewer({
       onDragEnd,
       onClickFallback,
       commentingRange,
-      commentRangeLookup,
+      reanchoredCommentRangeLookup,
       commentAnchorLines,
     ]
   );
@@ -3170,13 +3180,13 @@ const DiffLineRow = memo(function DiffLineRow({
     const result: React.CSSProperties = {};
 
     if (bgColor) {
-      result.background = `linear-gradient(${bgColor}, ${bgColor})`;
+      result.backgroundImage = `linear-gradient(${bgColor}, ${bgColor})`;
       result.backgroundSize = "100% calc(100% + 2px)";
       result.backgroundRepeat = "no-repeat";
     }
 
     return result;
-  }, [isInCommentingRange, line.type]);
+  }, [isInCommentingRange, line.type, hasInlineChanges]);
 
   return (
     <div
@@ -3433,7 +3443,7 @@ const SplitDiffLineRow = memo(function SplitDiffLineRow({
 
     const bgStyle: React.CSSProperties = bgColor
       ? {
-          background: `linear-gradient(${bgColor}, ${bgColor})`,
+          backgroundImage: `linear-gradient(${bgColor}, ${bgColor})`,
           backgroundSize: "100% calc(100% + 2px)",
           backgroundRepeat: "no-repeat",
         }
