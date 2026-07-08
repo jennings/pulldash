@@ -271,6 +271,7 @@ function findBestInsertForDelete(
 
   let bestAddIdx = UNPAIRED;
   let bestRatio = Infinity;
+  let bestDist = Infinity;
 
   for (const addIdx of insertIdxs) {
     const add = changes[addIdx] as InsertChange;
@@ -279,9 +280,17 @@ function findBestInsertForDelete(
 
     const ratio = calculateChangeRatio(del.content, add.content);
     if (ratio > options.maxChangeRatio) continue;
-    if (ratio < bestRatio) {
+    const dist = addIdx - delIdx;
+    if (ratio < bestRatio - 0.05) {
       bestRatio = ratio;
       bestAddIdx = addIdx;
+      bestDist = dist;
+    } else if (Math.abs(ratio - bestRatio) <= 0.05) {
+      if (dist < bestDist) {
+        bestAddIdx = addIdx;
+        bestRatio = ratio;
+        bestDist = dist;
+      }
     }
   }
 

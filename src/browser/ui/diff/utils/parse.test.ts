@@ -114,6 +114,33 @@ describe("mergeModifiedLines", () => {
     expect(result).toHaveLength(1);
     expect(result[0].type).toBe("insert");
   });
+
+  test("unpairs when visual order would invert old line numbers", () => {
+    // Two pairs: delete(30)→insert(10) and delete(10)→insert(20)
+    // Sorted by newLN: pair(30→10) at pos 10, pair(10→20) at pos 20
+    // Old LN sequence: 30, 10 ← inverted in visual order!
+    const changes = [
+      makeDelete(30, "foo bar"),
+      makeDelete(10, "foo bar"),
+      makeInsert(10, "foo baz"),
+      makeInsert(20, "foo baz"),
+    ];
+    const result = mergeModifiedLines(changes, defaultOpts);
+    // Should be unpaired: no modified line with old=30, new=10
+    const badPair = (result as any[]).find(
+      (l) => l.oldLineNumber === 30 && l.newLineNumber === 10
+    );
+    expect(badPair).toBeUndefined();
+    // Should have separate delete(30) and insert(10)
+    const del30 = result.find(
+      (l) => l.type === "delete" && (l as any).lineNumber === 30
+    );
+    const ins10 = result.find(
+      (l) => l.type === "insert" && (l as any).lineNumber === 10
+    );
+    expect(del30).toBeDefined();
+    expect(ins10).toBeDefined();
+  });
 });
 
 // ============================================================================

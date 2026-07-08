@@ -660,23 +660,24 @@ describe("error propagation", () => {
     const hunk = hunks.find((h: any) => h.type === "hunk");
     expect(hunk).toBeDefined();
 
-    // Crossing has equal deltas (both =1), so first pair (D767→I768) is unpaired
-    // Only the better match (D768→I767, delta=1) remains merged
+    // Crossing has equal deltas (both =1), so the pair that appears first in
+    // visual order (D768→I767) is unpaired.
+    // Only the better match (D767→I768, delta=1) remains merged.
     const mergedLines = hunk.lines.filter(
       (l: any) =>
         l.type === "normal" && l.content.some((s: any) => s.type !== "normal")
     );
     expect(mergedLines).toHaveLength(1);
-    expect(mergedLines[0].oldLineNumber).toBe(768);
-    expect(mergedLines[0].newLineNumber).toBe(767);
+    expect(mergedLines[0].oldLineNumber).toBe(767);
+    expect(mergedLines[0].newLineNumber).toBe(768);
 
-    // The unpaired delete (old 767) and unpaired insert (new 768) remain separate
+    // The unpaired delete (old 768) and unpaired insert (new 767) remain separate
     const deletes = hunk.lines.filter((l: any) => l.type === "delete");
     const inserts = hunk.lines.filter((l: any) => l.type === "insert");
     expect(deletes).toHaveLength(1);
     expect(inserts).toHaveLength(1);
-    expect(deletes[0].oldLineNumber).toBe(767);
-    expect(inserts[0].newLineNumber).toBe(768);
+    expect(deletes[0].oldLineNumber).toBe(768);
+    expect(inserts[0].newLineNumber).toBe(767);
   });
 
   test("merges delete+insert pair when change only differs by digit inside underscore-separated word", () => {
@@ -728,6 +729,74 @@ describe("error propagation", () => {
     // Third line: context
     expect(contextLine2.type).toBe("normal");
     expect(contextLine2.content[0].value).toBe("context");
+  });
+
+  test("does not pair different function names over large distance", () => {
+    // From https://github.com/gaetan/.../pull/... unified diff view bug:
+    // Old line 24 "def top_append(...)" was incorrectly paired with
+    // new line 33 "def top_setattr(...)" because shared boilerplate
+    // (def, self, ->, Self:) dominated the char-level ratio.
+    const hunkBody = [
+      "@@ -21,26 +22,27 @@",
+      " ",
+      "     # chainable mutators for lambdas",
+      " ",
+      "-    def top_append(self, *defs: dict[str, Any] | None) -> Self:",
+      "+    def top_append(self, *defs: SimpleAnswerfileDict | None | ValueError) -> Self:",
+      "+        assert not isinstance(self.defn['CONTENTS'], str), \"a toplevel CONTENTS must be a list\"",
+      "         for defn in defs:",
+      "             if defn is None:",
+      "                 continue",
+      "             self.defn['CONTENTS'].append(self._normalize_structure(defn))",
+      "         return self",
+      " ",
+      "-    def top_setattr(self, attrs: dict[str, Any]) -> Self:",
+      "+    def top_setattr(self, attrs: dict[str, str]) -> Self:",
+      "         assert 'CONTENTS' not in attrs",
+      "-        self.defn.update(attrs)",
+      "+        self.defn.update(cast(AnswerfileDict, attrs))",
+      "         return self",
+    ].join("\n");
+    const patch = [
+      "diff --git a/lib/installer.py b/lib/installer.py",
+      "--- a/lib/installer.py",
+      "+++ b/lib/installer.py",
+      hunkBody,
+    ].join("\n");
+
+    const files = gitDiffParser.parse(patch);
+    expect(files.length).toBeGreaterThanOrEqual(1);
+    expect(files[0].hunks.length).toBeGreaterThanOrEqual(1);
+    const hunk = files[0].hunks[0];
+    expect(hunk).toBeDefined();
+
+    const opts = {
+      maxDiffDistance: 30,
+      maxChangeRatio: 0.45,
+      mergeModifiedLines: true,
+      inlineMaxCharEdits: 30,
+    };
+    const lines = mergeModifiedLines(hunk.changes, opts);
+
+    // The old=24/new=33 cross-function pair (top_append↔top_setattr) must NOT exist
+    const badPair = lines.find(
+      (l: any) => l.oldLineNumber === 24 && l.newLineNumber === 33
+    );
+    expect(badPair).toBeUndefined();
+
+    // delete(24) should pair with insert(25) (same function name, type change only)
+    const pair24 = lines.find(
+      (l: any) =>
+        l.type === "normal" && l.oldLineNumber === 24 && l.newLineNumber === 25
+    );
+    expect(pair24).toBeDefined();
+
+    // insert(33) should pair with delete(31) (same function, type change only)
+    const pair31 = lines.find(
+      (l: any) =>
+        l.type === "normal" && l.oldLineNumber === 31 && l.newLineNumber === 33
+    );
+    expect(pair31).toBeDefined();
   });
 
   test("indentation-only try lines merge in the full import_srpm diff", () => {

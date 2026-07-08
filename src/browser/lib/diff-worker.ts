@@ -293,6 +293,7 @@ function findBestInsertForDelete(
 
   let bestAddIdx = UNPAIRED;
   let bestRatio = Infinity;
+  let bestDist = Infinity;
 
   for (const addIdx of insertIdxs) {
     const add = changes[addIdx] as InsertChange;
@@ -301,9 +302,17 @@ function findBestInsertForDelete(
 
     const ratio = calculateChangeRatio(del.content, add.content);
     if (ratio > options.maxChangeRatio) continue;
-    if (ratio < bestRatio) {
+    const dist = addIdx - delIdx;
+    if (ratio < bestRatio - 0.05) {
       bestRatio = ratio;
       bestAddIdx = addIdx;
+      bestDist = dist;
+    } else if (Math.abs(ratio - bestRatio) <= 0.05) {
+      if (dist < bestDist) {
+        bestAddIdx = addIdx;
+        bestRatio = ratio;
+        bestDist = dist;
+      }
     }
   }
 
@@ -343,35 +352,38 @@ function detectAndUnpairCrossings(
   pairOfAdd: Int32Array,
   deleteIdxs: number[]
 ) {
-  for (let ii = 0; ii < deleteIdxs.length; ii++) {
-    const i = deleteIdxs[ii];
-    const pi = pairOfDel[i];
-    if (pi === UNPAIRED) continue;
-    for (let jj = ii + 1; jj < deleteIdxs.length; jj++) {
-      const j = deleteIdxs[jj];
-      const pj = pairOfDel[j];
-      if (pj === UNPAIRED) continue;
-      if (pi > pj) {
-        const del1 = changes[i] as DeleteChange;
-        const add1 = changes[pi] as InsertChange;
-        const del2 = changes[j] as DeleteChange;
-        const add2 = changes[pj] as InsertChange;
-        const d1 = Math.abs(del1.lineNumber - add1.lineNumber);
-        const d2 = Math.abs(del2.lineNumber - add2.lineNumber);
-        if (d1 >= d2) {
-          pairOfDel[i] = UNPAIRED;
-          pairOfAdd[pi] = UNPAIRED;
-        } else {
-          pairOfDel[j] = UNPAIRED;
-          pairOfAdd[pj] = UNPAIRED;
-        }
-        return detectAndUnpairCrossings(
-          changes,
-          pairOfDel,
-          pairOfAdd,
-          deleteIdxs
-        );
+  const pairs: { delIdx: number; oldLN: number; newLN: number }[] = [];
+  for (const di of deleteIdxs) {
+    const ai = pairOfDel[di];
+    if (ai === UNPAIRED) continue;
+    const del = changes[di] as DeleteChange;
+    const add = changes[ai] as InsertChange;
+    pairs.push({ delIdx: di, oldLN: del.lineNumber, newLN: add.lineNumber });
+  }
+
+  pairs.sort((a, b) => a.newLN - b.newLN);
+
+  for (let i = 1; i < pairs.length; i++) {
+    if (pairs[i].oldLN < pairs[i - 1].oldLN) {
+      const d1 = Math.abs(pairs[i - 1].oldLN - pairs[i - 1].newLN);
+      const d2 = Math.abs(pairs[i].oldLN - pairs[i].newLN);
+      if (d1 >= d2) {
+        const di = pairs[i - 1].delIdx;
+        const ai = pairOfDel[di];
+        pairOfDel[di] = UNPAIRED;
+        pairOfAdd[ai] = UNPAIRED;
+      } else {
+        const di = pairs[i].delIdx;
+        const ai = pairOfDel[di];
+        pairOfDel[di] = UNPAIRED;
+        pairOfAdd[ai] = UNPAIRED;
       }
+      return detectAndUnpairCrossings(
+        changes,
+        pairOfDel,
+        pairOfAdd,
+        deleteIdxs
+      );
     }
   }
 }
