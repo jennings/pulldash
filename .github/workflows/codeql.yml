@@ -19,7 +19,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: github/codeql-action/init@628fc3f124e68b0151f0d2a5d81e864ee1e42335
+      - uses: github/codeql-action/init@f58f0d11ebf5dedd870fab2f999275f7602cfa46
         with:
           languages: javascript-typescript
 
