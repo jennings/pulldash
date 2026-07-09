@@ -5,6 +5,7 @@ import {
   ChevronRight,
   Columns2,
   AlignJustify,
+  ExternalLink,
   MessageSquare,
   MessageSquareOff,
   TextWrap,
@@ -34,6 +35,10 @@ interface FileHeaderProps {
   onToggleWordWrap?: () => void;
   /** When viewing a historical push version, the version number for display */
   selectedVersion?: number;
+  /** Owner/repo/ref for the "view on GitHub" link next to the filename */
+  owner?: string;
+  repo?: string;
+  headSha?: string;
 }
 
 export const FileHeader = memo(function FileHeader({
@@ -54,6 +59,9 @@ export const FileHeader = memo(function FileHeader({
   wordWrap,
   onToggleWordWrap,
   selectedVersion,
+  owner,
+  repo,
+  headSha,
 }: FileHeaderProps) {
   const fileStatusBadge = (() => {
     switch (file.status) {
@@ -89,6 +97,17 @@ export const FileHeader = memo(function FileHeader({
         <span className="font-mono text-sm font-medium truncate">
           {file.filename === ":commit" ? "Commit metadata" : file.filename}
         </span>
+        {owner && repo && headSha && file.filename !== ":commit" && (
+          <a
+            href={`https://github.com/${owner}/${repo}/blob/${headSha}/${file.filename}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-muted-foreground hover:text-blue-400 transition-colors shrink-0"
+            title="View file on GitHub"
+          >
+            <ExternalLink className="w-3.5 h-3.5" />
+          </a>
+        )}
         {fileStatusBadge}
         <span className="text-xs text-muted-foreground shrink-0">
           <span className="text-green-500">+{file.additions}</span>{" "}
