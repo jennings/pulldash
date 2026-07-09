@@ -326,6 +326,76 @@ describe("parse-diff message", () => {
     expect(posted[0].type).toBe("parse-diff-result");
     expect(posted[0].result.hunks.length).toBeGreaterThan(0);
   });
+
+  test("uses full-file context so a hunk after a closing raw string highlights code as code", () => {
+    // Reproduces the reported bug: a Rust hunk that begins after a raw-string
+    // terminator (`"#);`) was fed to the highlighter as a fragment starting
+    // with `"`, which the grammar interpreted as an OPEN string. Comments and
+    // code downstream got tagged as strings, and string contents got tagged
+    // as code. Passing the full-file `newContent` restores the correct state.
+    const newContent = [
+      "fn earlier() {",
+      '    let s = r#"',
+      "        multi",
+      "        line",
+      '    "#;',
+      "}",
+      "#[test]",
+      "fn later() {",
+      "    // a comment",
+      '    let x = "world";',
+      "}",
+      "",
+    ].join("\n");
+    const oldContent = newContent.replace('    let x = "world";\n', "");
+
+    // Hunk begins on line 5 with `    "#;` — the closing of an earlier
+    // raw string. Refractor, fed only the hunk lines, sees `"` as the
+    // OPEN of a new string and tags every subsequent line (including
+    // `// a comment`) as string content. Passing `newContent` lets the
+    // highlighter see that the `"#;` closes a raw string that opened
+    // earlier, and the comment tags correctly.
+    const patch = `@@ -5,7 +5,8 @@
+     "#;
+ }
+ #[test]
+ fn later() {
+     // a comment
++    let x = "world";
+ }`;
+
+    handler({
+      data: {
+        type: "parse-diff",
+        id: "raw-string-ctx",
+        patch,
+        filename: "test.rs",
+        newContent,
+        oldContent,
+      },
+    });
+
+    expect(posted[0].type).toBe("parse-diff-result");
+    const hunk = posted[0].result.hunks.find((h: any) => h.type === "hunk");
+    expect(hunk).toBeDefined();
+
+    const commentLine = hunk.lines.find(
+      (l: any) =>
+        l.type === "normal" && l.content[0].value.includes("a comment")
+    );
+    expect(commentLine).toBeDefined();
+    const commentHtml = commentLine.content[0].html as string;
+    expect(commentHtml).toContain("token comment");
+    expect(commentHtml).not.toContain("token string");
+
+    // And the added string literal should be tagged as a string.
+    const stringLine = hunk.lines.find(
+      (l: any) => l.type === "insert" && l.content[0].value.includes("world")
+    );
+    expect(stringLine).toBeDefined();
+    const stringHtml = stringLine.content[0].html as string;
+    expect(stringHtml).toContain("token string");
+  });
 });
 
 // ============================================================================

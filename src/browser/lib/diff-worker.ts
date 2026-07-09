@@ -614,37 +614,94 @@ ${patch}`;
     file.hunks.map((hunk) => parseHunk(hunk, opts))
   );
 
+  // When full-file contents are available, pre-highlight each side once so
+  // multi-line constructs (raw strings, block comments, template literals)
+  // carry the correct grammar state into every hunk. Without this, a hunk
+  // that starts after a closing `"#` or `*/` feeds the highlighter a
+  // fragment whose leading punctuation can be reinterpreted as an opening
+  // token — flipping strings and code for the rest of the file.
+  const newFileHighlighted = newContent
+    ? highlightFileByLines(newContent, language)
+    : null;
+  const oldFileHighlighted = oldContent
+    ? highlightFileByLines(oldContent, prevLanguage)
+    : null;
+
   const hunks: (DiffHunk | DiffSkipBlock)[] = rawHunks.map((hunk) => {
     if (hunk.type === "skip") {
       return hunk as DiffSkipBlock;
     }
 
-    // Pre-highlight blocks of lines together so that multi-line constructs
-    // (e.g. Python triple-quoted strings) are properly colored. Each line
-    // highlighted individually cannot match patterns that span lines.
+    // Fallback path: highlight just the hunk's lines together. Used when
+    // full-file contents weren't provided. Multi-line constructs are still
+    // colored correctly within the hunk, but a construct that opens/closes
+    // outside the hunk can flip strings and code — full-file highlighting
+    // above is what fixes that.
     const newBlockLines: string[] = [];
     const newBlockIndices: number[] = [];
     const oldBlockLines: string[] = [];
     const oldBlockIndices: number[] = [];
-    for (let i = 0; i < hunk.lines.length; i++) {
-      const line = hunk.lines[i];
-      if (line.type === "normal" || line.type === "insert") {
-        newBlockLines.push(line.content[0]?.value ?? "");
-        newBlockIndices.push(i);
-      }
-      if (line.type === "normal" || line.type === "delete") {
-        oldBlockLines.push(line.content[0]?.value ?? "");
-        oldBlockIndices.push(i);
+    if (!newFileHighlighted || !oldFileHighlighted) {
+      for (let i = 0; i < hunk.lines.length; i++) {
+        const line = hunk.lines[i];
+        if (
+          !newFileHighlighted &&
+          (line.type === "normal" || line.type === "insert")
+        ) {
+          newBlockLines.push(line.content[0]?.value ?? "");
+          newBlockIndices.push(i);
+        }
+        if (
+          !oldFileHighlighted &&
+          (line.type === "normal" || line.type === "delete")
+        ) {
+          oldBlockLines.push(line.content[0]?.value ?? "");
+          oldBlockIndices.push(i);
+        }
       }
     }
-    const newHighlightedLines = highlightFileByLines(
-      newBlockLines.join("\n"),
-      language
-    );
-    const oldHighlightedLines = highlightFileByLines(
-      oldBlockLines.join("\n"),
-      prevLanguage
-    );
+    const newBlockHighlighted = newFileHighlighted
+      ? null
+      : highlightFileByLines(newBlockLines.join("\n"), language);
+    const oldBlockHighlighted = oldFileHighlighted
+      ? null
+      : highlightFileByLines(oldBlockLines.join("\n"), prevLanguage);
+
+    const lookupNewHtml = (
+      lineIndex: number,
+      newNum: number | undefined,
+      fallback: string
+    ): string => {
+      if (newFileHighlighted) {
+        if (newNum != null && newFileHighlighted[newNum - 1] != null) {
+          return newFileHighlighted[newNum - 1];
+        }
+        return highlight(fallback, language);
+      }
+      const idx = newBlockIndices.indexOf(lineIndex);
+      if (idx >= 0 && newBlockHighlighted && idx < newBlockHighlighted.length) {
+        return newBlockHighlighted[idx];
+      }
+      return highlight(fallback, language);
+    };
+
+    const lookupOldHtml = (
+      lineIndex: number,
+      oldNum: number | undefined,
+      fallback: string
+    ): string => {
+      if (oldFileHighlighted) {
+        if (oldNum != null && oldFileHighlighted[oldNum - 1] != null) {
+          return oldFileHighlighted[oldNum - 1];
+        }
+        return highlight(fallback, prevLanguage);
+      }
+      const idx = oldBlockIndices.indexOf(lineIndex);
+      if (idx >= 0 && oldBlockHighlighted && idx < oldBlockHighlighted.length) {
+        return oldBlockHighlighted[idx];
+      }
+      return highlight(fallback, prevLanguage);
+    };
 
     return {
       type: "hunk" as const,
@@ -670,24 +727,14 @@ ${patch}`;
           type: line.type,
           oldLineNumber: oldNum,
           newLineNumber: newNum,
-          content: line.content.map((seg, segIdx) => {
+          content: line.content.map((seg): LineSegment => {
             let html: string;
 
             if (singleSegmentIsNormal) {
-              // Use pre-highlighted block content for proper multi-line coloring
-              if (line.type === "delete") {
-                const idx = oldBlockIndices.indexOf(i);
-                html =
-                  idx >= 0 && idx < oldHighlightedLines.length
-                    ? oldHighlightedLines[idx]
-                    : highlight(seg.value, prevLanguage);
-              } else {
-                const idx = newBlockIndices.indexOf(i);
-                html =
-                  idx >= 0 && idx < newHighlightedLines.length
-                    ? newHighlightedLines[idx]
-                    : highlight(seg.value, language);
-              }
+              html =
+                line.type === "delete"
+                  ? lookupOldHtml(i, oldNum, seg.value)
+                  : lookupNewHtml(i, newNum, seg.value);
             } else {
               // Multiple segments (inline diff) - highlight each segment individually
               // This is acceptable since inline diffs are usually small
