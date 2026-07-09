@@ -1190,6 +1190,8 @@ const DiffPanel = memo(function DiffPanel() {
   const store = usePRReviewStore();
   const canWrite = useCanWrite();
   const pr = usePRReviewSelector((s) => s.pr);
+  const owner = usePRReviewSelector((s) => s.owner);
+  const repo = usePRReviewSelector((s) => s.repo);
   const files = usePRReviewSelector((s) => s.files);
   const selectedFile = usePRReviewSelector((s) => s.selectedFile);
   const viewedFilenames = usePRReviewSelector((s) => s.viewedFilenames);
@@ -1271,6 +1273,9 @@ const DiffPanel = memo(function DiffPanel() {
                         ?.version
                     : undefined
                 }
+                owner={owner}
+                repo={repo}
+                headSha={selectedHeadSha ?? pr.head.sha}
               />
             </div>
           </div>
