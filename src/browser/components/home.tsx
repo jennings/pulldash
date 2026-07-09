@@ -100,10 +100,25 @@ interface RepoFilter {
   enabled?: boolean; // Whether the filter is active (defaults to true)
 }
 
-// Filter configuration stored in localStorage
+type StateFilter = "open" | "closed" | "all";
+
+// Filter configuration for a single group (the working values consumed by the UI).
+// Note: the open/closed/all state filter and the Updated/Stalled toggles are
+// deliberately NOT part of a group — they're orthogonal, session-level filters.
 interface FilterConfig {
   repos: RepoFilter[];
-  state: "open" | "closed" | "all";
+}
+
+// A named, persisted collection of filter values that the user can switch between.
+interface FilterGroup extends FilterConfig {
+  id: string;
+  name: string;
+}
+
+// Full localStorage shape backing the filter UI.
+interface FilterGroupsStorage {
+  groups: FilterGroup[];
+  selectedGroupId: string;
 }
 
 // Check if a filter is the special "All Repos" filter
@@ -115,45 +130,142 @@ function isAllReposFilter(filter: RepoFilter): boolean {
 // Storage Helpers
 // ============================================================================
 
-const STORAGE_KEY = "pulldash_filter_config";
+const STORAGE_KEY = "pulldash_filter_groups";
+const LEGACY_STORAGE_KEY = "pulldash_filter_config";
+const STATE_STORAGE_KEY = "pulldash_filter_state";
+const DEFAULT_GROUP_NAME = "Default";
+const DEFAULT_STATE_FILTER: StateFilter = "open";
 
 const DEFAULT_CONFIG: FilterConfig = {
   // Default to showing review requests across all repos
   repos: [{ name: ALL_REPOS_KEY, mode: "review-requested" }],
-  state: "open",
 };
 
-function getFilterConfig(): FilterConfig {
+function getStateFilter(): StateFilter {
   try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      // Migration: convert old string[] repos to RepoFilter[]
-      if (
-        parsed.repos &&
-        parsed.repos.length > 0 &&
-        typeof parsed.repos[0] === "string"
-      ) {
-        parsed.repos = parsed.repos.map((name: string) => ({
-          name,
-          mode: parsed.mode || "review-requested",
-        }));
-        delete parsed.mode;
-      }
-      // Migration: if user has empty repos, give them the new default (All Repos)
-      if (parsed.repos && parsed.repos.length === 0) {
-        parsed.repos = DEFAULT_CONFIG.repos;
-      }
-      return { ...DEFAULT_CONFIG, ...parsed };
+    const stored = localStorage.getItem(STATE_STORAGE_KEY);
+    if (stored === "open" || stored === "closed" || stored === "all") {
+      return stored;
     }
   } catch {
     // ignore
   }
-  return DEFAULT_CONFIG;
+  return DEFAULT_STATE_FILTER;
+}
+
+function saveStateFilter(state: StateFilter): void {
+  try {
+    localStorage.setItem(STATE_STORAGE_KEY, state);
+  } catch {
+    // ignore
+  }
+}
+
+function newGroupId(): string {
+  return crypto.randomUUID();
+}
+
+// Read the legacy single-config shape and apply its historical migrations.
+// If the legacy record had a `state` field, promote it to the standalone
+// state-filter key. Returns just the group-scoped fields, or null if the
+// legacy key is absent or unparseable.
+function readLegacyFilterConfig(): FilterConfig | null {
+  try {
+    const stored = localStorage.getItem(LEGACY_STORAGE_KEY);
+    if (!stored) return null;
+    const parsed = JSON.parse(stored);
+    // Migration: convert old string[] repos to RepoFilter[]
+    if (
+      parsed.repos &&
+      parsed.repos.length > 0 &&
+      typeof parsed.repos[0] === "string"
+    ) {
+      parsed.repos = parsed.repos.map((name: string) => ({
+        name,
+        mode: parsed.mode || "review-requested",
+      }));
+      delete parsed.mode;
+    }
+    // Migration: if user has empty repos, give them the new default (All Repos)
+    if (parsed.repos && parsed.repos.length === 0) {
+      parsed.repos = DEFAULT_CONFIG.repos;
+    }
+    // Migration: promote the legacy `state` field to its own key.
+    if (
+      parsed.state === "open" ||
+      parsed.state === "closed" ||
+      parsed.state === "all"
+    ) {
+      saveStateFilter(parsed.state);
+    }
+    return { repos: parsed.repos ?? DEFAULT_CONFIG.repos };
+  } catch {
+    return null;
+  }
+}
+
+function makeDefaultStorage(config: FilterConfig): FilterGroupsStorage {
+  const group: FilterGroup = {
+    id: newGroupId(),
+    name: DEFAULT_GROUP_NAME,
+    repos: config.repos,
+  };
+  return { groups: [group], selectedGroupId: group.id };
+}
+
+function getFilterGroupsStorage(): FilterGroupsStorage {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) {
+      const parsed = JSON.parse(stored) as Partial<FilterGroupsStorage>;
+      if (
+        parsed &&
+        Array.isArray(parsed.groups) &&
+        parsed.groups.length > 0 &&
+        typeof parsed.selectedGroupId === "string" &&
+        parsed.groups.some((g) => g.id === parsed.selectedGroupId)
+      ) {
+        return parsed as FilterGroupsStorage;
+      }
+    }
+  } catch {
+    // fall through to migration
+  }
+
+  const legacy = readLegacyFilterConfig();
+  const storage = makeDefaultStorage(legacy ?? DEFAULT_CONFIG);
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(storage));
+    if (legacy !== null) {
+      localStorage.removeItem(LEGACY_STORAGE_KEY);
+    }
+  } catch {
+    // ignore
+  }
+  return storage;
+}
+
+function saveFilterGroupsStorage(storage: FilterGroupsStorage): void {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(storage));
+}
+
+function getFilterConfig(): FilterConfig {
+  const storage = getFilterGroupsStorage();
+  const group =
+    storage.groups.find((g) => g.id === storage.selectedGroupId) ??
+    storage.groups[0];
+  return { repos: group.repos };
 }
 
 function saveFilterConfig(config: FilterConfig): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+  const storage = getFilterGroupsStorage();
+  const idx = storage.groups.findIndex((g) => g.id === storage.selectedGroupId);
+  const target = idx >= 0 ? idx : 0;
+  storage.groups[target] = {
+    ...storage.groups[target],
+    repos: config.repos,
+  };
+  saveFilterGroupsStorage(storage);
 }
 
 // ============================================================================
@@ -181,6 +293,7 @@ function getModeFilter(mode: FilterMode, authoredBy?: string): string {
 // Multiple repo: qualifiers act as OR, but user filters apply to all repos
 function buildSearchQueries(
   config: FilterConfig,
+  state: StateFilter,
   stalledThreshold?: string
 ): string[] {
   // Filter out disabled repos (enabled defaults to true if not specified)
@@ -191,11 +304,7 @@ function buildSearchQueries(
   }
 
   const stateFilter =
-    config.state === "open"
-      ? "is:open"
-      : config.state === "closed"
-        ? "is:closed"
-        : "";
+    state === "open" ? "is:open" : state === "closed" ? "is:closed" : "";
 
   const queries: string[] = [];
 
@@ -373,6 +482,13 @@ export function Home() {
   // Filter config
   const [config, setConfig] = useState<FilterConfig>(getFilterConfig);
 
+  // State filter (open/closed/all) is orthogonal to filter groups — persisted
+  // in its own localStorage key so it survives group switches and refreshes.
+  const [stateFilter, setStateFilter] = useState<StateFilter>(getStateFilter);
+  useEffect(() => {
+    saveStateFilter(stateFilter);
+  }, [stateFilter]);
+
   // Search for adding repos
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
@@ -410,8 +526,8 @@ export function Home() {
 
   // Build queries from config (one per mode group)
   const searchQueries = useMemo(
-    () => buildSearchQueries(config, stalledThreshold),
-    [config, teamsKey, stalledThreshold]
+    () => buildSearchQueries(config, stateFilter, stalledThreshold),
+    [config, stateFilter, teamsKey, stalledThreshold]
   );
 
   // Save config to localStorage whenever it changes
@@ -419,10 +535,10 @@ export function Home() {
     saveFilterConfig(config);
   }, [config]);
 
-  // Reset page when config changes
+  // Reset page when the visible filter set changes
   useEffect(() => {
     setPage(1);
-  }, [config.repos, config.state]);
+  }, [config.repos, stateFilter]);
 
   const notificationsEnabled = useSyncExternalStore(
     subscribeNotifsEnabled,
@@ -628,8 +744,8 @@ export function Home() {
     []
   );
 
-  const handleStateChange = useCallback((state: FilterConfig["state"]) => {
-    setConfig((prev) => ({ ...prev, state }));
+  const handleStateChange = useCallback((state: StateFilter) => {
+    setStateFilter(state);
   }, []);
 
   const handleOpenPR = useCallback(
@@ -695,7 +811,7 @@ export function Home() {
                 onClick={() => handleStateChange(option.value)}
                 className={cn(
                   "px-2 py-1 text-xs font-medium rounded transition-colors",
-                  config.state === option.value
+                  stateFilter === option.value
                     ? "bg-background shadow-sm"
                     : "text-muted-foreground hover:text-foreground"
                 )}

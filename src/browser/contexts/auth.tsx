@@ -172,6 +172,8 @@ const STORAGE_KEYS_TO_CLEAR: string[] = [
   "pulldash_notifications_enabled",
   "pulldash_notified_timestamps",
   "pulldash_filter_config",
+  "pulldash_filter_groups",
+  "pulldash_filter_state",
   "pulldash_show_updated_only",
   "pulldash_tabs",
   "pulldash-bookmarklet-dismissed",
