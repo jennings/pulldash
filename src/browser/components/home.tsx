@@ -107,6 +107,8 @@ type FilterMode =
 
 // Special constant for "All Repos" global filter
 const ALL_REPOS_KEY = "__all_repos__";
+// Prefix used to encode an org-scoped filter in the `name` field, e.g. `__org__:anthropic`.
+const ORG_FILTER_PREFIX = "__org__:";
 
 // Repository with its filter mode
 interface RepoFilter {
@@ -140,6 +142,20 @@ interface FilterGroupsStorage {
 // Check if a filter is the special "All Repos" filter
 function isAllReposFilter(filter: RepoFilter): boolean {
   return filter.name === ALL_REPOS_KEY;
+}
+
+function orgFilterKey(org: string): string {
+  return `${ORG_FILTER_PREFIX}${org}`;
+}
+
+function isOrgFilter(filter: RepoFilter): boolean {
+  return filter.name.startsWith(ORG_FILTER_PREFIX);
+}
+
+function getOrgFromFilter(filter: RepoFilter): string | null {
+  return isOrgFilter(filter)
+    ? filter.name.slice(ORG_FILTER_PREFIX.length)
+    : null;
 }
 
 // ============================================================================
@@ -330,9 +346,12 @@ function buildSearchQueries(
     ? `updated:<${stalledThreshold}`
     : undefined;
 
-  // Separate "All Repos" filters from specific repo filters
+  // Separate "All Repos", org-scoped, and specific repo filters.
   const allReposFilters = enabledRepos.filter(isAllReposFilter);
-  const specificRepos = enabledRepos.filter((r) => !isAllReposFilter(r));
+  const orgFilters = enabledRepos.filter(isOrgFilter);
+  const specificRepos = enabledRepos.filter(
+    (r) => !isAllReposFilter(r) && !isOrgFilter(r)
+  );
 
   // Handle "All Repos" global filters (one query per mode)
   for (const filter of allReposFilters) {
@@ -360,6 +379,59 @@ function buildSearchQueries(
           teamParts.push(`team-review-requested:${team.org}/${team.slug}`);
         }
         queries.push(teamParts.join(" "));
+      }
+    }
+  }
+
+  // Group org filters by mode+authoredBy. Multiple `org:` qualifiers OR just
+  // like `repo:` qualifiers.
+  if (orgFilters.length > 0) {
+    const byOrgModeKey = new Map<
+      string,
+      { mode: FilterMode; authoredBy?: string; orgs: string[] }
+    >();
+    for (const filter of orgFilters) {
+      const org = getOrgFromFilter(filter);
+      if (!org) continue;
+      const key =
+        filter.mode === "authored-by"
+          ? `${filter.mode}:${filter.authoredBy || ""}`
+          : filter.mode;
+      const existing = byOrgModeKey.get(key);
+      if (existing) {
+        existing.orgs.push(org);
+      } else {
+        byOrgModeKey.set(key, {
+          mode: filter.mode,
+          authoredBy: filter.authoredBy,
+          orgs: [org],
+        });
+      }
+    }
+
+    for (const [, { mode, authoredBy, orgs }] of byOrgModeKey) {
+      if (mode === "authored-by" && !authoredBy) continue;
+
+      const parts = ["is:pr", "archived:false"];
+      if (stateFilter) parts.push(stateFilter);
+      if (stalledFilter) parts.push(stalledFilter);
+      parts.push(...orgs.map((o) => `org:${o}`));
+      const modeFilter = getModeFilter(mode, authoredBy);
+      if (modeFilter) parts.push(modeFilter);
+      queries.push(parts.join(" "));
+
+      if (mode === "involves") {
+        const teams = getCachedTeams();
+        if (teams.length > 0) {
+          const teamParts = ["is:pr", "archived:false"];
+          if (stateFilter) teamParts.push(stateFilter);
+          if (stalledFilter) teamParts.push(stalledFilter);
+          teamParts.push(...orgs.map((o) => `org:${o}`));
+          for (const team of teams) {
+            teamParts.push(`team-review-requested:${team.org}/${team.slug}`);
+          }
+          queries.push(teamParts.join(" "));
+        }
       }
     }
   }
@@ -1123,12 +1195,15 @@ export function Home() {
             )}
             {config.repos.map((repo) => {
               const isAllRepos = isAllReposFilter(repo);
+              const orgName = getOrgFromFilter(repo);
+              const isOrg = orgName !== null;
               const modeOption = MODE_OPTIONS.find(
                 (m) => m.value === repo.mode
               )!;
               const isOpen = openRepoDropdown === repo.name;
               const isEnabled = repo.enabled !== false;
-              // For "All Repos", exclude the "All PRs" mode since it would be too broad
+              // For "All Repos", exclude the "All PRs" mode since it would be too broad.
+              // Org filters keep "all" — `org:foo` is already scoped.
               const availableModes = isAllRepos
                 ? MODE_OPTIONS.filter((m) => m.value !== "all")
                 : MODE_OPTIONS;
@@ -1165,7 +1240,7 @@ export function Home() {
                       "inline-flex items-center gap-1.5 pl-2 pr-1.5 py-1 rounded-md text-xs transition-colors border cursor-pointer",
                       isOpen
                         ? "bg-muted border-border"
-                        : isAllRepos
+                        : isAllRepos || isOrg
                           ? isEnabled
                             ? "bg-primary/10 border-primary/30 hover:bg-primary/20 hover:border-primary/50"
                             : "bg-muted/30 border-border/50 opacity-50"
@@ -1196,7 +1271,7 @@ export function Home() {
                     <modeOption.icon
                       className={cn(
                         "w-3 h-3",
-                        isAllRepos
+                        isAllRepos || isOrg
                           ? isEnabled
                             ? "text-primary"
                             : "text-muted-foreground/50"
@@ -1209,7 +1284,11 @@ export function Home() {
                         !isEnabled && "line-through"
                       )}
                     >
-                      {isAllRepos ? modeOption.label : repo.name}
+                      {isAllRepos
+                        ? modeOption.label
+                        : isOrg
+                          ? `org:${orgName}`
+                          : repo.name}
                     </span>
                     {repo.mode === "authored-by" && repo.authoredBy && (
                       <span
@@ -1520,6 +1599,37 @@ export function Home() {
                           </div>
                         </button>
                       )}
+                      {/* "All repos in ORG" suggestion — shown while the query
+                          looks like an org name (non-empty, no slash).
+                          Deduped against any org filter already added. */}
+                      {(() => {
+                        const trimmed = searchQuery.trim();
+                        if (!trimmed || trimmed.includes("/")) return null;
+                        const orgKey = orgFilterKey(trimmed);
+                        if (config.repos.some((r) => r.name === orgKey))
+                          return null;
+                        return (
+                          <button
+                            onMouseDown={() => {
+                              handleAddRepo(orgKey);
+                              setShowAddRepo(false);
+                            }}
+                            className="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-primary/10 transition-colors text-left border-b border-border bg-primary/5"
+                          >
+                            <div className="w-4 h-4 rounded bg-primary/20 flex items-center justify-center shrink-0">
+                              <Users className="w-3 h-3 text-primary" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <span className="font-medium text-xs">
+                                All repos in "{trimmed}"
+                              </span>
+                              <span className="text-[10px] text-muted-foreground ml-1.5">
+                                org:{trimmed}
+                              </span>
+                            </div>
+                          </button>
+                        );
+                      })()}
                       {searchResults.length > 0 ? (
                         searchResults.map((repo) => (
                           <button
