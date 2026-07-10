@@ -32,6 +32,12 @@ import {
   Clock,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "../ui/dropdown-menu";
 import { cn } from "../cn";
 import { Skeleton } from "../ui/skeleton";
 import { UserHoverCard } from "../ui/user-hover-card";
@@ -249,25 +255,26 @@ function saveFilterGroupsStorage(storage: FilterGroupsStorage): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(storage));
 }
 
-function getFilterConfig(): FilterConfig {
-  const storage = getFilterGroupsStorage();
-  const group =
-    storage.groups.find((g) => g.id === storage.selectedGroupId) ??
-    storage.groups[0];
+// Normalize for dirty comparison: default `enabled` to true, `authoredBy` to null,
+// so a toggled-then-untoggled repo equals its pristine form.
+function normalizeConfig(c: FilterConfig): string {
+  return JSON.stringify({
+    repos: c.repos.map((r) => ({
+      name: r.name,
+      mode: r.mode,
+      authoredBy: r.authoredBy ?? null,
+      enabled: r.enabled !== false,
+    })),
+  });
+}
+
+function configsEqual(a: FilterConfig, b: FilterConfig): boolean {
+  return normalizeConfig(a) === normalizeConfig(b);
+}
+
+function extractConfig(group: FilterGroup): FilterConfig {
   return { repos: group.repos };
 }
-
-function saveFilterConfig(config: FilterConfig): void {
-  const storage = getFilterGroupsStorage();
-  const idx = storage.groups.findIndex((g) => g.id === storage.selectedGroupId);
-  const target = idx >= 0 ? idx : 0;
-  storage.groups[target] = {
-    ...storage.groups[target],
-    repos: config.repos,
-  };
-  saveFilterGroupsStorage(storage);
-}
-
 // ============================================================================
 // Query Builder
 // ============================================================================
@@ -479,8 +486,94 @@ export function Home() {
 
   const queryClient = useQueryClient();
 
-  // Filter config
-  const [config, setConfig] = useState<FilterConfig>(getFilterConfig);
+  // Filter config: `filterStorage` mirrors localStorage (groups + selected id).
+  // `config` is the working state — edits since the last save/switch.
+  // `savedConfig` is derived from the selected group; `isDirty` compares them.
+  const [filterStorage, setFilterStorage] = useState<FilterGroupsStorage>(
+    getFilterGroupsStorage
+  );
+  const [config, setConfig] = useState<FilterConfig>(() => {
+    const g =
+      filterStorage.groups.find(
+        (x) => x.id === filterStorage.selectedGroupId
+      ) ?? filterStorage.groups[0];
+    return extractConfig(g);
+  });
+  const selectedGroup =
+    filterStorage.groups.find((g) => g.id === filterStorage.selectedGroupId) ??
+    filterStorage.groups[0];
+  const savedConfig = extractConfig(selectedGroup);
+  const isDirty = !configsEqual(config, savedConfig);
+
+  // Save-new inline input state (React-only, resets on refresh)
+  const [isNamingGroup, setIsNamingGroup] = useState(false);
+  const [newGroupName, setNewGroupName] = useState("");
+  const [newGroupNameError, setNewGroupNameError] = useState<string | null>(
+    null
+  );
+
+  const handleSaveGroup = useCallback(() => {
+    setFilterStorage((prev) => {
+      const next: FilterGroupsStorage = {
+        ...prev,
+        groups: prev.groups.map((g) =>
+          g.id === prev.selectedGroupId ? { ...g, repos: config.repos } : g
+        ),
+      };
+      saveFilterGroupsStorage(next);
+      return next;
+    });
+  }, [config]);
+
+  const handleSaveNewGroup = useCallback(
+    (rawName: string): boolean => {
+      const trimmed = rawName.trim();
+      if (!trimmed) {
+        setNewGroupNameError("Name is required");
+        return false;
+      }
+      const lower = trimmed.toLowerCase();
+      if (filterStorage.groups.some((g) => g.name.toLowerCase() === lower)) {
+        setNewGroupNameError("Name already in use");
+        return false;
+      }
+      const newGroup: FilterGroup = {
+        id: newGroupId(),
+        name: trimmed,
+        repos: config.repos,
+      };
+      const next: FilterGroupsStorage = {
+        groups: [...filterStorage.groups, newGroup],
+        selectedGroupId: newGroup.id,
+      };
+      saveFilterGroupsStorage(next);
+      setFilterStorage(next);
+      setIsNamingGroup(false);
+      setNewGroupName("");
+      setNewGroupNameError(null);
+      return true;
+    },
+    [config, filterStorage]
+  );
+
+  const handleSelectGroup = useCallback(
+    (id: string) => {
+      if (id === filterStorage.selectedGroupId) return;
+      const target = filterStorage.groups.find((g) => g.id === id);
+      if (!target) return;
+      const next: FilterGroupsStorage = {
+        ...filterStorage,
+        selectedGroupId: target.id,
+      };
+      saveFilterGroupsStorage(next);
+      setFilterStorage(next);
+      setConfig(extractConfig(target));
+      setIsNamingGroup(false);
+      setNewGroupName("");
+      setNewGroupNameError(null);
+    },
+    [filterStorage]
+  );
 
   // State filter (open/closed/all) is orthogonal to filter groups — persisted
   // in its own localStorage key so it survives group switches and refreshes.
@@ -529,11 +622,6 @@ export function Home() {
     () => buildSearchQueries(config, stateFilter, stalledThreshold),
     [config, stateFilter, teamsKey, stalledThreshold]
   );
-
-  // Save config to localStorage whenever it changes
-  useEffect(() => {
-    saveFilterConfig(config);
-  }, [config]);
 
   // Reset page when the visible filter set changes
   useEffect(() => {
@@ -797,67 +885,62 @@ export function Home() {
     return <HomeLoadingSkeleton />;
   }
 
+  const sortedGroups = [...filterStorage.groups].sort((a, b) =>
+    a.name.toLowerCase().localeCompare(b.name.toLowerCase())
+  );
+  const showGroupSelector = filterStorage.groups.length > 1;
+
+  const cancelNaming = () => {
+    setIsNamingGroup(false);
+    setNewGroupName("");
+    setNewGroupNameError(null);
+  };
+
   return (
     <div className="h-full bg-background flex flex-col overflow-hidden">
       {/* Filter Bar */}
       <div className="border-b border-border px-2 sm:px-4 py-2 shrink-0 bg-card/30">
         {/* Mobile: horizontal scroll, Desktop: wrap */}
         <div className="flex items-center gap-2 sm:gap-3 overflow-x-auto hide-scrollbar">
-          {/* State Toggle */}
-          <div className="flex items-center gap-0.5 p-0.5 rounded-md bg-muted/50 shrink-0">
-            {STATE_OPTIONS.map((option) => (
-              <button
-                key={option.value}
-                onClick={() => handleStateChange(option.value)}
-                className={cn(
-                  "px-2 py-1 text-xs font-medium rounded transition-colors",
-                  stateFilter === option.value
-                    ? "bg-background shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
+          {/* Group selector: only when there is more than one group. */}
+          {showGroupSelector && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded hover:bg-muted/50 transition-colors max-w-[14rem] shrink-0"
+                  aria-label="Select filter group"
+                >
+                  <span className="truncate">{selectedGroup.name}</span>
+                  <ChevronDown className="w-3 h-3 shrink-0 text-muted-foreground" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="min-w-[12rem]">
+                {sortedGroups.map((g) => {
+                  const isSelected = g.id === filterStorage.selectedGroupId;
+                  return (
+                    <DropdownMenuItem
+                      key={g.id}
+                      onSelect={() => handleSelectGroup(g.id)}
+                      className={cn(isSelected && "font-medium")}
+                    >
+                      <span className="w-3 shrink-0 flex justify-center">
+                        {isSelected && (
+                          <Check className="w-3 h-3 text-muted-foreground" />
+                        )}
+                      </span>
+                      <span className="truncate">{g.name}</span>
+                    </DropdownMenuItem>
+                  );
+                })}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
 
-          {/* UPDATED / STALLED Filter Toggles */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={() => setShowUpdatedOnly((v) => !v)}
-                className={cn(
-                  "shrink-0 px-2 py-1 text-xs font-medium rounded transition-colors",
-                  showUpdatedOnly
-                    ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
-                    : "text-muted-foreground hover:text-foreground border border-transparent"
-                )}
-              >
-                Updated
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" align="start">
-              PRs with activity since your last review or visit
-            </TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={() => setShowStalledOnly((v) => !v)}
-                className={cn(
-                  "shrink-0 px-2 py-1 text-xs font-medium rounded transition-colors",
-                  showStalledOnly
-                    ? "bg-red-500/20 text-red-400 border border-red-500/30"
-                    : "text-muted-foreground hover:text-foreground border border-transparent"
-                )}
-              >
-                Stalled
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" align="start">
-              No activity for at least {STALLED_DAYS} days
-            </TooltipContent>
-          </Tooltip>
+          {/* Divider between the group selector and the repo filters.
+              Suppressed when there is only one group (no selector). */}
+          {showGroupSelector && (
+            <div aria-hidden className="h-4 w-px bg-border shrink-0" />
+          )}
 
           {/* Repo Chips with Mode Dropdowns */}
           <div className="flex items-center gap-1.5 shrink-0">
@@ -1099,8 +1182,76 @@ export function Home() {
             })}
           </div>
 
-          {/* Add Repo - pushed to right */}
+          {/* Save / Save-new + Add Repo — pushed to right. */}
           <div className="flex items-center gap-2 shrink-0 ml-auto">
+            {/* Save / Save-new for the current filter group. Only visible when
+                the working config differs from the group's saved state, or
+                when the naming input is active. Naming swaps the buttons in
+                place: Enter confirms, Escape cancels. */}
+            {isNamingGroup ? (
+              <div className="flex items-center gap-2 shrink-0">
+                <input
+                  type="text"
+                  value={newGroupName}
+                  autoFocus
+                  placeholder="Group name"
+                  onChange={(e) => {
+                    setNewGroupName(e.target.value);
+                    if (newGroupNameError) setNewGroupNameError(null);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleSaveNewGroup(newGroupName);
+                    } else if (e.key === "Escape") {
+                      e.preventDefault();
+                      cancelNaming();
+                    }
+                  }}
+                  className={cn(
+                    "h-7 px-2 rounded-md border bg-muted/50 text-xs focus:outline-none focus:ring-2 focus:ring-ring",
+                    newGroupNameError
+                      ? "border-destructive focus:ring-destructive/40"
+                      : "border-border focus:border-transparent"
+                  )}
+                />
+                {newGroupNameError && (
+                  <span className="text-xs text-destructive">
+                    {newGroupNameError}
+                  </span>
+                )}
+                <button
+                  onClick={() => handleSaveNewGroup(newGroupName)}
+                  className="px-2 py-1 text-xs font-medium rounded hover:bg-muted/50 transition-colors"
+                >
+                  Confirm
+                </button>
+                <button
+                  onClick={cancelNaming}
+                  className="px-2 py-1 text-xs font-medium rounded hover:bg-muted/50 transition-colors text-muted-foreground"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              isDirty && (
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    onClick={handleSaveGroup}
+                    className="px-2 py-1 text-xs font-medium rounded bg-primary/10 hover:bg-primary/20 text-primary transition-colors"
+                  >
+                    Save
+                  </button>
+                  <button
+                    onClick={() => setIsNamingGroup(true)}
+                    className="px-2 py-1 text-xs font-medium rounded hover:bg-muted/50 transition-colors"
+                  >
+                    Save new
+                  </button>
+                </div>
+              )
+            )}
+
             {/* Add Repo Button */}
             <div className="relative shrink-0">
               <button
@@ -1247,26 +1398,88 @@ export function Home() {
         {/* PR List Panel */}
         <div className="flex-1 flex flex-col overflow-hidden">
           {/* Results Header */}
-          <div className="flex items-center justify-between px-4 py-2 border-b border-border shrink-0">
-            <span className="text-xs text-muted-foreground">
-              {prListPending ? (
-                <span className="flex items-center gap-2">
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                  Loading...
-                </span>
-              ) : (
-                <span className="flex items-center gap-2">
-                  <span>
-                    <span className="font-medium text-foreground">
-                      {totalCount.toLocaleString()}
-                    </span>{" "}
-                    pull requests
+          <div className="flex items-center justify-between gap-3 px-4 py-2 border-b border-border shrink-0">
+            <div className="flex items-center gap-3 min-w-0 flex-1 overflow-x-auto hide-scrollbar">
+              {/* State Toggle */}
+              <div className="flex items-center gap-0.5 p-0.5 rounded-md bg-muted/50 shrink-0">
+                {STATE_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    onClick={() => handleStateChange(option.value)}
+                    className={cn(
+                      "px-2 py-1 text-xs font-medium rounded transition-colors",
+                      stateFilter === option.value
+                        ? "bg-background shadow-sm"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* UPDATED / STALLED Filter Toggles */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => setShowUpdatedOnly((v) => !v)}
+                    className={cn(
+                      "shrink-0 px-2 py-1 text-xs font-medium rounded transition-colors",
+                      showUpdatedOnly
+                        ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+                        : "text-muted-foreground hover:text-foreground border border-transparent"
+                    )}
+                  >
+                    Updated
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" align="start">
+                  PRs with activity since your last review or visit
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => setShowStalledOnly((v) => !v)}
+                    className={cn(
+                      "shrink-0 px-2 py-1 text-xs font-medium rounded transition-colors",
+                      showStalledOnly
+                        ? "bg-red-500/20 text-red-400 border border-red-500/30"
+                        : "text-muted-foreground hover:text-foreground border border-transparent"
+                    )}
+                  >
+                    Stalled
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" align="start">
+                  No activity for at least {STALLED_DAYS} days
+                </TooltipContent>
+              </Tooltip>
+
+              {/* Divider between the filter toggles and the results count. */}
+              <div aria-hidden className="h-4 w-px bg-border shrink-0" />
+
+              <span className="text-xs text-muted-foreground shrink-0">
+                {prListPending ? (
+                  <span className="flex items-center gap-2">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    Loading...
                   </span>
-                  {loadingPrs && <Loader2 className="w-3 h-3 animate-spin" />}
-                </span>
-              )}
-            </span>
-            <div className="flex items-center gap-2">
+                ) : (
+                  <span className="flex items-center gap-2">
+                    <span>
+                      <span className="font-medium text-foreground">
+                        {totalCount.toLocaleString()}
+                      </span>{" "}
+                      pull requests
+                    </span>
+                    {loadingPrs && <Loader2 className="w-3 h-3 animate-spin" />}
+                  </span>
+                )}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
               {dataUpdatedAt > 0 && !loadingPrs && (
                 <RefreshCountdown lastFetchedAt={dataUpdatedAt} />
               )}
