@@ -30,6 +30,7 @@ import {
   AlertCircle,
   MessageSquare,
   Clock,
+  Pencil,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 import {
@@ -38,6 +39,15 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../ui/dialog";
+import { Button } from "../ui/button";
 import { cn } from "../cn";
 import { Skeleton } from "../ui/skeleton";
 import { UserHoverCard } from "../ui/user-hover-card";
@@ -582,6 +592,83 @@ export function Home() {
     saveStateFilter(stateFilter);
   }, [stateFilter]);
 
+  // Edit-group state. `groupToEdit` doubles as the edit dialog's open flag;
+  // `editName` / `editNameError` back the dialog's rename input.
+  const [groupToEdit, setGroupToEdit] = useState<FilterGroup | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editNameError, setEditNameError] = useState<string | null>(null);
+  const [selectorOpen, setSelectorOpen] = useState(false);
+
+  const openEditDialog = useCallback((g: FilterGroup) => {
+    setGroupToEdit(g);
+    setEditName(g.name);
+    setEditNameError(null);
+  }, []);
+
+  const closeEditDialog = useCallback(() => {
+    setGroupToEdit(null);
+    setEditName("");
+    setEditNameError(null);
+  }, []);
+
+  const handleRenameGroup = useCallback(
+    (id: string, rawName: string): boolean => {
+      const trimmed = rawName.trim();
+      if (!trimmed) {
+        setEditNameError("Name is required");
+        return false;
+      }
+      const lower = trimmed.toLowerCase();
+      if (
+        filterStorage.groups.some(
+          (g) => g.id !== id && g.name.toLowerCase() === lower
+        )
+      ) {
+        setEditNameError("Name already in use");
+        return false;
+      }
+      const next: FilterGroupsStorage = {
+        ...filterStorage,
+        groups: filterStorage.groups.map((g) =>
+          g.id === id ? { ...g, name: trimmed } : g
+        ),
+      };
+      saveFilterGroupsStorage(next);
+      setFilterStorage(next);
+      closeEditDialog();
+      return true;
+    },
+    [filterStorage, closeEditDialog]
+  );
+
+  const handleDeleteGroup = useCallback(
+    (id: string) => {
+      const remaining = filterStorage.groups.filter((g) => g.id !== id);
+      if (remaining.length === 0) return; // guard: last group is structurally undeletable
+      let selectedId = filterStorage.selectedGroupId;
+      let loadTarget: FilterGroup | null = null;
+      if (id === filterStorage.selectedGroupId) {
+        // Fall back to the alphabetically-first (case-insensitive) remaining group.
+        const sorted = [...remaining].sort((a, b) =>
+          a.name.toLowerCase().localeCompare(b.name.toLowerCase())
+        );
+        loadTarget = sorted[0];
+        selectedId = loadTarget.id;
+      }
+      const next: FilterGroupsStorage = {
+        groups: remaining,
+        selectedGroupId: selectedId,
+      };
+      saveFilterGroupsStorage(next);
+      setFilterStorage(next);
+      if (loadTarget) {
+        setConfig(extractConfig(loadTarget));
+      }
+      closeEditDialog();
+    },
+    [filterStorage, closeEditDialog]
+  );
+
   // Search for adding repos
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
@@ -898,13 +985,82 @@ export function Home() {
 
   return (
     <div className="h-full bg-background flex flex-col overflow-hidden">
+      <Dialog
+        open={groupToEdit !== null}
+        onOpenChange={(open) => {
+          if (!open) closeEditDialog();
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit filter group</DialogTitle>
+            <DialogDescription>
+              Rename this filter group, or delete it permanently.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-1">
+            <label
+              htmlFor="edit-group-name"
+              className="text-xs font-medium text-muted-foreground"
+            >
+              Name
+            </label>
+            <input
+              id="edit-group-name"
+              type="text"
+              value={editName}
+              autoFocus
+              onChange={(e) => {
+                setEditName(e.target.value);
+                if (editNameError) setEditNameError(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && groupToEdit) {
+                  e.preventDefault();
+                  handleRenameGroup(groupToEdit.id, editName);
+                }
+              }}
+              className={cn(
+                "h-8 px-2 rounded-md border bg-muted/50 text-sm focus:outline-none focus:ring-2 focus:ring-ring",
+                editNameError
+                  ? "border-destructive focus:ring-destructive/40"
+                  : "border-border focus:border-transparent"
+              )}
+            />
+            {editNameError && (
+              <span className="text-xs text-destructive">{editNameError}</span>
+            )}
+          </div>
+          <DialogFooter className="sm:justify-between">
+            <Button
+              variant="destructive"
+              onClick={() => groupToEdit && handleDeleteGroup(groupToEdit.id)}
+            >
+              Delete
+            </Button>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" onClick={closeEditDialog}>
+                Cancel
+              </Button>
+              <Button
+                onClick={() =>
+                  groupToEdit && handleRenameGroup(groupToEdit.id, editName)
+                }
+              >
+                Save
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Filter Bar */}
       <div className="border-b border-border px-2 sm:px-4 py-2 shrink-0 bg-card/30">
         {/* Mobile: horizontal scroll, Desktop: wrap */}
         <div className="flex items-center gap-2 sm:gap-3 overflow-x-auto hide-scrollbar">
           {/* Group selector: only when there is more than one group. */}
           {showGroupSelector && (
-            <DropdownMenu>
+            <DropdownMenu open={selectorOpen} onOpenChange={setSelectorOpen}>
               <DropdownMenuTrigger asChild>
                 <button
                   className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded hover:bg-muted/50 transition-colors max-w-[14rem] shrink-0"
@@ -914,21 +1070,37 @@ export function Home() {
                   <ChevronDown className="w-3 h-3 shrink-0 text-muted-foreground" />
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="min-w-[12rem]">
+              <DropdownMenuContent align="start" className="min-w-[14rem]">
                 {sortedGroups.map((g) => {
                   const isSelected = g.id === filterStorage.selectedGroupId;
                   return (
                     <DropdownMenuItem
                       key={g.id}
                       onSelect={() => handleSelectGroup(g.id)}
-                      className={cn(isSelected && "font-medium")}
+                      className={cn(
+                        "group/row flex items-center gap-2",
+                        isSelected && "font-medium"
+                      )}
                     >
                       <span className="w-3 shrink-0 flex justify-center">
                         {isSelected && (
                           <Check className="w-3 h-3 text-muted-foreground" />
                         )}
                       </span>
-                      <span className="truncate">{g.name}</span>
+                      <span className="truncate flex-1">{g.name}</span>
+                      <button
+                        type="button"
+                        aria-label={`Edit filter group ${g.name}`}
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectorOpen(false);
+                          openEditDialog(g);
+                        }}
+                        className="opacity-0 group-hover/row:opacity-100 focus:opacity-100 focus:outline-none rounded p-0.5 hover:bg-muted shrink-0"
+                      >
+                        <Pencil className="w-3 h-3 text-muted-foreground hover:text-foreground" />
+                      </button>
                     </DropdownMenuItem>
                   );
                 })}
