@@ -48,6 +48,7 @@ import {
   DialogTitle,
 } from "../ui/dialog";
 import { Button } from "../ui/button";
+import { BlockLink } from "../ui/block-link";
 import { cn } from "../cn";
 import { Skeleton } from "../ui/skeleton";
 import { UserHoverCard } from "../ui/user-hover-card";
@@ -1962,8 +1963,17 @@ function PRListItem({ pr, onSelect }: PRListItemProps) {
     return pr.updated_at ? pr.updated_at > baseline : false;
   }, [repoInfo, pr.updated_at, pr.viewerLastReviewAt, pr.isReadByViewer]);
 
-  const handleClick = () => {
+  const href = repoInfo
+    ? `/${repoInfo.owner}/${repoInfo.repo}/pull/${pr.number}`
+    : undefined;
+
+  const handleLinkClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    // Let the browser handle modifier clicks natively (new tab/window).
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) {
+      return;
+    }
     if (repoInfo) {
+      e.preventDefault();
       onSelect(repoInfo.owner, repoInfo.repo, pr.number, pr.title);
     }
   };
@@ -2294,10 +2304,7 @@ function PRListItem({ pr, onSelect }: PRListItemProps) {
   };
 
   return (
-    <button
-      onClick={handleClick}
-      className="w-full flex items-start gap-2 sm:gap-3 px-2 sm:px-4 py-3 hover:bg-muted/50 transition-colors text-left"
-    >
+    <BlockLink.Root className="w-full flex items-start gap-2 sm:gap-3 px-2 sm:px-4 py-3 hover:bg-muted/50 transition-colors text-left cursor-pointer">
       {/* PR Icon */}
       {isMerged ? (
         <GitMerge className="w-4 h-4 mt-0.5 shrink-0 text-purple-500" />
@@ -2320,9 +2327,13 @@ function PRListItem({ pr, onSelect }: PRListItemProps) {
       {/* Content */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="font-medium hover:text-blue-400 break-words">
+          <BlockLink.Link
+            href={href}
+            onClick={handleLinkClick}
+            className="font-medium hover:text-blue-400 break-words no-underline text-inherit"
+          >
             {pr.title}
-          </span>
+          </BlockLink.Link>
           <CIStatusBadge />
           <ReviewStatusBadge />
           {pr.hasNewChanges && (
@@ -2408,7 +2419,7 @@ function PRListItem({ pr, onSelect }: PRListItemProps) {
           )}
         </div>
       </div>
-    </button>
+    </BlockLink.Root>
   );
 }
 
