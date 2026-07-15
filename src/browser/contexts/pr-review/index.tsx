@@ -3506,12 +3506,16 @@ export class PRReviewStore {
    *  the version/commit selector is first opened. */
   loadVersionData = async (): Promise<void> => {
     if (this.state.versionDataLoaded) return;
-    const { owner, repo, pr, commits } = this.state;
+    const { owner, repo, pr } = this.state;
 
     try {
       const pushVersionsData = await this.github
         .getPushVersions(owner, repo, pr.number)
         .catch(() => [] as PushVersion[]);
+
+      // Read commits from current state — loadPRData may have populated them
+      // while we waited for push versions (race on initial mount).
+      const commits = this.state.commits;
 
       // Merge force-push versions with commit-grouped versions
       const commitVersions = groupCommitsIntoVersions(commits, 2);

@@ -763,12 +763,16 @@ function VersionBar() {
   const reviews = usePRReviewSelector((s) => s.reviews);
   const currentUser = usePRReviewSelector((s) => s.currentUser);
 
-  // Lazy-load version data on first mount (deferred from loadPRData)
+  // Lazy-load version data when commits are available (deferred from loadPRData).
+  // Deferring avoids a race: loadPRData populates commits asynchronously, and
+  // loadVersionData needs actual commits to group into versions. Without this
+  // guard, the mount-time effect fires before loadPRData finishes, leaving
+  // commits empty and the last commit's version never created.
   useEffect(() => {
-    if (!versionDataLoaded) {
+    if (!versionDataLoaded && commits.length > 0) {
       store.loadVersionData();
     }
-  }, [versionDataLoaded, store]);
+  }, [versionDataLoaded, store, commits]);
 
   // Map of SHA → whether it's a merge commit (for showing correct icon in dropdowns)
   const isMergeCommit = useMemo(() => {
