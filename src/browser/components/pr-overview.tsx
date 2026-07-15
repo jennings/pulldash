@@ -975,6 +975,18 @@ export const PROverview = memo(function PROverview() {
     setTimeout(() => commentBoxEl?.querySelector("textarea")?.focus(), 100);
   }, []);
 
+  const handleQuoteReviewComment = useCallback((body: string) => {
+    const commentBoxEl = document.getElementById("conversation-comment-box");
+    const quoted =
+      body
+        .split("\n")
+        .map((line) => `> ${line}`)
+        .join("\n") + "\n\n";
+    setCommentText(quoted);
+    commentBoxEl?.scrollIntoView({ behavior: "smooth" });
+    setTimeout(() => commentBoxEl?.querySelector("textarea")?.focus(), 100);
+  }, []);
+
   const handleResolveThread = useCallback(
     async (threadId: string) => {
       try {
@@ -1750,6 +1762,9 @@ export const PROverview = memo(function PROverview() {
                               review={entry.data}
                               parentReactions={seededReactions}
                               setParentReactions={setReactions}
+                              onQuote={
+                                canWrite ? handleQuoteReviewComment : undefined
+                              }
                             />
                             {/* Render associated threads under the review */}
                             {entry.threads.map((thread) => {
@@ -3027,12 +3042,14 @@ function ReviewBox({
   review,
   parentReactions,
   setParentReactions,
+  onQuote,
 }: {
   review: Review;
   parentReactions: Record<string, Reaction[]>;
   setParentReactions: React.Dispatch<
     React.SetStateAction<Record<string, Reaction[]>>
   >;
+  onQuote?: (body: string) => void;
 }) {
   const store = usePRReviewStore();
   const github = useGitHub();
@@ -3215,14 +3232,26 @@ function ReviewBox({
           <div className="p-4 bg-card">
             <Markdown html={review.body_html}>{review.body}</Markdown>
           </div>
-          {reactions.length > 0 || canWrite ? (
-            <div className="px-4 pb-3 bg-card">
+          {reactions.length > 0 || canWrite || onQuote ? (
+            <div className="px-4 pb-3 bg-card flex items-center gap-1">
               <EmojiReactions
                 reactions={reactions}
                 onAddReaction={canWrite ? handleAddReaction : undefined}
                 onRemoveReaction={canWrite ? handleRemoveReaction : undefined}
                 currentUser={currentUser}
               />
+              {onQuote && (
+                <div className="ml-auto flex items-center gap-3">
+                  <button
+                    onClick={() => onQuote(review.body ?? "")}
+                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                    title="Reply"
+                  >
+                    <Reply className="w-3 h-3" />
+                    Reply
+                  </button>
+                </div>
+              )}
             </div>
           ) : null}
         </div>
