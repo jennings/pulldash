@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useParams, useNavigate } from "react-router-dom";
 import { GithubIcon } from "../ui/github-icon";
 import {
@@ -35,6 +36,69 @@ import {
 import { version } from "../../../package.json";
 
 // ============================================================================
+// Home Page Filter Matching (for triggering a refresh when a notification fires)
+// ============================================================================
+
+const ALL_REPOS_KEY = "__all_repos__";
+const ORG_FILTER_PREFIX = "__org__:";
+const FILTER_GROUPS_KEY = "pulldash_filter_groups";
+const STATE_FILTER_KEY = "pulldash_filter_state";
+
+interface RepoFilter {
+  name: string;
+  mode: string;
+  authoredBy?: string;
+  enabled?: boolean;
+}
+
+interface FilterGroup {
+  id: string;
+  name: string;
+  repos: RepoFilter[];
+}
+
+interface FilterGroupsStorage {
+  groups: FilterGroup[];
+  selectedGroupId: string;
+}
+
+function isRepoInHomeFilters(
+  owner: string,
+  repo: string,
+  prState?: string
+): boolean {
+  try {
+    const stored = localStorage.getItem(FILTER_GROUPS_KEY);
+    if (!stored) return false;
+    const parsed = JSON.parse(stored) as FilterGroupsStorage;
+    const group = parsed.groups.find((g) => g.id === parsed.selectedGroupId);
+    if (!group) return false;
+
+    const enabledRepos = group.repos.filter((r) => r.enabled !== false);
+    if (enabledRepos.length === 0) return false;
+
+    // Check state filter — only when we know the PR's state
+    if (prState) {
+      const stateFilter = localStorage.getItem(STATE_FILTER_KEY) ?? "open";
+      if (stateFilter === "open" && prState !== "open") return false;
+      if (stateFilter === "closed" && prState !== "closed") return false;
+    }
+
+    const fullName = `${owner}/${repo}`;
+
+    for (const filter of enabledRepos) {
+      if (filter.name === ALL_REPOS_KEY) return true;
+      if (filter.name.startsWith(ORG_FILTER_PREFIX)) return true;
+      if (filter.name === fullName) return true;
+    }
+
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+// ============================================================================
 // App Shell - Tab-based Layout
 // ============================================================================
 
@@ -59,6 +123,7 @@ export function AppShell() {
     tab?: string;
   }>();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const githubStore = useGitHubStore();
 
   // URL is the source of truth - sync URL → Tab
@@ -244,6 +309,9 @@ export function AppShell() {
                 `https://avatars.githubusercontent.com/${tab.owner}`
               );
               setNotifiedAt(prId, enrichment.updatedAt);
+              if (isRepoInHomeFilters(tab.owner, tab.repo)) {
+                queryClient.invalidateQueries({ queryKey: ["pr-list"] });
+              }
             }
           }
         }
@@ -277,6 +345,9 @@ export function AppShell() {
               `https://avatars.githubusercontent.com/${owner}`
             );
             setNotifiedAt(prId, enrichment.updatedAt);
+            if (isRepoInHomeFilters(owner, repo, pr.state)) {
+              queryClient.invalidateQueries({ queryKey: ["pr-list"] });
+            }
           }
         }
       } catch {
@@ -293,7 +364,14 @@ export function AppShell() {
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [tabs, activeTab, githubStore, markTabUpdated, clearTabUpdated]);
+  }, [
+    tabs,
+    activeTab,
+    githubStore,
+    markTabUpdated,
+    clearTabUpdated,
+    queryClient,
+  ]);
 
   // Clear tabs when user logs out
   useEffect(() => {
