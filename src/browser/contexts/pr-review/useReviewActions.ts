@@ -25,39 +25,57 @@ export function useReviewActions() {
     try {
       // Get the pending review node ID (from GraphQL)
       const reviewNodeId = store.getPendingReviewNodeId();
+      const reviewSha = store.getReviewSha() ?? pr.head.sha;
+
+      // Track whether GraphQL submission succeeded
+      let submittedViaGraphQL = false;
 
       if (reviewNodeId) {
-        // Submit via GraphQL - we'll find the review ID after refreshing
-        await github.submitPendingReview(reviewNodeId, event, state.reviewBody);
-      } else if (state.pendingComments.length > 0) {
-        // Fallback: create a new review with all comments via REST
-        // Redirect :commit metadata comments to the first real file
-        const firstFile = state.files[0]?.filename;
-        newReview = await github.createPRReview(owner, repo, pr.number, {
-          commit_id: pr.head.sha,
-          event,
-          body: state.reviewBody,
-          comments: state.pendingComments.map(
-            ({ path, line, body, side, start_line }) => {
-              const isMetadata = path === ":commit" && firstFile;
-              return {
-                path: isMetadata ? firstFile : path,
-                line: isMetadata ? 1 : line,
-                body,
-                side: side as "LEFT" | "RIGHT",
-                start_line: isMetadata ? undefined : start_line,
-              };
-            }
-          ),
-        });
-      } else {
-        // Just submitting a review with no comments (APPROVE, etc)
-        newReview = await github.createPRReview(owner, repo, pr.number, {
-          commit_id: pr.head.sha,
-          event,
-          body: state.reviewBody,
-          comments: [],
-        });
+        try {
+          // Submit via GraphQL - we'll find the review ID after refreshing
+          await github.submitPendingReview(
+            reviewNodeId,
+            event,
+            state.reviewBody
+          );
+          submittedViaGraphQL = true;
+        } catch {
+          // GraphQL failed (e.g. pending review was already submitted).
+          // Fall through to REST fallback below.
+        }
+      }
+
+      if (!submittedViaGraphQL) {
+        if (state.pendingComments.length > 0) {
+          // REST fallback: create a new review with all comments
+          // Redirect :commit metadata comments to the first real file
+          const firstFile = state.files[0]?.filename;
+          newReview = await github.createPRReview(owner, repo, pr.number, {
+            commit_id: reviewSha,
+            event,
+            body: state.reviewBody,
+            comments: state.pendingComments.map(
+              ({ path, line, body, side, start_line }) => {
+                const isMetadata = path === ":commit" && firstFile;
+                return {
+                  path: isMetadata ? firstFile : path,
+                  line: isMetadata ? 1 : line,
+                  body,
+                  side: side as "LEFT" | "RIGHT",
+                  start_line: isMetadata ? undefined : start_line,
+                };
+              }
+            ),
+          });
+        } else {
+          // Just submitting a review with no comments (APPROVE, etc)
+          newReview = await github.createPRReview(owner, repo, pr.number, {
+            commit_id: reviewSha,
+            event,
+            body: state.reviewBody,
+            comments: [],
+          });
+        }
       }
 
       github.invalidatePR(owner, repo, pr.number);

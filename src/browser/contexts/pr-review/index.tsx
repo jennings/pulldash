@@ -589,6 +589,16 @@ export class PRReviewStore {
       }
     } catch {}
 
+    // Load review session from localStorage (pending review node ID + SHA)
+    try {
+      const stored = localStorage.getItem(`${this.storageKey}-review-session`);
+      if (stored) {
+        const session = JSON.parse(stored);
+        this.pendingReviewNodeId = session.pendingReviewNodeId ?? null;
+        this.reviewSha = session.reviewSha ?? null;
+      }
+    } catch {}
+
     // Sort files to match file tree order (folders first, then alphabetically)
     const sortedFiles = sortFilesLikeTree(initialState.files);
     this.baseFiles = sortedFiles;
@@ -1134,6 +1144,7 @@ export class PRReviewStore {
     try {
       localStorage.removeItem(`${this.storageKey}-pending`);
       localStorage.removeItem(`${this.storageKey}-body`);
+      localStorage.removeItem(`${this.storageKey}-review-session`);
     } catch {}
   }
 
@@ -3028,19 +3039,40 @@ export class PRReviewStore {
         ? { ...c, nodeId: commentNodeId, databaseId: commentDatabaseId }
         : c
     );
-    // Also store the review node ID
+    // Also store the review node ID and persist session
     this.pendingReviewNodeId = reviewNodeId;
+    this.persistReviewSession();
     this.persistPendingComments(pendingComments);
     this.set({ pendingComments });
   };
 
-  // Store the pending review node ID for submission
+  // Store the pending review node ID and SHA for submission
   private pendingReviewNodeId: string | null = null;
+  private reviewSha: string | null = null;
 
   getPendingReviewNodeId = () => this.pendingReviewNodeId;
   setPendingReviewNodeId = (id: string | null) => {
     this.pendingReviewNodeId = id;
+    this.persistReviewSession();
   };
+
+  getReviewSha = () => this.reviewSha;
+  setReviewSha = (sha: string | null) => {
+    this.reviewSha = sha;
+    this.persistReviewSession();
+  };
+
+  private persistReviewSession() {
+    try {
+      localStorage.setItem(
+        `${this.storageKey}-review-session`,
+        JSON.stringify({
+          pendingReviewNodeId: this.pendingReviewNodeId,
+          reviewSha: this.reviewSha,
+        })
+      );
+    } catch {}
+  }
 
   updateComment = (commentId: number, updatedComment: ReviewComment) => {
     this.set({
@@ -3104,6 +3136,8 @@ export class PRReviewStore {
 
   clearReviewState = () => {
     this.clearPendingState();
+    this.pendingReviewNodeId = null;
+    this.reviewSha = null;
     this.set({
       pendingComments: [],
       pendingReviewId: null,

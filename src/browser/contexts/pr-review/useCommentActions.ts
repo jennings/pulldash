@@ -76,6 +76,8 @@ export function useCommentActions() {
         result.commentId,
         result.commentDatabaseId
       );
+      // Store the commit SHA so the REST fallback uses the correct version
+      store.setReviewSha(pr.head.sha);
     } catch (error) {
       console.error("Failed to sync pending comment to GitHub:", error);
     }
