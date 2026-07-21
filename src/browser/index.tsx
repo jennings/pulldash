@@ -30,7 +30,8 @@ createRoot(document.getElementById("app")!).render(
     persistOptions={{
       persister,
       dehydrateOptions: {
-        shouldDehydrateQuery: (query) => query.meta?.persist === true,
+        shouldDehydrateQuery: (query) =>
+          query.meta?.persist === true && query.state.status !== "pending",
       },
     }}
   >

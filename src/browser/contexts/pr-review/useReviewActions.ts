@@ -48,18 +48,23 @@ export function useReviewActions() {
       if (!submittedViaGraphQL) {
         if (state.pendingComments.length > 0) {
           // REST fallback: create a new review with all comments
-          // Redirect :commit metadata comments to the first real file
-          const firstFile = state.files[0]?.filename;
+          // Redirect :commit metadata comments to a valid line in the first real file
+          const firstFile = state.files[0];
+          const firstFilename = firstFile?.filename;
+          const firstHunkLine = firstFile?.patch?.match(
+            /^@@ -\d+(?:,\d+)? \+(\d+)/m
+          )?.[1];
+          const metadataLine = firstHunkLine ? parseInt(firstHunkLine, 10) : 1;
           newReview = await github.createPRReview(owner, repo, pr.number, {
             commit_id: reviewSha,
             event,
             body: state.reviewBody,
             comments: state.pendingComments.map(
               ({ path, line, body, side, start_line }) => {
-                const isMetadata = path === ":commit" && firstFile;
+                const isMetadata = path === ":commit" && firstFilename;
                 return {
-                  path: isMetadata ? firstFile : path,
-                  line: isMetadata ? 1 : line,
+                  path: isMetadata ? firstFilename : path,
+                  line: isMetadata ? metadataLine : line,
                   body,
                   side: side as "LEFT" | "RIGHT",
                   start_line: isMetadata ? undefined : start_line,
@@ -162,6 +167,10 @@ export function useReviewActions() {
 
       // Navigate to overview page and scroll to the new review
       store.selectOverview(scrollTarget);
+    } catch (error) {
+      console.error("Failed to submit review:", error);
+      // Re-throw so the UI can surface the error to the user
+      throw error;
     } finally {
       store.setSubmittingReview(false);
     }

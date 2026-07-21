@@ -25,7 +25,7 @@ export function useCommentActions() {
     // For :commit synthetic file, prefix the body with a marker so we
     // can route the comment back on reload. The local pending comment
     // stays on ":commit" with the original line; only the GitHub sync
-    // redirects to the first real file at line 1.
+    // redirects to the first real file at a line in the diff.
     let githubPath = state.selectedFile;
     let githubLine = line;
     let finalBody = body;
@@ -34,8 +34,12 @@ export function useCommentActions() {
     if (state.selectedFile === ":commit" && state.files.length > 0) {
       const fullSha = state.selectedCommitSha ?? "";
       const shortSha = fullSha.slice(0, 7);
-      githubPath = state.files[0].filename;
-      githubLine = 1;
+      const firstFile = state.files[0];
+      githubPath = firstFile.filename;
+      // Use the first hunk's start line so the comment targets a line that
+      // actually exists in the diff. Fall back to line 1 if no patch data.
+      const patchStart = firstFile.patch?.match(/^@@ -\d+(?:,\d+)? \+(\d+)/m);
+      githubLine = patchStart ? parseInt(patchStart[1], 10) : 1;
       githubStartLine = undefined;
       const commit = state.commits.find((c) => c.sha === fullSha);
       const label = commit ? getCommitFieldLabel(line, commit) : `line ${line}`;
@@ -49,14 +53,20 @@ export function useCommentActions() {
     // Create a local comment first for immediate UI feedback
     // Local path/line stay on ":commit" so it appears at the right place
     const localId = `pending-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const commentSide =
+      state.commentingOnLine?.side === "old" ? "LEFT" : "RIGHT";
     const newComment: LocalPendingComment = {
       id: localId,
       path: state.selectedFile,
       line,
       start_line: startLine,
       body: finalBody,
-      side: "RIGHT",
+      side: commentSide,
     };
+
+    // Persist the commit SHA eagerly so the REST fallback always has the
+    // correct version, even if the GraphQL sync fails below.
+    store.setReviewSha(pr.head.sha);
 
     store.addPendingComment(newComment);
 
@@ -76,8 +86,6 @@ export function useCommentActions() {
         result.commentId,
         result.commentDatabaseId
       );
-      // Store the commit SHA so the REST fallback uses the correct version
-      store.setReviewSha(pr.head.sha);
     } catch (error) {
       console.error("Failed to sync pending comment to GitHub:", error);
     }

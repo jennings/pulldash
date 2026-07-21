@@ -2500,9 +2500,9 @@ const DiffViewer = memo(function DiffViewer({
         const startLine = Math.min(anchor, lineNum);
         const endLine = Math.max(anchor, lineNum);
         if (startLine !== endLine) {
-          store.startCommenting(endLine, startLine);
+          store.startCommenting(endLine, startLine, side);
         } else {
-          store.startCommenting(lineNum);
+          store.startCommenting(lineNum, undefined, side);
         }
         handledByMouseEventsRef.current = true;
         return;
@@ -2544,9 +2544,11 @@ const DiffViewer = memo(function DiffViewer({
         if (anchor !== null && anchor !== focusedLine) {
           const startLine = Math.min(anchor, focusedLine);
           const endLine = Math.max(anchor, focusedLine);
-          store.startCommenting(endLine, startLine);
+          const side = state.focusedLineSide ?? undefined;
+          store.startCommenting(endLine, startLine, side);
         } else {
-          store.startCommenting(focusedLine);
+          const side = state.focusedLineSide ?? undefined;
+          store.startCommenting(focusedLine, undefined, side);
         }
       }
     }
@@ -2562,7 +2564,7 @@ const DiffViewer = memo(function DiffViewer({
         handledByMouseEventsRef.current = false;
         return;
       }
-      store.startCommenting(lineNum);
+      store.startCommenting(lineNum, undefined, side);
     },
     [store]
   );
@@ -3129,9 +3131,9 @@ const DiffLineRow = memo(function DiffLineRow({
         const startLine = Math.min(anchor, lineNum);
         const endLine = Math.max(anchor, lineNum);
         if (startLine !== endLine) {
-          store.startCommenting(endLine, startLine);
+          store.startCommenting(endLine, startLine, lineSide);
         } else {
-          store.startCommenting(lineNum);
+          store.startCommenting(lineNum, undefined, lineSide);
         }
         return;
       }

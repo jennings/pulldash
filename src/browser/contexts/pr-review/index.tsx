@@ -123,6 +123,7 @@ export interface ParsedDiff {
 export interface CommentingOnLine {
   line: number;
   startLine?: number;
+  side?: "old" | "new";
 }
 
 // ============================================================================
@@ -2638,12 +2639,16 @@ export class PRReviewStore {
     }
   };
 
-  startCommenting = (line: number, startLine?: number) => {
-    this.set({ commentingOnLine: { line, startLine } });
+  startCommenting = (
+    line: number,
+    startLine?: number,
+    side?: "old" | "new"
+  ) => {
+    this.set({ commentingOnLine: { line, startLine, side } });
   };
 
   startCommentingOnFocusedLine = () => {
-    const { focusedLine, selectionAnchor } = this.state;
+    const { focusedLine, focusedLineSide, selectionAnchor } = this.state;
     if (!focusedLine) return;
 
     const startLine = selectionAnchor
@@ -2657,6 +2662,7 @@ export class PRReviewStore {
       commentingOnLine: {
         line: endLine,
         startLine: startLine !== endLine ? startLine : undefined,
+        side: focusedLineSide ?? undefined,
       },
     });
   };

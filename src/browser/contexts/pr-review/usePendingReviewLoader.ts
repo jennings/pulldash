@@ -20,7 +20,7 @@ export function usePendingReviewLoader() {
     const fetchPendingReview = async () => {
       try {
         const result = await github.getPendingReview(owner, repo, pr.number);
-        if (!result) return; // No pending review
+        if (!result) return;
 
         // Store the review node ID for submission
         store.setPendingReviewNodeId(result.id);
