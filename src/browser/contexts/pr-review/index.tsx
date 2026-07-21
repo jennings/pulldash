@@ -3140,6 +3140,10 @@ export class PRReviewStore {
     this.set({ submittingReview: submitting });
   };
 
+  setOverviewLoading = (loading: boolean) => {
+    this.set({ overviewLoading: loading });
+  };
+
   clearReviewState = () => {
     this.clearPendingState();
     this.pendingReviewNodeId = null;
@@ -3529,6 +3533,10 @@ export class PRReviewStore {
       if (forcePushShas.length > 0) {
         this.github.prefetchChecksBatch(owner, repo, forcePushShas);
       }
+
+      // If overviewLoading is already false, fresher data was set
+      // (e.g. by submitReview), so don't overwrite it.
+      if (!this.state.overviewLoading) return;
 
       this.set({
         reviews: reviewsData,

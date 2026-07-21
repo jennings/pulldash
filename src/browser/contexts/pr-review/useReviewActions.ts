@@ -146,6 +146,7 @@ export function useReviewActions() {
       store.setComments(newComments as ReviewComment[]);
       store.setReviews(reviews);
       store.setTimeline(timeline);
+      store.setOverviewLoading(false);
 
       // If we got the review ID from REST, use it; otherwise find the latest review
       let scrollTarget: string | undefined;
