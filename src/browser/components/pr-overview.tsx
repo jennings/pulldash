@@ -42,6 +42,7 @@ import {
   UserMinus,
   RefreshCw,
   Reply,
+  MoreHorizontal,
 } from "lucide-react";
 import { Skeleton } from "../ui/skeleton";
 import { Checkbox } from "../ui/checkbox";
@@ -4643,62 +4644,100 @@ function CommitsTab({
   repo: string;
 }) {
   const store = usePRReviewStore();
+  const [expandedShas, setExpandedShas] = useState<Set<string>>(new Set());
+
   return (
     <div className="border border-border rounded-md overflow-hidden divide-y divide-border">
-      {commits.map((commit) => (
-        <div
-          key={commit.sha}
-          className="flex items-center gap-3 p-3 hover:bg-card/30 cursor-pointer"
-          onClick={async () => {
-            await store.setSelectedCommitSha(commit.sha);
-            const { files } = store.getSnapshot();
-            if (files.length > 0) {
-              store.selectFile(files[0].filename);
-            }
-          }}
-        >
-          <img
-            src={commit.author?.avatar_url || commit.committer?.avatar_url}
-            alt={commit.commit.author?.name}
-            className="w-6 h-6 rounded-full"
-          />
-          <div className="flex-1 min-w-0">
-            <span className="text-sm font-medium truncate block">
-              {commit.commit.message.split("\n")[0]}
-            </span>
-            <p className="text-xs text-muted-foreground">
-              {commit.commit.author?.name} committed{" "}
-              {commit.commit.author?.date &&
-                getTimeAgo(new Date(commit.commit.author.date))}
-            </p>
+      {commits.map((commit) => {
+        const subject = commit.commit.message.split("\n")[0];
+        const body = commit.commit.message
+          .split("\n")
+          .slice(1)
+          .join("\n")
+          .trim();
+        const hasBody = body.length > 0;
+        const isExpanded = expandedShas.has(commit.sha);
+
+        return (
+          <div
+            key={commit.sha}
+            className="flex items-start gap-3 p-3 hover:bg-card/30 cursor-pointer"
+            onClick={async () => {
+              await store.setSelectedCommitSha(commit.sha);
+              const { files } = store.getSnapshot();
+              if (files.length > 0) {
+                store.selectFile(files[0].filename);
+              }
+            }}
+          >
+            <img
+              src={commit.author?.avatar_url || commit.committer?.avatar_url}
+              alt={commit.commit.author?.name}
+              className="w-6 h-6 rounded-full mt-0.5"
+            />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-baseline min-w-0">
+                <span className="text-sm font-medium truncate">{subject}</span>
+                {hasBody && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setExpandedShas((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(commit.sha)) {
+                          next.delete(commit.sha);
+                        } else {
+                          next.add(commit.sha);
+                        }
+                        return next;
+                      });
+                    }}
+                    className="ml-1.5 flex-shrink-0 self-center inline-flex items-center justify-center w-5 h-4 rounded bg-muted text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+                    title={isExpanded ? "Collapse message" : "Expand message"}
+                  >
+                    <MoreHorizontal className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+              {isExpanded && (
+                <p className="text-sm font-normal text-muted-foreground mt-1 mb-2 whitespace-pre-wrap">
+                  {body}
+                </p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                {commit.commit.author?.name} committed{" "}
+                {commit.commit.author?.date &&
+                  getTimeAgo(new Date(commit.commit.author.date))}
+              </p>
+            </div>
+            <div className="flex items-center gap-2 mt-0.5">
+              {commit.parents && commit.parents.length > 1 ? (
+                <GitMerge className="w-4 h-4 text-purple-500" />
+              ) : (
+                <GitCommit className="w-4 h-4 text-muted-foreground" />
+              )}
+              <a
+                href={`https://github.com/${owner}/${repo}/commit/${commit.sha}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs font-mono text-muted-foreground hover:text-blue-400"
+              >
+                {commit.sha.slice(0, 7)}
+              </a>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigator.clipboard.writeText(commit.sha);
+                }}
+                className="p-1 text-muted-foreground hover:text-foreground rounded hover:bg-muted"
+                title="Copy commit SHA"
+              >
+                <Copy className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            {commit.parents && commit.parents.length > 1 ? (
-              <GitMerge className="w-4 h-4 text-purple-500" />
-            ) : (
-              <GitCommit className="w-4 h-4 text-muted-foreground" />
-            )}
-            <a
-              href={`https://github.com/${owner}/${repo}/commit/${commit.sha}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs font-mono text-muted-foreground hover:text-blue-400"
-            >
-              {commit.sha.slice(0, 7)}
-            </a>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                navigator.clipboard.writeText(commit.sha);
-              }}
-              className="p-1 text-muted-foreground hover:text-foreground rounded hover:bg-muted"
-              title="Copy commit SHA"
-            >
-              <Copy className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
