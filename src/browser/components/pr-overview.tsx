@@ -44,6 +44,7 @@ import {
   Reply,
   MoreHorizontal,
 } from "lucide-react";
+import { BlockLink } from "../ui/block-link";
 import { Skeleton } from "../ui/skeleton";
 import { Checkbox } from "../ui/checkbox";
 import { cn } from "../cn";
@@ -4659,16 +4660,9 @@ function CommitsTab({
         const isExpanded = expandedShas.has(commit.sha);
 
         return (
-          <div
+          <BlockLink.Root
             key={commit.sha}
             className="flex items-start gap-3 p-3 hover:bg-card/30 cursor-pointer"
-            onClick={async () => {
-              await store.setSelectedCommitSha(commit.sha);
-              const { files } = store.getSnapshot();
-              if (files.length > 0) {
-                store.selectFile(files[0].filename);
-              }
-            }}
           >
             <img
               src={commit.author?.avatar_url || commit.committer?.avatar_url}
@@ -4677,7 +4671,20 @@ function CommitsTab({
             />
             <div className="flex-1 min-w-0">
               <div className="flex items-baseline min-w-0">
-                <span className="text-sm font-medium truncate">{subject}</span>
+                <BlockLink.Link asChild>
+                  <button
+                    onClick={async () => {
+                      await store.setSelectedCommitSha(commit.sha);
+                      const { files } = store.getSnapshot();
+                      if (files.length > 0) {
+                        store.selectFile(files[0].filename);
+                      }
+                    }}
+                    className="text-sm font-medium truncate text-left"
+                  >
+                    {subject}
+                  </button>
+                </BlockLink.Link>
                 {hasBody && (
                   <button
                     onClick={(e) => {
@@ -4720,6 +4727,7 @@ function CommitsTab({
                 href={`https://github.com/${owner}/${repo}/commit/${commit.sha}`}
                 target="_blank"
                 rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
                 className="text-xs font-mono text-muted-foreground hover:text-blue-400"
               >
                 {commit.sha.slice(0, 7)}
@@ -4735,7 +4743,7 @@ function CommitsTab({
                 <Copy className="w-3.5 h-3.5" />
               </button>
             </div>
-          </div>
+          </BlockLink.Root>
         );
       })}
     </div>
