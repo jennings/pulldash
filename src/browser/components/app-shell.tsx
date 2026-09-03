@@ -813,13 +813,15 @@ function TabStatusIndicator({ status }: { status?: TabStatus }) {
     );
   }
 
-  // Updated while in background gets an orange dot
+  // Updated while in background shows a refresh arrow
   if (status.updated) {
     return (
       <span
-        className="w-2 h-2 rounded-full shrink-0 bg-orange-500"
+        className="shrink-0 text-orange-500 text-[10px] leading-none"
         title="New activity"
-      />
+      >
+        ⟳
+      </span>
     );
   }
 
