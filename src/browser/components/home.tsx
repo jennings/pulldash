@@ -2514,6 +2514,22 @@ function PRListItem({ pr, onSelect }: PRListItemProps) {
           )}
         </div>
       </div>
+      {repoInfo && (hasNewContent || reminderActive) && (
+        <button
+          type="button"
+          aria-label="Mark as viewed"
+          title="Mark as viewed"
+          onClick={(e) => {
+            // Don't let BlockLink re-dispatch the click onto the row's link
+            e.preventDefault();
+            e.stopPropagation();
+            setLastViewed(`${repoInfo.owner}/${repoInfo.repo}#${pr.number}`);
+          }}
+          className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0 opacity-0 group-hover:opacity-100 focus:opacity-100 mt-0.5"
+        >
+          <Eye className="w-3.5 h-3.5" />
+        </button>
+      )}
       {repoInfo && (
         <ReminderMenu
           prId={`${repoInfo.owner}/${repoInfo.repo}#${pr.number}`}
