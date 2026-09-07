@@ -499,17 +499,26 @@ export const queries = {
     queryOptions({
       queryKey: ["pull-request", owner, repo, number, "conversation"],
       queryFn: async ({ signal }) => {
-        const res = await getOctokit().request(
-          "GET /repos/{owner}/{repo}/issues/{issue_number}/comments",
-          {
-            owner,
-            repo,
-            issue_number: number,
-            headers: { accept: "application/vnd.github.full+json" },
-            request: { signal },
-          }
-        );
-        return res.data as IssueComment[];
+        const comments: IssueComment[] = [];
+        let page = 1;
+        while (true) {
+          const { data } = await getOctokit().request(
+            "GET /repos/{owner}/{repo}/issues/{issue_number}/comments",
+            {
+              owner,
+              repo,
+              issue_number: number,
+              per_page: 100,
+              page,
+              headers: { accept: "application/vnd.github.full+json" },
+              request: { signal },
+            }
+          );
+          comments.push(...(data as IssueComment[]));
+          if (data.length < 100) break;
+          page++;
+        }
+        return comments;
       },
       staleTime: 30_000,
     }),
