@@ -6,7 +6,7 @@ Pulldash is the fastest way to review pull requests.
 
 Use `bun` for everything - package management, tests.
 
-_NEVER_ use browser tools - they will not work with this project.
+_NEVER_ use the user's personal browser. A separate, dedicated browser instance for testing is allowed — use it to visually verify UI changes end-to-end.
 
 ## Principles
 
