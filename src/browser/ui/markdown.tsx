@@ -74,6 +74,20 @@ function rewriteGitHubPRUrl(href: string): string | null {
   return `/${owner}/${repo}/pull/${number}${rest || ""}`;
 }
 
+const GITHUB_COMMIT_URL_RE =
+  /^https?:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/commit\/([0-9a-f]{7,40})(?:[/?#].*)?$/;
+
+/**
+ * GitHub's API body_html renders bare commit URLs with the full URL as link
+ * text; the short "owner/repo@sha" form is produced client-side on github.com.
+ * Returns that short label, or null if href is not a commit URL.
+ */
+export function shortenCommitUrl(href: string): string | null {
+  const match = href.match(GITHUB_COMMIT_URL_RE);
+  if (!match) return null;
+  return `${match[1]}/${match[2]}@${match[3].slice(0, 7)}`;
+}
+
 // ============================================================================
 // Issue-link enrichment (PR/issue titles in pre-rendered GitHub HTML)
 // ============================================================================
@@ -682,6 +696,16 @@ function renderNode(
       ? renderNodes(node.children, openPreview, navigate, prTitles)
       : null;
 
+    // Shorten bare GitHub commit URL autolinks to "owner/repo@sha" form
+    if (node.tag === "a" && node.children) {
+      const href = (safeAttributes.href as string) || "";
+      const shortLabel = shortenCommitUrl(href);
+      const text = extractCodeText(node.children).trim();
+      if (shortLabel && text === href.replace(/\/$/, "")) {
+        return createElement("a", { key, ...safeAttributes }, shortLabel);
+      }
+    }
+
     // Rewrite GitHub PR links to navigate within the app
     if (node.tag === "a" && navigate) {
       const href = (safeAttributes.href as string) || "";
@@ -840,7 +864,15 @@ export const Markdown = memo(function Markdown({
             ]}
             components={{
               // Custom link handling - open external links in new tab
-              a: ({ href, children, ...props }) => {
+              a: ({ href, children, node: _node, ...props }) => {
+                if (
+                  href &&
+                  typeof children === "string" &&
+                  children.trim() === href
+                ) {
+                  const shortLabel = shortenCommitUrl(href);
+                  if (shortLabel) children = shortLabel;
+                }
                 const localHref = href ? rewriteGitHubPRUrl(href) : null;
                 if (localHref) {
                   const hashOnly = localHref.startsWith(
@@ -909,7 +941,15 @@ export const Markdown = memo(function Markdown({
           ]}
           components={{
             // Custom link handling - open external links in new tab
-            a: ({ href, children, ...props }) => {
+            a: ({ href, children, node: _node, ...props }) => {
+              if (
+                href &&
+                typeof children === "string" &&
+                children.trim() === href
+              ) {
+                const shortLabel = shortenCommitUrl(href);
+                if (shortLabel) children = shortLabel;
+              }
               const localHref = href ? rewriteGitHubPRUrl(href) : null;
               if (localHref) {
                 return (

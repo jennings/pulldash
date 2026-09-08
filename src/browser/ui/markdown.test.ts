@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { extractIssueLinkRefs } from "./markdown";
+import { extractIssueLinkRefs, shortenCommitUrl } from "./markdown";
 
 test("extracts refs from relative PR hrefs", () => {
   const html = `<a class="issue-link js-issue-link" data-id="1" href="/xcp-ng/xcp/pull/838">#838</a>`;
@@ -27,4 +27,29 @@ test("ignores anchors without the issue-link class", () => {
 
 test("returns empty for html without issue links", () => {
   expect(extractIssueLinkRefs("<p>nothing here</p>")).toEqual([]);
+});
+
+test("shortens commit urls to owner/repo@sha7", () => {
+  expect(
+    shortenCommitUrl(
+      "https://github.com/systemd/systemd/commit/c5ba7a2a4dd19a2d31b8a9d52d3c4bdde78387f0"
+    )
+  ).toBe("systemd/systemd@c5ba7a2");
+});
+
+test("shortens commit urls with trailing slash or query", () => {
+  expect(shortenCommitUrl("https://github.com/o/r/commit/77d8f1526/")).toBe(
+    "o/r@77d8f15"
+  );
+  expect(
+    shortenCommitUrl(
+      "https://github.com/o/r/commit/77d8f1526?diff=split#comments"
+    )
+  ).toBe("o/r@77d8f15");
+});
+
+test("returns null for non-commit urls", () => {
+  expect(shortenCommitUrl("https://github.com/o/r/pull/1")).toBeNull();
+  expect(shortenCommitUrl("https://github.com/o/r")).toBeNull();
+  expect(shortenCommitUrl("/o/r/commit/77d8f15")).toBeNull();
 });
