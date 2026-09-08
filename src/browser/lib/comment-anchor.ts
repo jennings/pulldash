@@ -90,6 +90,35 @@ function findSliceInDiff(
 }
 
 /**
+ * Resolve the line a comment should anchor to in the diff being viewed.
+ *
+ * - Viewing the comment's `commit_id`: use `line` directly.
+ * - Viewing the comment's `original_commit_id` (e.g. a single-commit diff):
+ *   use `original_line`, which is in that commit's coordinates.
+ * - Any other commit: re-anchor by content via `resolveCommentLineFromDiffHunk`.
+ */
+export function resolveCommentLine(
+  comment: CommentAnchorInput & {
+    commitId?: string | null;
+    originalCommitId?: string | null;
+    originalLine?: number | null;
+  },
+  viewedCommitSha: string | null | undefined,
+  parsedDiff: ParsedDiff
+): number | null | undefined {
+  if (comment.commitId && !commitShasMatch(comment.commitId, viewedCommitSha)) {
+    if (
+      comment.originalCommitId &&
+      commitShasMatch(comment.originalCommitId, viewedCommitSha)
+    ) {
+      return comment.originalLine ?? comment.line;
+    }
+    return resolveCommentLineFromDiffHunk(comment, parsedDiff);
+  }
+  return comment.line ?? comment.originalLine;
+}
+
+/**
  * Find the line number in `parsedDiff` that contains the same content the
  * comment was anchored to. Returns null when no match is found (the line was
  * removed, lives inside a collapsed skip block, or differs by even a single

@@ -1,6 +1,7 @@
 import { test, expect, describe } from "bun:test";
 import {
   commitShasMatch,
+  resolveCommentLine,
   resolveCommentLineFromDiffHunk,
 } from "./comment-anchor";
 import type { ParsedDiff, DiffLine } from "./diff-worker";
@@ -298,5 +299,53 @@ describe("resolveCommentLineFromDiffHunk", () => {
         parsedDiff
       )
     ).toBeNull();
+  });
+});
+
+describe("resolveCommentLine", () => {
+  const parsedDiff: ParsedDiff = {
+    hunks: [
+      {
+        type: "hunk",
+        oldStart: 1,
+        newStart: 50,
+        lines: [insert("alpha", 50), insert("beta", 51)],
+      },
+    ],
+  };
+  const comment = {
+    commitId: "aaaa1111ffff",
+    originalCommitId: "bbbb2222ffff",
+    line: 55,
+    originalLine: 51,
+    side: "RIGHT" as const,
+    diffHunk: "@@ -1,2 +50,2 @@\n+alpha\n+beta",
+  };
+
+  test("uses line when viewing the comment's commit_id", () => {
+    expect(resolveCommentLine(comment, "aaaa1111ffff", parsedDiff)).toBe(55);
+  });
+
+  test("uses originalLine when viewing the original_commit_id", () => {
+    expect(resolveCommentLine(comment, "bbbb2222ffff", parsedDiff)).toBe(51);
+  });
+
+  test("matches short SHA prefixes", () => {
+    expect(resolveCommentLine(comment, "aaaa111", parsedDiff)).toBe(55);
+    expect(resolveCommentLine(comment, "bbbb222", parsedDiff)).toBe(51);
+  });
+
+  test("re-anchors by content for unrelated commits", () => {
+    expect(resolveCommentLine(comment, "cccc3333ffff", parsedDiff)).toBe(51);
+  });
+
+  test("falls back to line when no commit ids are present", () => {
+    expect(
+      resolveCommentLine(
+        { commitId: null, originalCommitId: null, line: 7 },
+        "aaaa1111ffff",
+        parsedDiff
+      )
+    ).toBe(7);
   });
 });

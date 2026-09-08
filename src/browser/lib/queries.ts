@@ -578,6 +578,7 @@ export const queries = {
               line: number | null;
               originalLine: number | null;
               startLine: number | null;
+              originalCommit: { oid: string } | null;
               diffHunk: string | null;
               author: { login: string; avatarUrl: string } | null;
               createdAt: string;
@@ -657,6 +658,7 @@ export const queries = {
                         line
                         originalLine
                         startLine
+                        originalCommit { oid }
                         diffHunk
                         author { login avatarUrl }
                         createdAt

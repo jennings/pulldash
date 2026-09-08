@@ -59,6 +59,8 @@ export interface ReviewThread {
     line: number | null;
     originalLine: number | null;
     startLine: number | null;
+    /** Commit the comment was originally made on */
+    originalCommit?: { oid: string } | null;
     author: { login: string; avatarUrl: string } | null;
     createdAt: string;
     updatedAt: string;

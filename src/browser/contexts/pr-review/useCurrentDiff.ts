@@ -308,6 +308,9 @@ export function useCurrentDiff(): ParsedDiff | null {
   );
   const commits = usePRReviewSelector((s) => s.commits);
   const selectedCommitSha = usePRReviewSelector((s) => s.selectedCommitSha);
+  const selectedCommitDetails = usePRReviewSelector(
+    (s) => s.selectedCommitDetails
+  );
   const compareToCommitSha = usePRReviewSelector((s) => s.compareToCommitSha);
   const compareToSha = usePRReviewSelector((s) => s.compareToSha);
   const commitsByVersion = usePRReviewSelector((s) => s.commitsByVersion);
@@ -316,7 +319,9 @@ export function useCurrentDiff(): ParsedDiff | null {
     if (!selectedFile) return null;
     if (versionCompareNoChangeFiles.includes(selectedFile)) return EMPTY_DIFF;
     if (selectedFile === COMMIT_FILE && selectedCommitSha) {
-      const headCommit = commits.find((c) => c.sha === selectedCommitSha);
+      const headCommit =
+        commits.find((c) => c.sha === selectedCommitSha) ??
+        selectedCommitDetails;
       if (!headCommit) return null;
       const headChangeId =
         commitChangeIds[selectedCommitSha] ??
@@ -351,6 +356,7 @@ export function useCurrentDiff(): ParsedDiff | null {
     versionCompareNoChangeFiles,
     commits,
     selectedCommitSha,
+    selectedCommitDetails,
     compareToCommitSha,
     compareToSha,
     commitsByVersion,

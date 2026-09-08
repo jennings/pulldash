@@ -1,5 +1,5 @@
 import { memo, useCallback } from "react";
-import { SlidersHorizontal } from "lucide-react";
+import { GitCommit, SlidersHorizontal } from "lucide-react";
 import { cn } from "../cn";
 import {
   usePRReviewSelector,
@@ -353,8 +353,26 @@ export const ConversationsSidebar = memo(function ConversationsSidebar() {
                     </div>
 
                     {/* File path */}
-                    <p className="text-xs text-muted-foreground font-mono truncate mb-1.5">
-                      {getCommentDisplayPath(firstComment)}
+                    <p className="text-xs text-muted-foreground font-mono truncate mb-1.5 flex items-center gap-1">
+                      <span className="truncate">
+                        {getCommentDisplayPath(firstComment)}
+                      </span>
+                      {firstComment.originalCommit?.oid && (
+                        <a
+                          href={`#file=${encodeURIComponent(firstComment.path)}&commit=${firstComment.originalCommit?.oid}`}
+                          title="Open in original commit"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            store.showComments();
+                            store.setConversationScrollTarget(
+                              firstComment.databaseId
+                            );
+                          }}
+                          className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                          <GitCommit className="w-3 h-3" />
+                        </a>
+                      )}
                     </p>
 
                     {/* First comment body */}

@@ -3652,12 +3652,23 @@ function ReviewThreadBox({
             Commit metadata
           </span>
         ) : (
-          <a
-            href={`#file=${encodeURIComponent(filePath)}&L=${firstComment.line}`}
-            className="font-mono text-muted-foreground hover:text-blue-400 hover:underline"
-          >
-            {filePath}
-          </a>
+          <>
+            <a
+              href={`#file=${encodeURIComponent(filePath)}&L=${firstComment.line}`}
+              className="font-mono text-muted-foreground hover:text-blue-400 hover:underline"
+            >
+              {filePath}
+            </a>
+            {firstComment.originalCommit?.oid && (
+              <a
+                href={`#file=${encodeURIComponent(filePath)}&commit=${firstComment.originalCommit?.oid}&L=${firstComment.originalLine ?? firstComment.line}`}
+                title="Open in original commit"
+                className="text-muted-foreground hover:text-blue-400 transition-colors"
+              >
+                <GitCommit className="w-3.5 h-3.5" />
+              </a>
+            )}
+          </>
         )}
         {thread.isResolved && (
           <button

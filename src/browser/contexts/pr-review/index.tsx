@@ -200,6 +200,12 @@ interface PRReviewState {
   /** The commit SHA currently being reviewed (null = full branch) */
   selectedCommitSha: string | null;
   /**
+   * The selected commit's own record when it is not part of the current
+   * version's commit list (e.g. it was amended away by a force push, or
+   * reached via an old review comment anchor). Null when unnecessary.
+   */
+  selectedCommitDetails: PRCommit | null;
+  /**
    * For merge commits, the parent SHA to diff against (null = first parent).
    * Uses the comparison API to get the diff against that parent.
    */
@@ -569,6 +575,8 @@ export class PRReviewStore {
   private baseFiles: PullRequestFile[] = [];
   // Full commit list from the latest PR version (restored when deselecting a push version)
   private baseCommits: PRCommit[] = [];
+  /** In-flight guard so concurrent callers share one loadVersionData run. */
+  private versionDataPromise: Promise<void> | null = null;
 
   constructor(
     github: GitHubStore,
@@ -645,6 +653,7 @@ export class PRReviewStore {
       commitsByVersion: [],
       selectedHeadSha: null,
       selectedCommitSha: null,
+      selectedCommitDetails: null,
       selectedParentSha: null,
       parentCommitMessages: {},
       commitChangeIds: {},
@@ -1327,6 +1336,7 @@ export class PRReviewStore {
       this.set({
         selectedHeadSha: null,
         selectedCommitSha: null,
+        selectedCommitDetails: null,
         parentCommitMessages: {},
         files: this.baseFiles,
         commits: this.baseCommits,
@@ -1360,6 +1370,7 @@ export class PRReviewStore {
     this.set({
       selectedHeadSha: sha,
       selectedCommitSha: null,
+      selectedCommitDetails: null,
       commits: versionCommits ?? this.baseCommits,
       loadedDiffs: {},
       loadingFiles: new Set(),
@@ -1399,6 +1410,7 @@ export class PRReviewStore {
     // causing stale diffs to be parsed and stored before the correct files arrive.
     const resetBase = {
       selectedCommitSha: sha,
+      selectedCommitDetails: null as PRCommit | null,
       selectedParentSha: null,
       parentCommitMessages: {},
       compareToCommitSha: null,
@@ -1459,6 +1471,26 @@ export class PRReviewStore {
 
     // Fire-and-forget: load parent commit titles for merge commits
     this.loadParentCommitMessages(sha);
+
+    // The commit may not be part of the current version's commit list (e.g.
+    // it was amended away by a force push, or reached via an old review
+    // comment anchor). Fetch its record so the commit selector can still
+    // display it instead of falling back to "Full branch".
+    if (!this.state.commits.some((c) => c.sha === sha)) {
+      await this.github
+        .getSingleCommit(
+          owner,
+          repo,
+          sha,
+          `${owner}/${repo}/${this.state.pr.number}`
+        )
+        .then((commit) => {
+          if (this.state.selectedCommitSha === sha) {
+            this.set({ selectedCommitDetails: commit });
+          }
+        })
+        .catch(() => {});
+    }
   };
 
   private async loadParentCommitMessages(sha: string) {
@@ -1834,6 +1866,7 @@ export class PRReviewStore {
     this.set({
       selectedHeadSha: null,
       selectedCommitSha: null,
+      selectedCommitDetails: null,
       selectedParentSha: null,
       parentCommitMessages: {},
       compareToSha: null,
@@ -3300,6 +3333,21 @@ export class PRReviewStore {
   };
 
   /**
+   * SHA of the last push version whose commit list contains `sha`, or null
+   * when the commit lives in the currently viewed version (or is unknown).
+   */
+  findVersionShaForCommit = (sha: string): string | null => {
+    const { commitsByVersion, pushVersions } = this.state;
+    for (let i = commitsByVersion.length - 1; i >= 0; i--) {
+      const vc = commitsByVersion[i];
+      if (vc.commits.some((c) => c.sha === sha)) {
+        return pushVersions.find((v) => v.version === vc.version)?.sha ?? null;
+      }
+    }
+    return null;
+  };
+
+  /**
    * Navigate to a state from a URL hash string.
    * Returns true if navigation was performed.
    * Supports GitHub-style hashes: #pullrequestreview-{id}, #issuecomment-{id}, #discussion_r{id}
@@ -3351,9 +3399,22 @@ export class PRReviewStore {
       });
     }
 
+    // 1b. A commit hash without an explicit viewing version may reference a
+    //     commit amended away from the current version (e.g. an old review
+    //     comment anchor). Switch the viewing version to the last push
+    //     version containing it so the commit has proper context.
+    let effectiveViewParam = viewParam;
+    if (commitParam && viewParam === null) {
+      if (!this.state.versionDataLoaded) {
+        await this.loadVersionData();
+      }
+      const versionSha = this.findVersionShaForCommit(commitParam);
+      if (versionSha) effectiveViewParam = versionSha;
+    }
+
     // 2. Apply viewing version (fetches version-specific file list).
-    if (viewParam !== this.state.selectedHeadSha) {
-      await this.setSelectedHeadSha(viewParam);
+    if (effectiveViewParam !== this.state.selectedHeadSha) {
+      await this.setSelectedHeadSha(effectiveViewParam);
     } else if (compareParam) {
       // Viewing version unchanged (Latest), but compare-to was set
       await this.refreshFiles();
@@ -3611,6 +3672,15 @@ export class PRReviewStore {
    *  the version/commit selector is first opened. */
   loadVersionData = async (): Promise<void> => {
     if (this.state.versionDataLoaded) return;
+    if (this.versionDataPromise) return this.versionDataPromise;
+    const run = this.doLoadVersionData().finally(() => {
+      this.versionDataPromise = null;
+    });
+    this.versionDataPromise = run;
+    return run;
+  };
+
+  private doLoadVersionData = async (): Promise<void> => {
     const { owner, repo, pr } = this.state;
 
     try {

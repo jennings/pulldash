@@ -1,7 +1,11 @@
 import { test, expect, beforeEach, mock } from "bun:test";
 import type { PullRequest, PullRequestFile, ReviewComment } from "@/api/types";
 import { PRReviewStore, sortFilesLikeTree } from "./index";
-import type { GitHubStore, ReviewThread } from "@/browser/contexts/github";
+import type {
+  GitHubStore,
+  PRCommit,
+  ReviewThread,
+} from "@/browser/contexts/github";
 
 // Mock diffService so interdiff calls resolve without real WebWorkers
 mock.module("@/browser/lib/diff", () => ({
@@ -56,6 +60,7 @@ function createMockGitHubStore(): GitHubStore {
     approveWorkflowRun: async () => {},
     updateBranch: async () => {},
     getCommitFiles: async () => [],
+    getSingleCommit: async () => createMockCommit(),
     getMergeCommitFiles: async () => [],
     getPRFilesForRange: async () => [],
   } as unknown as GitHubStore;
@@ -93,6 +98,13 @@ function createMockFile(filename: string): PullRequestFile {
     changes: 15,
     patch: "@@ -1,3 +1,4 @@\n line1\n+added\n line2",
   } as PullRequestFile;
+}
+
+function createMockCommit(sha = "1111111"): PRCommit {
+  return {
+    sha,
+    commit: { message: "commit title", parents: [] },
+  } as unknown as PRCommit;
 }
 
 function createMockComment(
@@ -700,6 +712,132 @@ test("navigateFromHash returns false for invalid file", async () => {
   const result = await store.navigateFromHash("file=nonexistent.ts");
 
   expect(result).toBe(false);
+});
+
+test("navigateFromHash selects commit context from hash", async () => {
+  const commitSha = "9fb12783b9152f39ad9c6aeb646caf469c985571";
+  const commitFile = createMockFile("tests/test.py");
+  const github = {
+    ...createMockGitHubStore(),
+    getCommitFiles: async () => [commitFile],
+    getSingleCommit: async () => createMockCommit(commitSha),
+  } as unknown as GitHubStore;
+  const store = new PRReviewStore(github, {
+    pr: createMockPR(),
+    files: [createMockFile("src/index.ts")],
+    comments: [],
+    owner: "test",
+    repo: "repo",
+    viewerPermission: "WRITE",
+  });
+
+  const result = await store.navigateFromHash(
+    `#file=tests%2Ftest.py&commit=${commitSha}&L=153`
+  );
+
+  expect(result).toBe(true);
+  const state = store.getSnapshot();
+  expect(state.selectedCommitSha).toBe(commitSha);
+  expect(state.selectedCommitDetails?.sha).toBe(commitSha);
+  expect(state.selectedFile).toBe("tests/test.py");
+  expect(state.files).toEqual([commitFile]);
+  expect(state.focusedLine).toBe(153);
+});
+
+test("navigateFromHash with a commit in the current version skips details fetch", async () => {
+  const commitSha = "9fb12783b9152f39ad9c6aeb646caf469c985571";
+  const commitFile = createMockFile("tests/test.py");
+  const github = {
+    ...createMockGitHubStore(),
+    getCommitFiles: async () => [commitFile],
+    getSingleCommit: async () => createMockCommit(commitSha),
+  } as unknown as GitHubStore;
+  const store = new PRReviewStore(github, {
+    pr: createMockPR(),
+    files: [createMockFile("src/index.ts")],
+    comments: [],
+    owner: "test",
+    repo: "repo",
+    viewerPermission: "WRITE",
+  });
+  (store as never as { set: (s: unknown) => void }).set({
+    commits: [{ sha: commitSha, commit: { message: "t", parents: [] } }],
+  });
+
+  const result = await store.navigateFromHash(
+    `#file=tests%2Ftest.py&commit=${commitSha}&L=153`
+  );
+
+  expect(result).toBe(true);
+  const state = store.getSnapshot();
+  expect(state.selectedCommitSha).toBe(commitSha);
+  expect(state.selectedCommitDetails).toBeNull();
+});
+
+test("navigateFromHash switches viewing version to the one containing the commit", async () => {
+  const commitSha = "9fb12783b9152f39ad9c6aeb646caf469c985571";
+  const commitFile = createMockFile("tests/test.py");
+  const oldCommit = createMockCommit(commitSha);
+  const github = {
+    ...createMockGitHubStore(),
+    getCommitFiles: async () => [commitFile],
+    getSingleCommit: async () => oldCommit,
+  } as unknown as GitHubStore;
+  const store = new PRReviewStore(github, {
+    pr: createMockPR(),
+    files: [createMockFile("src/index.ts")],
+    comments: [],
+    owner: "test",
+    repo: "repo",
+    viewerPermission: "WRITE",
+  });
+  (store as never as { set: (s: unknown) => void }).set({
+    versionDataLoaded: true,
+    pushVersions: [{ version: 1, sha: "v1sha", pushedAt: "2026-01-01" }],
+    commitsByVersion: [{ version: 1, commits: [oldCommit] }],
+  });
+
+  const result = await store.navigateFromHash(
+    `#file=tests%2Ftest.py&commit=${commitSha}&L=153`
+  );
+
+  expect(result).toBe(true);
+  const state = store.getSnapshot();
+  expect(state.selectedHeadSha).toBe("v1sha");
+  expect(state.selectedCommitSha).toBe(commitSha);
+  expect(state.selectedFile).toBe("tests/test.py");
+  expect(state.selectedCommitDetails).toBeNull();
+});
+
+test("navigateFromHash keeps Latest for a commit unknown to all versions", async () => {
+  const commitSha = "9fb12783b9152f39ad9c6aeb646caf469c985571";
+  const commitFile = createMockFile("tests/test.py");
+  const github = {
+    ...createMockGitHubStore(),
+    getCommitFiles: async () => [commitFile],
+    getSingleCommit: async () => createMockCommit(commitSha),
+  } as unknown as GitHubStore;
+  const store = new PRReviewStore(github, {
+    pr: createMockPR(),
+    files: [createMockFile("src/index.ts")],
+    comments: [],
+    owner: "test",
+    repo: "repo",
+    viewerPermission: "WRITE",
+  });
+  (store as never as { set: (s: unknown) => void }).set({
+    versionDataLoaded: true,
+  });
+
+  const result = await store.navigateFromHash(
+    `#file=tests%2Ftest.py&commit=${commitSha}&L=153`
+  );
+
+  expect(result).toBe(true);
+  const state = store.getSnapshot();
+  expect(state.selectedHeadSha).toBeNull();
+  expect(state.selectedCommitSha).toBe(commitSha);
+  expect(state.selectedCommitDetails?.sha).toBe(commitSha);
 });
 
 test("navigateFromHash handles GitHub-style pullrequestreview hash", async () => {

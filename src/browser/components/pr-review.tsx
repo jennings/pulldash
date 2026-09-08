@@ -104,10 +104,7 @@ import {
   isMetadataComment,
   parseCommitMetadataMarker,
 } from "../../shared/commit-metadata";
-import {
-  resolveCommentLineFromDiffHunk,
-  commitShasMatch,
-} from "../lib/comment-anchor";
+import { resolveCommentLine } from "../lib/comment-anchor";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -775,6 +772,9 @@ function VersionBar() {
   const compareToCommitSha = usePRReviewSelector((s) => s.compareToCommitSha);
   const selectedHeadSha = usePRReviewSelector((s) => s.selectedHeadSha);
   const selectedCommitSha = usePRReviewSelector((s) => s.selectedCommitSha);
+  const selectedCommitDetails = usePRReviewSelector(
+    (s) => s.selectedCommitDetails
+  );
   const selectedParentSha = usePRReviewSelector((s) => s.selectedParentSha);
   const parentCommitMessages = usePRReviewSelector(
     (s) => s.parentCommitMessages
@@ -836,7 +836,8 @@ function VersionBar() {
       : `v?`;
 
   const selectedCommit = selectedCommitSha
-    ? commits.find((c) => c.sha === selectedCommitSha)
+    ? (commits.find((c) => c.sha === selectedCommitSha) ??
+      selectedCommitDetails)
     : null;
 
   const compareToVersion = compareToSha
@@ -1002,6 +1003,19 @@ function VersionBar() {
                 <Check className="w-3 h-3 ml-2 shrink-0" />
               )}
             </DropdownMenuItem>
+            {selectedCommit &&
+              !commits.some((c) => c.sha === selectedCommitSha) && (
+                <DropdownMenuItem className="text-xs flex items-center gap-2">
+                  <GitCommit className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+                  <span className="flex-1 truncate">
+                    {selectedCommit.commit.message.split("\n")[0]}
+                  </span>
+                  <span className="font-mono text-muted-foreground shrink-0">
+                    {selectedCommitSha?.slice(0, 7)}
+                  </span>
+                  <Check className="w-3 h-3 shrink-0" />
+                </DropdownMenuItem>
+              )}
             {commits.map((c) => (
               <DropdownMenuItem
                 key={c.sha}
@@ -1804,7 +1818,7 @@ const DiffViewer = memo(function DiffViewer({
   // to any other commit must be re-positioned by content instead of using
   // `comment.line` (which is in the comment's commit_id coordinates).
   const viewedCommitSha = usePRReviewSelector(
-    (s) => s.selectedHeadSha ?? s.pr.head.sha
+    (s) => s.selectedCommitSha ?? s.selectedHeadSha ?? s.pr.head.sha
   );
 
   // Note: selectionState removed from context - rows subscribe directly to avoid re-renders
@@ -1856,24 +1870,19 @@ const DiffViewer = memo(function DiffViewer({
     const map = new Map<number, ReviewComment[]>();
     for (const comment of comments) {
       if (comment.subject_type === "file") continue;
-      let line: number | null | undefined;
-      if (
-        comment.commit_id &&
-        !commitShasMatch(comment.commit_id, viewedCommitSha)
-      ) {
-        // Comment was made on a different commit; re-anchor by content.
-        line = resolveCommentLineFromDiffHunk(
-          {
-            side: comment.side as "LEFT" | "RIGHT" | null | undefined,
-            line: comment.line,
-            startLine: comment.start_line,
-            diffHunk: comment.diff_hunk,
-          },
-          diff
-        );
-      } else {
-        line = comment.line ?? comment.original_line;
-      }
+      const line = resolveCommentLine(
+        {
+          commitId: comment.commit_id,
+          originalCommitId: comment.original_commit_id,
+          line: comment.line,
+          originalLine: comment.original_line,
+          side: comment.side as "LEFT" | "RIGHT" | null | undefined,
+          startLine: comment.start_line,
+          diffHunk: comment.diff_hunk,
+        },
+        viewedCommitSha,
+        diff
+      );
       if (line) {
         const existing = map.get(line) || [];
         existing.push(comment);
