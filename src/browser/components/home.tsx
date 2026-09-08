@@ -17,6 +17,7 @@ import {
   FileCode,
   Check,
   GitMerge,
+  GitBranch,
   ChevronDown,
   Eye,
   EyeOff,
@@ -2480,6 +2481,15 @@ function PRListItem({ pr, onSelect }: PRListItemProps) {
             </>
           )}
           <span>#{pr.number}</span>
+          {pr.baseRefName && pr.baseRefName !== pr.defaultBranchName && (
+            <>
+              <span className="hidden xs:inline">•</span>
+              <span className="hidden sm:flex items-center gap-1 font-mono">
+                <GitBranch className="w-3 h-3" />
+                {pr.baseRefName}
+              </span>
+            </>
+          )}
           <span className="hidden xs:inline">•</span>
           <span className={cn("hidden xs:inline", isStalled && "text-red-500")}>
             {getTimeAgo(new Date(pr.updated_at))}

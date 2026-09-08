@@ -139,6 +139,9 @@ export interface PRSearchResult {
   }>;
   // Whether this PR is currently sitting in the repo's merge queue
   inMergeQueue?: boolean;
+  // Target branch, only shown when it differs from the repo's default branch
+  baseRefName?: string;
+  defaultBranchName?: string;
 }
 
 export interface WorkflowRunAwaitingApproval {

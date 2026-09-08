@@ -1120,6 +1120,8 @@ type EnrichmentResult = {
     state: "pending" | "success" | "failure" | "skipped";
   }>;
   reviewDecision: "APPROVED" | "CHANGES_REQUESTED" | "REVIEW_REQUIRED" | null;
+  baseRefName?: string;
+  defaultBranchName?: string;
   latestReviews: Array<{
     login: string;
     avatarUrl: string;
@@ -1136,8 +1138,10 @@ async function _enrichPRs(
     .map(
       (pr, idx) => `
     pr${idx}: repository(owner: "${pr.owner}", name: "${pr.repo}") {
+      defaultBranchRef { name }
       pullRequest(number: ${pr.number}) {
         number
+        baseRefName
         updatedAt
         isReadByViewer
         changedFiles
@@ -1178,8 +1182,10 @@ async function _enrichPRs(
     Record<
       string,
       {
+        defaultBranchRef: { name: string } | null;
         pullRequest: {
           number: number;
+          baseRefName: string;
           updatedAt: string;
           isReadByViewer: boolean;
           changedFiles: number;
@@ -1316,6 +1322,8 @@ async function _enrichPRs(
       ciSummary,
       ciChecks,
       reviewDecision: result.reviewDecision,
+      baseRefName: result.baseRefName,
+      defaultBranchName: data[`pr${idx}`]?.defaultBranchRef?.name ?? undefined,
       latestReviews: Array.from(reviewsByUser.values()),
       inMergeQueue: result.isInMergeQueue,
     });
