@@ -118,6 +118,9 @@
   --markdown-table-header-bg: oklch(0.2 0 0);
   --markdown-table-alt-row: oklch(0.18 0 0 / 50%);
   --code-bg: #0d1117;
+  --code-added: #22c55e; /* green-500, inline word-diff background */
+  --code-removed: #ea580c; /* orange-600, inline word-diff background */
+  --code-changed: #eab308; /* yellow-500, inline word-diff background */
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);
