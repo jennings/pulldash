@@ -1386,6 +1386,7 @@ function createGitHubStore() {
       }
     );
 
+    markSelfActivity(`${owner}/${repo}#${number}`);
     invalidatePR(owner, repo, number);
     return data;
   }

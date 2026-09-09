@@ -2327,18 +2327,6 @@ export const PROverview = memo(function PROverview() {
                       )}
                       {reviewer.state === "PENDING" ? (
                         <>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span className="ml-auto cursor-default">
-                                <Clock className="w-3.5 h-3.5 text-yellow-500" />
-                              </span>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              {reviewer.isTeam
-                                ? "Awaiting review from this team"
-                                : "Awaiting review from this user"}
-                            </TooltipContent>
-                          </Tooltip>
                           {canMergeRepo && !pr.merged && (
                             <button
                               onClick={() =>
@@ -2357,9 +2345,34 @@ export const PROverview = memo(function PROverview() {
                               <X className="w-3 h-3" />
                             </button>
                           )}
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="cursor-default">
+                                <Clock className="w-3.5 h-3.5 text-yellow-500" />
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              {reviewer.isTeam
+                                ? "Awaiting review from this team"
+                                : "Awaiting review from this user"}
+                            </TooltipContent>
+                          </Tooltip>
                         </>
                       ) : (
-                        <ReviewStateIcon state={reviewer.state} showTooltip />
+                        <>
+                          {canMergeRepo && !pr.merged && (
+                            <button
+                              onClick={() =>
+                                handleRequestReviewer(reviewer.login)
+                              }
+                              className="p-0.5 text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+                              title="Re-request review"
+                            >
+                              <RefreshCw className="w-3 h-3" />
+                            </button>
+                          )}
+                          <ReviewStateIcon state={reviewer.state} showTooltip />
+                        </>
                       )}
                     </div>
                   ))
