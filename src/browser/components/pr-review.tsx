@@ -3521,13 +3521,19 @@ const DiffLineRow = memo(function DiffLineRow({
 
   // Selection highlighting is handled via CSS data attributes (no per-row subscription needed)
 
-  // Check if this line has an in-progress comment draft
+  // Check if this line has an in-progress comment draft. Draft keys are
+  // "${path}:${line}:${startLine ?? ""}" — match on the line segment, taking
+  // the last two separators so ":" in file paths stays unambiguous.
   const hasDraft = usePRReviewSelector((s) => {
     if (lineNum === undefined) return false;
-    const key = `${lineNum}:`;
-    return Object.keys(s.commentDrafts).some(
-      (k) => (k === key || k.startsWith(key)) && s.commentDrafts[k].trim()
-    );
+    return Object.keys(s.commentDrafts).some((k) => {
+      const lineEnd = k.lastIndexOf(":");
+      const lineStart = k.lastIndexOf(":", lineEnd - 1);
+      return (
+        k.slice(lineStart + 1, lineEnd) === String(lineNum) &&
+        s.commentDrafts[k].trim()
+      );
+    });
   });
   const rowCommentsHidden = usePRReviewSelector((s) => s.commentsHidden);
 
@@ -4215,7 +4221,9 @@ const InlineCommentForm = memo(function InlineCommentForm({
   const { addPendingComment } = useCommentActions();
   const parsedDiff = useCurrentDiff();
 
-  const draftKey = `${line}:${startLine ?? ""}`;
+  const selectedFile = usePRReviewSelector((s) => s.selectedFile);
+
+  const draftKey = `${selectedFile ?? ""}:${line}:${startLine ?? ""}`;
   const [text, setText] = useState(
     () => store.getSnapshot().commentDrafts[draftKey] ?? ""
   );
@@ -4265,7 +4273,14 @@ const InlineCommentForm = memo(function InlineCommentForm({
     }
   }, [text, line, startLine, addPendingComment, store, draftKey]);
 
-  const handleCancel = useCallback(() => {
+  // Esc just closes the form: the unmount effect persists the draft, so
+  // reopening the composer on this line restores the text. Discard is the
+  // explicit Cancel/X action.
+  const handleClose = useCallback(() => {
+    store.cancelCommenting();
+  }, [store]);
+
+  const handleDiscard = useCallback(() => {
     store.clearCommentDraft(draftKey);
     textRef.current = "";
     store.cancelCommenting();
@@ -4279,10 +4294,10 @@ const InlineCommentForm = memo(function InlineCommentForm({
       }
       if (e.key === "Escape") {
         e.preventDefault();
-        handleCancel();
+        handleClose();
       }
     },
-    [handleSubmit, handleCancel]
+    [handleSubmit, handleClose]
   );
 
   const handleSuggestChange = useCallback(() => {
@@ -4367,7 +4382,8 @@ const InlineCommentForm = memo(function InlineCommentForm({
           </span>
         </div>
         <button
-          onClick={handleCancel}
+          onClick={handleClose}
+          title="Close (keeps draft)"
           className="text-muted-foreground hover:text-foreground transition-colors p-1 rounded hover:bg-muted/50"
         >
           <X className="w-4 h-4" />
@@ -4410,7 +4426,8 @@ const InlineCommentForm = memo(function InlineCommentForm({
         style={{ fontFamily: "var(--font-sans)" }}
       >
         <button
-          onClick={handleCancel}
+          onClick={handleDiscard}
+          title="Discard draft"
           className="px-4 py-2 text-sm font-medium rounded-md border border-border bg-background hover:bg-muted transition-colors"
           style={{ fontFamily: "var(--font-sans)" }}
         >
@@ -4457,7 +4474,9 @@ const CommentThread = memo(function CommentThread({
   const repo = usePRReviewSelector((s) => s.repo);
   const { replyToComment, updateComment, deleteComment } = useCommentActions();
   const { resolveThread, unresolveThread } = useThreadActions();
-  const [replyText, setReplyText] = useState("");
+  const [replyText, setReplyText] = useState(
+    () => store.getSnapshot().replyDrafts[comments[0]?.id ?? -1] ?? ""
+  );
   const [submitting, setSubmitting] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [resolving, setResolving] = useState(false);
@@ -4471,6 +4490,21 @@ const CommentThread = memo(function CommentThread({
   const isOutdated = firstComment?.outdated ?? false;
   const threadId = firstComment?.pull_request_review_thread_id;
 
+  const draftCommentId = firstComment?.id ?? null;
+
+  const handleReplyChange = useCallback(
+    (value: string) => {
+      setReplyText(value);
+      if (draftCommentId == null) return;
+      if (value.trim()) {
+        store.setReplyDraft(draftCommentId, value);
+      } else {
+        store.clearReplyDraft(draftCommentId);
+      }
+    },
+    [draftCommentId, store]
+  );
+
   const handleSubmitReply = useCallback(async () => {
     if (!replyText.trim() || !replyingTo) return;
 
@@ -4478,11 +4512,14 @@ const CommentThread = memo(function CommentThread({
     try {
       await replyToComment(replyingTo, replyText.trim());
       setReplyText("");
+      if (draftCommentId != null) store.clearReplyDraft(draftCommentId);
     } finally {
       setSubmitting(false);
     }
-  }, [replyText, replyingTo, replyToComment]);
+  }, [replyText, replyingTo, replyToComment, draftCommentId, store]);
 
+  // Esc just closes the editor; the draft stays in the store so reopening
+  // the reply box restores the text. The Cancel button discards explicitly.
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
@@ -4492,16 +4529,16 @@ const CommentThread = memo(function CommentThread({
       if (e.key === "Escape") {
         e.preventDefault();
         store.cancelReplying();
-        setReplyText("");
       }
     },
     [handleSubmitReply, store]
   );
 
   const handleCancel = useCallback(() => {
-    store.cancelReplying();
+    if (draftCommentId != null) store.clearReplyDraft(draftCommentId);
     setReplyText("");
-  }, [store]);
+    store.cancelReplying();
+  }, [store, draftCommentId]);
 
   const handleResolve = useCallback(async () => {
     if (!threadId) return;
@@ -4666,7 +4703,7 @@ const CommentThread = memo(function CommentThread({
             <div className="px-4 py-3 border-t border-border/50">
               <MarkdownEditor
                 value={replyText}
-                onChange={setReplyText}
+                onChange={handleReplyChange}
                 onKeyDown={handleKeyDown}
                 placeholder="Write a reply..."
                 minHeight="60px"
@@ -4675,6 +4712,7 @@ const CommentThread = memo(function CommentThread({
               <div className="flex justify-end gap-2 mt-3">
                 <button
                   onClick={handleCancel}
+                  title="Discard draft"
                   className="px-3 py-1.5 text-sm rounded-md hover:bg-muted transition-colors"
                 >
                   Cancel

@@ -340,8 +340,10 @@ interface PRReviewState {
   focusedCommentId: number | null;
   editingCommentId: number | null;
   replyingToCommentId: number | null;
-  // In-progress comment drafts, keyed by "${endLine}:${startLine ?? ""}"
+  // In-progress comment drafts, keyed by "${path}:${endLine}:${startLine ?? ""}"
   commentDrafts: Record<string, string>;
+  // In-progress reply drafts, keyed by thread comment ID
+  replyDrafts: Record<string, string>;
 
   // Pending comment focus/edit (separate from regular comments since IDs are strings)
   focusedPendingCommentId: string | null;
@@ -632,6 +634,22 @@ export class PRReviewStore {
       }
     } catch {}
 
+    // Load comment and reply drafts from localStorage
+    let commentDrafts: Record<string, string> = {};
+    let replyDrafts: Record<string, string> = {};
+    try {
+      const stored = localStorage.getItem(`${this.storageKey}-drafts`);
+      if (stored) {
+        commentDrafts = JSON.parse(stored);
+      }
+    } catch {}
+    try {
+      const stored = localStorage.getItem(`${this.storageKey}-reply-drafts`);
+      if (stored) {
+        replyDrafts = JSON.parse(stored);
+      }
+    } catch {}
+
     // Sort files to match file tree order (folders first, then alphabetically)
     const sortedFiles = sortFilesLikeTree(initialState.files);
     this.baseFiles = sortedFiles;
@@ -738,7 +756,8 @@ export class PRReviewStore {
       focusedCommentId: null,
       editingCommentId: null,
       replyingToCommentId: null,
-      commentDrafts: {},
+      commentDrafts,
+      replyDrafts,
       focusedPendingCommentId: null,
       editingPendingCommentId: null,
       pendingReviewId: null,
@@ -1184,6 +1203,8 @@ export class PRReviewStore {
       localStorage.removeItem(`${this.storageKey}-pending`);
       localStorage.removeItem(`${this.storageKey}-body`);
       localStorage.removeItem(`${this.storageKey}-review-session`);
+      localStorage.removeItem(`${this.storageKey}-drafts`);
+      localStorage.removeItem(`${this.storageKey}-reply-drafts`);
     } catch {}
   }
 
@@ -2749,12 +2770,45 @@ export class PRReviewStore {
     this.set({
       commentDrafts: { ...this.state.commentDrafts, [key]: text },
     });
+    try {
+      localStorage.setItem(
+        `${this.storageKey}-drafts`,
+        JSON.stringify(this.state.commentDrafts)
+      );
+    } catch {}
   };
 
   clearCommentDraft = (key: string) => {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { [key]: _removed, ...rest } = this.state.commentDrafts;
     this.set({ commentDrafts: rest });
+    try {
+      localStorage.setItem(`${this.storageKey}-drafts`, JSON.stringify(rest));
+    } catch {}
+  };
+
+  setReplyDraft = (commentId: number, text: string) => {
+    this.set({
+      replyDrafts: { ...this.state.replyDrafts, [commentId]: text },
+    });
+    try {
+      localStorage.setItem(
+        `${this.storageKey}-reply-drafts`,
+        JSON.stringify(this.state.replyDrafts)
+      );
+    } catch {}
+  };
+
+  clearReplyDraft = (commentId: number) => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { [commentId]: _removed, ...rest } = this.state.replyDrafts;
+    this.set({ replyDrafts: rest });
+    try {
+      localStorage.setItem(
+        `${this.storageKey}-reply-drafts`,
+        JSON.stringify(rest)
+      );
+    } catch {}
   };
 
   enterGotoMode = () => {

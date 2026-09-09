@@ -1603,6 +1603,45 @@ test("clearCommentDraft does nothing for non-existent key", () => {
   expect(store.getSnapshot().commentDrafts).toEqual({});
 });
 
+test("comment drafts persist to localStorage and hydrate in a new store", () => {
+  const store = createStore();
+  store.setCommentDraft("src/index.ts:42:", "my draft");
+  store.setCommentDraft("src/index.ts:42:38", "ranged draft");
+
+  const rehydrated = createStore();
+  expect(rehydrated.getSnapshot().commentDrafts["src/index.ts:42:"]).toBe(
+    "my draft"
+  );
+  expect(rehydrated.getSnapshot().commentDrafts["src/index.ts:42:38"]).toBe(
+    "ranged draft"
+  );
+});
+
+test("clearCommentDraft removes the draft from persisted storage", () => {
+  const store = createStore();
+  store.setCommentDraft("a:1:", "one");
+  store.setCommentDraft("a:2:1", "two");
+  store.clearCommentDraft("a:1:");
+
+  const rehydrated = createStore();
+  expect(rehydrated.getSnapshot().commentDrafts).toEqual({ "a:2:1": "two" });
+});
+
+test("reply drafts persist to localStorage and clear removes them", () => {
+  const store = createStore();
+  store.setReplyDraft(7, "reply draft");
+  expect(store.getSnapshot().replyDrafts[7]).toBe("reply draft");
+
+  const rehydrated = createStore();
+  expect(rehydrated.getSnapshot().replyDrafts[7]).toBe("reply draft");
+
+  rehydrated.clearReplyDraft(7);
+  expect(rehydrated.getSnapshot().replyDrafts[7]).toBeUndefined();
+
+  const afterClear = createStore();
+  expect(afterClear.getSnapshot().replyDrafts[7]).toBeUndefined();
+});
+
 // ============================================================================
 // PR Actions (close, reopen, draft, branch)
 // ============================================================================
