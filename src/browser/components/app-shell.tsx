@@ -29,6 +29,7 @@ import {
   getNotifiedAt,
   setNotifiedAt,
   consumeSelfActivity,
+  observeMergedState,
 } from "../lib/notifications";
 import { Home } from "./home";
 import { PRReviewContent } from "./pr-review";
@@ -391,17 +392,36 @@ export function AppShell() {
       );
       const notifiedThisCycle = new Set<string>();
 
+      const notifyMerged = (
+        owner: string,
+        repo: string,
+        number: number,
+        title: string
+      ) => {
+        sendNotification(
+          `PR merged: ${owner}/${repo} #${number}`,
+          title,
+          `/${owner}/${repo}/pull/${number}`,
+          `https://avatars.githubusercontent.com/${owner}`
+        );
+      };
+
       for (const tab of prTabs) {
         const key = `${tab.owner}/${tab.repo}/${tab.number}`;
         const prId = `${tab.owner}/${tab.repo}#${tab.number}`;
         const enrichment = enrichmentMap.get(key);
         if (!enrichment) continue;
+        // Track merged state first: a fresh unmerged→merged transition
+        // notifies even when the PR is already read and takes precedence
+        // over the generic activity notification.
+        const mergeTransition = observeMergedState(prId, enrichment.merged);
         // Process each new activity value exactly once (getNotifiedAt tracks
         // the last processed updatedAt): refresh cached data, badge the tab,
         // and update the viewed one in place.
         if (
           !notifiedThisCycle.has(prId) &&
-          enrichment.updatedAt > (getNotifiedAt(prId) ?? "")
+          (mergeTransition ||
+            enrichment.updatedAt > (getNotifiedAt(prId) ?? ""))
         ) {
           notifiedThisCycle.add(prId);
           setNotifiedAt(prId, enrichment.updatedAt);
@@ -413,27 +433,44 @@ export function AppShell() {
             queryKey: ["pull-request", tab.owner, tab.repo, tab.number],
           });
           // If the user is looking at this PR right now, refresh it in place
-          // (no remount) and hint about the new activity when it's not
-          // already read. Otherwise badge it.
+          // (no remount) and hint about the new activity. Otherwise badge it.
           if (tab.id === activeTab?.id) {
             notifyPRRefresh(tab.owner, tab.repo, tab.number);
-            if (!enrichment.isReadByViewer && !selfMutated) {
+            if (mergeTransition) {
+              if (!selfMutated) {
+                setHint({ text: "PR merged", kind: "success" });
+              }
+            } else if (!enrichment.isReadByViewer && !selfMutated) {
               setHint({ text: "New activity on this PR", kind: "success" });
             }
           } else {
             markTabUpdated(tab.id);
           }
-          // GitHub reports the thread as read for the viewer's own activity
-          // (or after visiting it on github.com) — only notify about unread
-          // activity.
-          if (notifsEnabled() && !enrichment.isReadByViewer && !selfMutated) {
+          // A merge notifies even when the PR is read; otherwise GitHub
+          // reports the thread as read for the viewer's own activity (or
+          // after visiting it on github.com) and only unread activity
+          // notifies.
+          if (
+            notifsEnabled() &&
+            !selfMutated &&
+            (mergeTransition || !enrichment.isReadByViewer)
+          ) {
             const prUrl = `/${tab.owner}/${tab.repo}/pull/${tab.number}`;
-            sendNotification(
-              `New activity on ${tab.owner}/${tab.repo} PR #${tab.number}`,
-              tab.prTitle || `#${tab.number}`,
-              prUrl,
-              `https://avatars.githubusercontent.com/${tab.owner}`
-            );
+            if (mergeTransition) {
+              notifyMerged(
+                tab.owner,
+                tab.repo,
+                tab.number,
+                tab.prTitle || `#${tab.number}`
+              );
+            } else {
+              sendNotification(
+                `New activity on ${tab.owner}/${tab.repo} PR #${tab.number}`,
+                tab.prTitle || `#${tab.number}`,
+                prUrl,
+                `https://avatars.githubusercontent.com/${tab.owner}`
+              );
+            }
             if (isRepoInHomeFilters(tab.owner, tab.repo)) {
               queryClient.invalidateQueries({ queryKey: ["pr-list"] });
             }
@@ -453,21 +490,27 @@ export function AppShell() {
 
         const enrichment = enrichmentMap.get(prKey);
         if (!enrichment) continue;
+        const mergeTransition = observeMergedState(prId, enrichment.merged);
         if (
           !notifiedThisCycle.has(prId) &&
-          enrichment.updatedAt > (getNotifiedAt(prId) ?? "") &&
-          !enrichment.isReadByViewer
+          (mergeTransition ||
+            (enrichment.updatedAt > (getNotifiedAt(prId) ?? "") &&
+              !enrichment.isReadByViewer))
         ) {
           notifiedThisCycle.add(prId);
           const selfMutated = consumeSelfActivity(prId);
           const prUrl = `/${owner}/${repo}/pull/${number}`;
           if (!selfMutated) {
-            sendNotification(
-              `New activity on ${owner}/${repo} PR #${number}`,
-              pr.title,
-              prUrl,
-              `https://avatars.githubusercontent.com/${owner}`
-            );
+            if (mergeTransition) {
+              notifyMerged(owner, repo, number, pr.title);
+            } else {
+              sendNotification(
+                `New activity on ${owner}/${repo} PR #${number}`,
+                pr.title,
+                prUrl,
+                `https://avatars.githubusercontent.com/${owner}`
+              );
+            }
           }
           setNotifiedAt(prId, enrichment.updatedAt);
           // Drop cached PR data so a reopened tab refetches.

@@ -1,6 +1,7 @@
 const ENABLED_KEY = "pulldash_notifications_enabled";
 const TIMESTAMPS_KEY = "pulldash_notified_timestamps";
 const SELF_ACTIVITY_KEY = "pulldash_self_activity";
+const MERGED_KEY = "pulldash_merged_seen";
 const MAX_ENTRIES = 1000;
 const MAX_AGE_MS = 60 * 24 * 60 * 60 * 1000;
 
@@ -138,4 +139,39 @@ export function consumeSelfActivity(prId: string): boolean {
   } catch {
     return false;
   }
+}
+
+function getMergedSeen(prId: string): boolean | null {
+  try {
+    const data = JSON.parse(localStorage.getItem(MERGED_KEY) ?? "{}");
+    const entry = data[prId];
+    return entry ? entry.m === 1 : null;
+  } catch {
+    return null;
+  }
+}
+
+function setMergedSeen(prId: string, merged: boolean): void {
+  try {
+    const data = JSON.parse(localStorage.getItem(MERGED_KEY) ?? "{}");
+    data[prId] = { m: merged ? 1 : 0, t: Date.now() };
+    if (Object.keys(data).length > MAX_ENTRIES) {
+      const cutoff = Date.now() - MAX_AGE_MS;
+      for (const [id, entry] of Object.entries(data)) {
+        if ((entry as { t: number }).t < cutoff) delete data[id];
+      }
+    }
+    localStorage.setItem(MERGED_KEY, JSON.stringify(data));
+  } catch {
+    // ignore
+  }
+}
+
+// Records the observed merged state and reports whether it just transitioned
+// from unmerged to merged. First-ever observation is never a transition, so
+// already-merged PRs stay silent on startup.
+export function observeMergedState(prId: string, merged: boolean): boolean {
+  const prev = getMergedSeen(prId);
+  setMergedSeen(prId, merged);
+  return prev === false && merged;
 }

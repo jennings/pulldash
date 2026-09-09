@@ -253,6 +253,7 @@ export interface PREnrichment {
     state: "APPROVED" | "CHANGES_REQUESTED";
   }>;
   inMergeQueue: boolean;
+  merged: boolean;
 }
 
 // Minimal info to enrich `issue-link` anchors in markdown with title/state
@@ -1952,6 +1953,7 @@ function createGitHubStore() {
           additions
           deletions
           isInMergeQueue
+          merged
           reviewDecision
           latestOpinionatedReviews(first: 10) {
             nodes {
@@ -2020,6 +2022,7 @@ function createGitHubStore() {
             additions: number;
             deletions: number;
             isInMergeQueue: boolean;
+            merged: boolean;
             reviewDecision:
               | "APPROVED"
               | "CHANGES_REQUESTED"
@@ -2170,6 +2173,7 @@ function createGitHubStore() {
           reviewDecision: result.reviewDecision,
           latestReviews,
           inMergeQueue: result.isInMergeQueue,
+          merged: result.merged,
         });
       }
     });
