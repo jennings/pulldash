@@ -172,6 +172,25 @@ function useSyncTabStatus(
   }, [tabId, updateTabStatus, prData, checkStatus, inMergeQueue]);
 }
 
+// Syncs tab status from the PR review store, so optimistic updates
+// (draft <-> ready, merge/close) reflect on the tab dot immediately.
+function TabStatusSync({
+  tabId,
+  owner,
+  repo,
+  number,
+}: {
+  tabId?: string;
+  owner: string;
+  repo: string;
+  number: number;
+}) {
+  const pr = usePRReviewSelector((s) => s.pr);
+  const prInMergeQueue = usePRReviewSelector((s) => s.prInMergeQueue);
+  useSyncTabStatus(tabId, owner, repo, number, pr, prInMergeQueue);
+  return null;
+}
+
 // ============================================================================
 // Page Component (Data Fetching) - Used for direct URL access
 // ============================================================================
@@ -216,7 +235,6 @@ interface PRFetchResult {
   files: PullRequestFile[];
   comments: ReviewComment[];
   viewerPermission: string | null;
-  inMergeQueue: boolean;
 }
 
 export function PRReviewContent({
@@ -231,16 +249,6 @@ export function PRReviewContent({
   const [fetchedData, setFetchedData] = useState<PRFetchResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  // Sync check status with tab (uses data store for auto-refresh)
-  useSyncTabStatus(
-    tabId,
-    owner,
-    repo,
-    number,
-    fetchedData?.pr ?? null,
-    fetchedData?.inMergeQueue ?? false
-  );
 
   // Get tab context for caching PR metadata on tab switch
   let updateTabMeta:
@@ -294,7 +302,6 @@ export function PRReviewContent({
           files,
           comments: comments as ReviewComment[],
           viewerPermission: reviewThreadsResult.viewerPermission,
-          inMergeQueue: reviewThreadsResult.isInMergeQueue ?? false,
         });
       } catch (e) {
         // Silent refreshes keep the current data on failure
@@ -391,6 +398,7 @@ export function PRReviewContent({
       repo={repo}
       viewerPermission={fetchedData.viewerPermission}
     >
+      <TabStatusSync tabId={tabId} owner={owner} repo={repo} number={number} />
       <PRReviewLayout />
     </PRReviewProvider>
   );
