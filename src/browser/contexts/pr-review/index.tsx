@@ -91,6 +91,9 @@ export interface LocalPendingComment extends PendingReviewComment {
   nodeId?: string;
   // Database ID (for REST API compatibility)
   databaseId?: number;
+  // Commit view (or push-version view) the comment was made on. Comments are
+  // anchored to this commit at submission; undefined means the PR head.
+  targetSha?: string;
 }
 
 interface LineSegment {

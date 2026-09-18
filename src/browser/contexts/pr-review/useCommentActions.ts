@@ -57,6 +57,10 @@ export function useCommentActions() {
     // Create a local comment first for immediate UI feedback
     // Local path/line stay on ":commit" so it appears at the right place
     const localId = `pending-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    // Record the diff the comment was made on so submission can anchor it
+    // to that commit (undefined = PR head).
+    const targetSha =
+      state.selectedCommitSha ?? state.selectedHeadSha ?? undefined;
     const newComment: LocalPendingComment = {
       id: localId,
       path: state.selectedFile,
@@ -64,30 +68,36 @@ export function useCommentActions() {
       start_line: startLine,
       body: finalBody,
       side: commentSide,
+      targetSha,
     };
 
     store.addPendingComment(newComment);
 
-    // Sync to GitHub via GraphQL - this creates/adds to the pending review
-    // For :commit comments, the GitHub comment goes to the first real file
-    try {
-      const result = await github.addPendingComment(owner, repo, pr.number, {
-        path: githubPath,
-        line: githubLine,
-        body: finalBody,
-        side: githubSide,
-        startLine: githubStartLine,
-        startSide: githubSide,
-      });
-      // Update the local comment with GitHub IDs
-      store.updatePendingCommentWithGitHubIds(
-        localId,
-        result.reviewId,
-        result.commentId,
-        result.commentDatabaseId
-      );
-    } catch (error) {
-      console.error("Failed to sync pending comment to GitHub:", error);
+    // Sync to GitHub via GraphQL - this creates/adds to the pending review.
+    // For :commit comments, the GitHub comment goes to the first real file.
+    // Comments made on a non-head diff skip the sync: GitHub's thread
+    // mutation can only anchor to the head diff, so they stay local until
+    // submission groups them by commit.
+    if (!targetSha || targetSha === pr.head.sha) {
+      try {
+        const result = await github.addPendingComment(owner, repo, pr.number, {
+          path: githubPath,
+          line: githubLine,
+          body: finalBody,
+          side: githubSide,
+          startLine: githubStartLine,
+          startSide: githubSide,
+        });
+        // Update the local comment with GitHub IDs
+        store.updatePendingCommentWithGitHubIds(
+          localId,
+          result.reviewId,
+          result.commentId,
+          result.commentDatabaseId
+        );
+      } catch (error) {
+        console.error("Failed to sync pending comment to GitHub:", error);
+      }
     }
   };
 

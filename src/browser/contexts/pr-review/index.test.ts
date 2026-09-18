@@ -482,6 +482,33 @@ test("removePendingComment removes comment and focuses line", () => {
   expect(state.focusedLine).toBe(10);
 });
 
+test("addPendingComment persists targetSha through storage reload", () => {
+  const sha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const store = createStore();
+  store.addPendingComment({
+    id: "local-1",
+    path: "src/index.ts",
+    line: 10,
+    body: "Test comment",
+    side: "RIGHT",
+    targetSha: sha,
+  });
+
+  // A new store for the same PR restores drafts (incl. targetSha) from
+  // localStorage.
+  const reloaded = new PRReviewStore(createMockGitHubStore(), {
+    pr: createMockPR(),
+    files: [createMockFile("src/index.ts")],
+    comments: [],
+    owner: "test",
+    repo: "repo",
+    viewerPermission: "WRITE",
+  });
+
+  expect(reloaded.getSnapshot().pendingComments).toHaveLength(1);
+  expect(reloaded.getSnapshot().pendingComments[0].targetSha).toBe(sha);
+});
+
 // ============================================================================
 // Comments
 // ============================================================================

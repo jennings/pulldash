@@ -935,6 +935,43 @@ function createGitHubStore() {
     );
   }
 
+  /** Fresh reviews list (bypasses the 30s query cache), used by submission
+   *  duplicate guards. */
+  function getPRReviewsFresh(
+    owner: string,
+    repo: string,
+    number: number
+  ): Promise<Review[]> {
+    if (!octokit) throw new Error("Not initialized");
+    queryClient.invalidateQueries({
+      queryKey: queries.pullRequestReviews(owner, repo, number).queryKey,
+    });
+    return queryClient.fetchQuery(
+      queries.pullRequestReviews(owner, repo, number)
+    );
+  }
+
+  function getReviewComments(
+    owner: string,
+    repo: string,
+    number: number,
+    reviewId: number
+  ): Promise<ReviewComment[]> {
+    if (!octokit) throw new Error("Not initialized");
+    return octokit
+      .request(
+        "GET /repos/{owner}/{repo}/pulls/{pull_number}/reviews/{review_id}/comments",
+        {
+          owner,
+          repo,
+          pull_number: number,
+          review_id: reviewId,
+          per_page: 100,
+        }
+      )
+      .then(({ data }) => data as ReviewComment[]);
+  }
+
   async function createPRReview(
     owner: string,
     repo: string,
@@ -2870,6 +2907,8 @@ function createGitHubStore() {
     getPRComments,
     createPRComment,
     getPRReviews,
+    getPRReviewsFresh,
+    getReviewComments,
     createPRReview,
     submitPRReview,
     deletePRReview,

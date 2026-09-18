@@ -18,6 +18,8 @@ export function useCurrentFilePendingComments(): LocalPendingComment[] {
   const store = usePRReviewStore();
   const selectedFile = usePRReviewSelector((s) => s.selectedFile);
   const selectedCommitSha = usePRReviewSelector((s) => s.selectedCommitSha);
+  const selectedHeadSha = usePRReviewSelector((s) => s.selectedHeadSha);
+  const pr = usePRReviewSelector((s) => s.pr);
   const commits = usePRReviewSelector((s) => s.commits);
   const commitsByVersion = usePRReviewSelector((s) => s.commitsByVersion);
   const commitVersionHistory = usePRReviewSelector(
@@ -47,35 +49,46 @@ export function useCurrentFilePendingComments(): LocalPendingComment[] {
     store.loadCommitChangeIds();
   }, [commitChangeIds, selectedCommitSha, store]);
 
-  const validShas = useMemo(() => {
-    if (!selectedCommitSha) return null;
-    return new Set(
-      equivalentShortShas(
-        selectedCommitSha,
-        commits,
-        commitsByVersion,
-        commitVersionHistory,
-        commitChangeIds
-      )
-    );
-  }, [
-    selectedCommitSha,
-    commits,
-    commitsByVersion,
-    commitVersionHistory,
-    commitChangeIds,
-  ]);
+  // Shas equivalent to the diff currently being viewed (a commit, a push
+  // version, or the PR head). Pending drafts only render under the diff they
+  // were made on.
+  const currentSha = selectedCommitSha ?? selectedHeadSha ?? pr.head.sha;
+  const viewingHead = currentSha === pr.head.sha;
+  const validShas = useMemo(
+    () =>
+      new Set(
+        equivalentShortShas(
+          currentSha,
+          commits,
+          commitsByVersion,
+          commitVersionHistory,
+          commitChangeIds
+        )
+      ),
+    [
+      currentSha,
+      commits,
+      commitsByVersion,
+      commitVersionHistory,
+      commitChangeIds,
+    ]
+  );
   return useMemo(() => {
     if (!selectedFile) return EMPTY_PENDING_COMMENTS;
+    const onCurrentDiff = (c: LocalPendingComment) => {
+      if (!c.targetSha) return viewingHead;
+      return validShas.has(c.targetSha.slice(0, 7));
+    };
     if (selectedFile === ":commit") {
       return pendingComments.filter((c) => {
         if (c.path !== ":commit") return false;
         if (!isMetadataComment(c.body)) return false;
-        if (!validShas) return false;
         const info = parseCommitMetadataMarker(c.body);
-        return !!info && validShas.has(info.sha);
+        return !!info && validShas.has(info.sha.slice(0, 7));
       });
     }
-    return pendingComments.filter((c) => c.path === selectedFile);
-  }, [selectedFile, validShas, pendingComments]);
+    return pendingComments.filter(
+      (c) => c.path === selectedFile && onCurrentDiff(c)
+    );
+  }, [selectedFile, viewingHead, validShas, pendingComments]);
 }
