@@ -105,6 +105,7 @@ import {
   parseCommitMetadataMarker,
 } from "../../shared/commit-metadata";
 import { resolveCommentLine } from "../lib/comment-anchor";
+import { groupCommentsByLineSide } from "../lib/reviews";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -1635,7 +1636,7 @@ interface LineDragContextValue {
   onDragEnd: () => void;
   onClickFallback: (lineNum: number, side: "old" | "new") => void;
   commentingRange: { start: number; end: number } | null;
-  commentRangeLookup: Set<number> | null;
+  commentRangeLookup: Set<string> | null;
   commentAnchorLookup: Set<string> | null;
 }
 
@@ -1939,27 +1940,49 @@ const DiffViewer = memo(function DiffViewer({
     return lines;
   }, [commentsByLine, pendingComments]);
 
-  const pendingCommentsByLine = useMemo(() => {
-    const map = new Map<number, LocalPendingComment[]>();
-    for (const comment of pendingComments) {
-      const existing = map.get(comment.line) || [];
-      existing.push(comment);
-      map.set(comment.line, existing);
-    }
-    return map;
-  }, [pendingComments]);
+  // Keyed by "${line}:${side}": a line number can exist on both sides of the
+  // diff, and a pending comment must only render under its own side's row.
+  const pendingCommentsByLine = useMemo(
+    () => groupCommentsByLineSide(pendingComments),
+    [pendingComments]
+  );
 
   // Re-anchored comment range lookup, replacing the store's raw-line-based commentRangeLookup
   const reanchoredCommentRangeLookup = useMemo(() => {
-    const lines = new Set<number>();
-    for (const lineNum of commentsByLine.keys()) {
-      lines.add(lineNum);
+    const lines = new Set<string>();
+    const addRange = (
+      start: number | null | undefined,
+      end: number,
+      side: "old" | "new"
+    ) => {
+      if (start && start < end) {
+        for (let i = start; i <= end; i++) lines.add(`${i}:${side}`);
+      } else {
+        lines.add(`${end}:${side}`);
+      }
+    };
+
+    for (const [lineNum, lineComments] of commentsByLine) {
+      for (const comment of lineComments) {
+        const side = comment.side === "LEFT" ? "old" : "new";
+        lines.add(`${lineNum}:${side}`);
+        // Only trust the stored range while the comment is not re-anchored:
+        // `start_line` is in the comment's commit coordinates, `lineNum` in
+        // the viewed diff's.
+        if (comment.start_line && comment.line === lineNum) {
+          addRange(comment.start_line, lineNum, side);
+        }
+      }
     }
-    for (const lineNum of pendingCommentsByLine.keys()) {
-      lines.add(lineNum);
+    for (const comment of pendingComments) {
+      addRange(
+        comment.start_line,
+        comment.line,
+        comment.side === "LEFT" ? "old" : "new"
+      );
     }
     return lines;
-  }, [commentsByLine, pendingCommentsByLine]);
+  }, [commentsByLine, pendingComments]);
 
   // Group comments into threads (pre-computed)
   const threadsByLine = useMemo(() => {
@@ -2133,19 +2156,25 @@ const DiffViewer = memo(function DiffViewer({
       }
     }
 
-    const addCommentsForLine = (lineNum: number | undefined) => {
+    const addPendingCommentsForLine = (
+      lineNum: number | undefined,
+      side: "old" | "new"
+    ) => {
       if (!lineNum || commentsHidden) return;
 
-      const linePending = pendingCommentsByLine.get(lineNum);
-      if (linePending) {
-        for (const pending of linePending) {
-          rows.push({
-            type: "pending-comment",
-            comment: pending,
-            index: index++,
-          });
-        }
+      const linePending = pendingCommentsByLine.get(`${lineNum}:${side}`);
+      if (!linePending) return;
+      for (const pending of linePending) {
+        rows.push({
+          type: "pending-comment",
+          comment: pending,
+          index: index++,
+        });
       }
+    };
+
+    const addCommentsForLine = (lineNum: number | undefined) => {
+      if (!lineNum || commentsHidden) return;
 
       const threads = threadsByLine.get(lineNum);
       if (threads) {
@@ -2179,12 +2208,23 @@ const DiffViewer = memo(function DiffViewer({
             for (const pair of pairs) {
               rows.push({ type: "split-line", pair, index: index++ });
               addCommentsForLine(pair.lineNum);
+              // No fallback to pair.lineNum: it belongs to one side only, and
+              // using it for the other would misplace a same-numbered comment.
+              addPendingCommentsForLine(pair.right?.newLineNumber, "new");
+              addPendingCommentsForLine(pair.left?.oldLineNumber, "old");
             }
           } else {
             for (const line of expandedLines) {
               const lineNum = line.newLineNumber || line.oldLineNumber;
               rows.push({ type: "line", line, lineNum, index: index++ });
               addCommentsForLine(lineNum);
+              addPendingCommentsForLine(
+                lineNum,
+                line.newLineNumber ? "new" : "old"
+              );
+              if (line.type === "normal" && line.oldLineNumber) {
+                addPendingCommentsForLine(line.oldLineNumber, "old");
+              }
             }
           }
         } else {
@@ -2217,6 +2257,8 @@ const DiffViewer = memo(function DiffViewer({
               isRebaseArtifact: artifact,
             });
             addCommentsForLine(pair.lineNum);
+            addPendingCommentsForLine(pair.right?.newLineNumber, "new");
+            addPendingCommentsForLine(pair.left?.oldLineNumber, "old");
           }
         } else {
           // Unified view - sequential lines
@@ -2230,6 +2272,13 @@ const DiffViewer = memo(function DiffViewer({
               isRebaseArtifact: artifact,
             });
             addCommentsForLine(lineNum);
+            addPendingCommentsForLine(
+              lineNum,
+              line.newLineNumber ? "new" : "old"
+            );
+            if (line.type === "normal" && line.oldLineNumber) {
+              addPendingCommentsForLine(line.oldLineNumber, "old");
+            }
           }
         }
       }
@@ -3554,8 +3603,8 @@ const DiffLineRow = memo(function DiffLineRow({
   // O(1) lookup for comment range using pre-computed Set (Fix 3)
   const hasCommentRange = useMemo(() => {
     if (lineNum === undefined || !commentRangeLookup) return false;
-    return commentRangeLookup.has(lineNum);
-  }, [lineNum, commentRangeLookup]);
+    return commentRangeLookup.has(`${lineNum}:${lineSide}`);
+  }, [lineNum, lineSide, commentRangeLookup]);
   const hasCommentAnchor = useMemo(() => {
     if (lineNum === undefined || !commentAnchorLookup) return false;
     return commentAnchorLookup.has(`${lineNum}:${lineSide}`);
@@ -3863,10 +3912,6 @@ const SplitDiffLineRow = memo(function SplitDiffLineRow({
     return lineNum >= commentingRange.start && lineNum <= commentingRange.end;
   }, [lineNum, commentingRange]);
 
-  const hasCommentRange = useMemo(() => {
-    if (lineNum === undefined || !commentRangeLookup) return false;
-    return commentRangeLookup.has(lineNum);
-  }, [lineNum, commentRangeLookup]);
   const rowCommentsHidden = usePRReviewSelector((s) => s.commentsHidden);
 
   // Render one side of the split view
@@ -3946,6 +3991,9 @@ const SplitDiffLineRow = memo(function SplitDiffLineRow({
     const isDelete = line.type === "delete";
     const isInsert = line.type === "insert";
     const Tag = isInsert ? "ins" : isDelete ? "del" : "span";
+    const hasCommentRange =
+      lineNumber !== undefined &&
+      commentRangeLookup?.has(`${lineNumber}:${side}`);
 
     let bgColor: string | undefined;
     if (isInCommentingRange) {

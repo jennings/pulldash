@@ -30,6 +30,9 @@ export function useCommentActions() {
     let githubLine = line;
     let finalBody = body;
     let githubStartLine: number | undefined = startLine;
+    const commentSide: "LEFT" | "RIGHT" =
+      state.commentingOnLine?.side === "old" ? "LEFT" : "RIGHT";
+    let githubSide: "LEFT" | "RIGHT" = commentSide;
 
     if (state.selectedFile === ":commit" && state.files.length > 0) {
       const fullSha = state.selectedCommitSha ?? "";
@@ -41,6 +44,7 @@ export function useCommentActions() {
       const patchStart = firstFile.patch?.match(/^@@ -\d+(?:,\d+)? \+(\d+)/m);
       githubLine = patchStart ? parseInt(patchStart[1], 10) : 1;
       githubStartLine = undefined;
+      githubSide = "RIGHT";
       const commit = state.commits.find((c) => c.sha === fullSha);
       const label = commit ? getCommitFieldLabel(line, commit) : `line ${line}`;
       const marker = `<!-- pulldash:commit-metadata sha=${fullSha} line=${line} label=${label} -->`;
@@ -53,8 +57,6 @@ export function useCommentActions() {
     // Create a local comment first for immediate UI feedback
     // Local path/line stay on ":commit" so it appears at the right place
     const localId = `pending-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    const commentSide =
-      state.commentingOnLine?.side === "old" ? "LEFT" : "RIGHT";
     const newComment: LocalPendingComment = {
       id: localId,
       path: state.selectedFile,
@@ -63,10 +65,6 @@ export function useCommentActions() {
       body: finalBody,
       side: commentSide,
     };
-
-    // Persist the commit SHA eagerly so the REST fallback always has the
-    // correct version, even if the GraphQL sync fails below.
-    store.setReviewSha(pr.head.sha);
 
     store.addPendingComment(newComment);
 
@@ -77,7 +75,9 @@ export function useCommentActions() {
         path: githubPath,
         line: githubLine,
         body: finalBody,
+        side: githubSide,
         startLine: githubStartLine,
+        startSide: githubSide,
       });
       // Update the local comment with GitHub IDs
       store.updatePendingCommentWithGitHubIds(

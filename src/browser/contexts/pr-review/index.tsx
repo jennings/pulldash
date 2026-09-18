@@ -624,13 +624,12 @@ export class PRReviewStore {
       }
     } catch {}
 
-    // Load review session from localStorage (pending review node ID + SHA)
+    // Load pending review node ID from localStorage
     try {
       const stored = localStorage.getItem(`${this.storageKey}-review-session`);
       if (stored) {
         const session = JSON.parse(stored);
         this.pendingReviewNodeId = session.pendingReviewNodeId ?? null;
-        this.reviewSha = session.reviewSha ?? null;
       }
     } catch {}
 
@@ -3204,9 +3203,8 @@ export class PRReviewStore {
     this.set({ pendingComments });
   };
 
-  // Store the pending review node ID and SHA for submission
+  // Store the pending review node ID for submission
   private pendingReviewNodeId: string | null = null;
-  private reviewSha: string | null = null;
 
   getPendingReviewNodeId = () => this.pendingReviewNodeId;
   setPendingReviewNodeId = (id: string | null) => {
@@ -3214,20 +3212,11 @@ export class PRReviewStore {
     this.persistReviewSession();
   };
 
-  getReviewSha = () => this.reviewSha;
-  setReviewSha = (sha: string | null) => {
-    this.reviewSha = sha;
-    this.persistReviewSession();
-  };
-
   private persistReviewSession() {
     try {
       localStorage.setItem(
         `${this.storageKey}-review-session`,
-        JSON.stringify({
-          pendingReviewNodeId: this.pendingReviewNodeId,
-          reviewSha: this.reviewSha,
-        })
+        JSON.stringify({ pendingReviewNodeId: this.pendingReviewNodeId })
       );
     } catch {}
   }
@@ -3273,6 +3262,7 @@ export class PRReviewStore {
   };
 
   setPendingComments = (comments: LocalPendingComment[]) => {
+    this.persistPendingComments(comments);
     this.set({ pendingComments: comments });
   };
 
@@ -3300,7 +3290,6 @@ export class PRReviewStore {
   clearReviewState = () => {
     this.clearPendingState();
     this.pendingReviewNodeId = null;
-    this.reviewSha = null;
     this.set({
       pendingComments: [],
       pendingReviewId: null,

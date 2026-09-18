@@ -1,5 +1,10 @@
 import { test, expect } from "bun:test";
-import { getLatestReviewByUser, getLatestReviewsByUser } from "./reviews";
+import {
+  getLatestReviewByUser,
+  getLatestReviewsByUser,
+  groupCommentsByLineSide,
+  resolveCommentPosition,
+} from "./reviews";
 import type { Review } from "@/api/types";
 
 function review(
@@ -60,4 +65,111 @@ test("dismissed reviews are not treated as decisions", () => {
   ];
   expect(getLatestReviewsByUser(reviews)).toEqual([]);
   expect(getLatestReviewByUser(reviews).has("a")).toBe(false);
+});
+
+// Three hunks with gaps at lines 5-26 and 34-56 — the shape of a PR whose
+// diff only shows changed regions.
+const patch = [
+  "@@ -1,4 +1,4 @@",
+  "-line 1",
+  "+line 1 changed",
+  " line 2",
+  " line 3",
+  " line 4",
+  "@@ -27,7 +27,7 @@ line 26",
+  " line 27",
+  " line 28",
+  " line 29",
+  "-line 30",
+  "+line 30 changed",
+  " line 31",
+  " line 32",
+  " line 33",
+  "@@ -57,4 +57,4 @@ line 56",
+  " line 57",
+  " line 58",
+  " line 59",
+  "-line 60",
+  "+line 60 changed",
+].join("\n");
+
+test("comment inside the diff is left alone", () => {
+  expect(resolveCommentPosition({ line: 29, side: "RIGHT" }, patch)).toEqual({
+    line: 29,
+    adjusted: false,
+  });
+  expect(resolveCommentPosition({ line: 30, side: "LEFT" }, patch)).toEqual({
+    line: 30,
+    adjusted: false,
+  });
+});
+
+test("comment outside the diff snaps to the nearest hunk line", () => {
+  expect(resolveCommentPosition({ line: 20, side: "RIGHT" }, patch)).toEqual({
+    line: 27,
+    adjusted: true,
+  });
+  expect(resolveCommentPosition({ line: 55, side: "LEFT" }, patch)).toEqual({
+    line: 57,
+    adjusted: true,
+  });
+  expect(resolveCommentPosition({ line: 0, side: "RIGHT" }, patch)).toEqual({
+    line: 1,
+    adjusted: true,
+  });
+});
+
+test("multi-line comment spanning hunks becomes a single-line comment", () => {
+  expect(
+    resolveCommentPosition({ line: 60, start_line: 2, side: "RIGHT" }, patch)
+  ).toEqual({ line: 60, adjusted: true });
+});
+
+test("multi-line comment within one hunk keeps both endpoints", () => {
+  expect(
+    resolveCommentPosition({ line: 29, start_line: 27, side: "RIGHT" }, patch)
+  ).toEqual({ line: 29, start_line: 27, adjusted: false });
+});
+
+test("multi-line comment with an outside endpoint becomes a single line", () => {
+  expect(
+    resolveCommentPosition({ line: 29, start_line: 5, side: "RIGHT" }, patch)
+  ).toEqual({ line: 29, adjusted: true });
+  expect(
+    resolveCommentPosition({ line: 20, start_line: 2, side: "RIGHT" }, patch)
+  ).toEqual({ line: 27, adjusted: true });
+});
+
+test("comments are unchanged without patch data", () => {
+  expect(resolveCommentPosition({ line: 900, side: "RIGHT" }, null)).toEqual({
+    line: 900,
+    adjusted: false,
+  });
+});
+
+test("snapping respects side-specific hunk ranges", () => {
+  // Deletion hunk: LEFT covers 10-12, RIGHT covers 10-11. Line 12 exists on
+  // the LEFT but not the RIGHT, so only the RIGHT comment snaps.
+  const deletionPatch = [
+    "@@ -10,3 +10,2 @@",
+    " line 10",
+    "-line 11",
+    " line 12",
+  ].join("\n");
+  expect(
+    resolveCommentPosition({ line: 12, side: "LEFT" }, deletionPatch)
+  ).toEqual({ line: 12, adjusted: false });
+  expect(
+    resolveCommentPosition({ line: 12, side: "RIGHT" }, deletionPatch)
+  ).toEqual({ line: 11, adjusted: true });
+});
+
+test("comments sharing a line number are grouped by side", () => {
+  const comments = [
+    { id: "left", line: 525, side: "LEFT" as const },
+    { id: "right", line: 525, side: "RIGHT" as const },
+  ];
+  const byLineSide = groupCommentsByLineSide(comments);
+  expect(byLineSide.get("525:old")?.map((c) => c.id)).toEqual(["left"]);
+  expect(byLineSide.get("525:new")?.map((c) => c.id)).toEqual(["right"]);
 });

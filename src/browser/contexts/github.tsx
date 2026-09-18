@@ -306,6 +306,7 @@ export interface PendingReview {
       path: string;
       line: number;
       startLine: number | null;
+      diffSide: "LEFT" | "RIGHT" | null;
     }>;
   };
 }
@@ -948,6 +949,7 @@ function createGitHubStore() {
         body: string;
         side?: "LEFT" | "RIGHT";
         start_line?: number;
+        start_side?: "LEFT" | "RIGHT";
       }>;
     }
   ): Promise<Review> {
@@ -2296,22 +2298,118 @@ function createGitHubStore() {
           }
         }
       }
-    `,
+      `,
       { owner, repo, number }
     );
 
-    return (
+    const review =
       data.repository.pullRequest.reviews.nodes.find(
         (r) => r.viewerDidAuthor
-      ) || null
+      ) || null;
+    if (!review) return null;
+
+    const threadData = await batcher
+      .query<{
+        repository: {
+          pullRequest: {
+            reviewThreads: {
+              nodes: Array<{
+                diffSide: "LEFT" | "RIGHT";
+                comments: {
+                  nodes: Array<{
+                    id: string;
+                    pullRequestReview: { id: string } | null;
+                  }>;
+                };
+              }>;
+            };
+          };
+        };
+      }>(
+        `query ($owner: String!, $repo: String!, $number: Int!) {
+          repository(owner: $owner, name: $repo) {
+            pullRequest(number: $number) {
+              reviewThreads(first: 100) {
+                nodes {
+                  diffSide
+                  comments(first: 100) {
+                    nodes { id pullRequestReview { id } }
+                  }
+                }
+              }
+            }
+          }
+        }`,
+        { owner, repo, number }
+      )
+      .catch(() => null);
+
+    const sideByCommentId = new Map<string, "LEFT" | "RIGHT">();
+    for (const thread of threadData?.repository.pullRequest.reviewThreads
+      .nodes ?? []) {
+      for (const comment of thread.comments.nodes) {
+        if (comment.pullRequestReview?.id === review.id) {
+          sideByCommentId.set(comment.id, thread.diffSide);
+        }
+      }
+    }
+
+    return {
+      ...review,
+      comments: {
+        nodes: review.comments.nodes.map((comment) => ({
+          ...comment,
+          diffSide: sideByCommentId.get(comment.id) ?? null,
+        })),
+      },
+    };
+  }
+
+  async function getReview(reviewId: string): Promise<{
+    id: string;
+    databaseId: number;
+    state: string;
+    submittedAt: string | null;
+    viewerDidAuthor: boolean;
+  } | null> {
+    if (!batcher) throw new Error("Not initialized");
+    const data = await batcher.query<{
+      node: {
+        id: string;
+        databaseId: number;
+        state: string;
+        submittedAt: string | null;
+        viewerDidAuthor: boolean;
+      } | null;
+    }>(
+      `query ($id: ID!) {
+        node(id: $id) {
+          ... on PullRequestReview {
+            id
+            databaseId
+            state
+            submittedAt
+            viewerDidAuthor
+          }
+        }
+      }`,
+      { id: reviewId }
     );
+    return data.node;
   }
 
   async function addPendingComment(
     owner: string,
     repo: string,
     number: number,
-    options: { path: string; line: number; body: string; startLine?: number }
+    options: {
+      path: string;
+      line: number;
+      body: string;
+      side?: "LEFT" | "RIGHT";
+      startLine?: number;
+      startSide?: "LEFT" | "RIGHT";
+    }
   ): Promise<{
     reviewId: string;
     commentId: string;
@@ -2326,35 +2424,70 @@ function createGitHubStore() {
       { owner, repo, number }
     );
 
+    const side = options.side ?? "RIGHT";
     const input: Record<string, unknown> = {
       pullRequestId: prData.repository.pullRequest.id,
       path: options.path,
       line: options.line,
+      side,
       body: options.body,
     };
 
     if (options.startLine && options.startLine !== options.line) {
       input.startLine = options.startLine;
+      input.startSide = options.startSide ?? side;
     }
 
     const data = await batcher.query<{
-      addPullRequestReviewComment: {
-        comment: {
+      addPullRequestReviewThread: {
+        thread: {
           id: string;
-          databaseId: number;
-          pullRequestReview: { id: string };
-        };
-      };
+          comments: {
+            nodes: Array<{
+              id: string;
+              databaseId: number;
+              pullRequestReview: { id: string };
+            }>;
+          };
+        } | null;
+      } | null;
     }>(
-      `mutation ($input: AddPullRequestReviewCommentInput!) { addPullRequestReviewComment(input: $input) { comment { id databaseId pullRequestReview { id } } } }`,
+      `mutation ($input: AddPullRequestReviewThreadInput!) {
+        addPullRequestReviewThread(input: $input) {
+          thread {
+            id
+            comments(first: 1) {
+              nodes { id databaseId pullRequestReview { id } }
+            }
+          }
+        }
+      }`,
       { input }
     );
 
+    // GitHub silently returns a null thread when the line is not part of the
+    // diff (e.g. context revealed by expanding a skip block).
+    const comment =
+      data.addPullRequestReviewThread?.thread?.comments.nodes[0] ?? null;
+    if (!comment) {
+      throw new Error(
+        "GitHub could not anchor the comment to a line in the diff"
+      );
+    }
+
     return {
-      reviewId: data.addPullRequestReviewComment.comment.pullRequestReview.id,
-      commentId: data.addPullRequestReviewComment.comment.id,
-      commentDatabaseId: data.addPullRequestReviewComment.comment.databaseId,
+      reviewId: comment.pullRequestReview.id,
+      commentId: comment.id,
+      commentDatabaseId: comment.databaseId,
     };
+  }
+
+  async function deletePendingReview(reviewId: string): Promise<void> {
+    if (!batcher) throw new Error("Not initialized");
+    await batcher.query(
+      `mutation ($input: DeletePullRequestReviewInput!) { deletePullRequestReview(input: $input) { pullRequestReview { id } } }`,
+      { input: { pullRequestReviewId: reviewId } }
+    );
   }
 
   async function deletePendingComment(commentId: string): Promise<void> {
@@ -2791,10 +2924,12 @@ function createGitHubStore() {
     resolveThread,
     unresolveThread,
     getPendingReview,
+    getReview,
     addPendingComment,
     deletePendingComment,
     updatePendingComment,
     submitPendingReview,
+    deletePendingReview,
     // Review reactions
     prefetchReactionsBatch,
     getReviewReactions,
