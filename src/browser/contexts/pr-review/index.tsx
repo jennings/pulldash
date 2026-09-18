@@ -903,14 +903,20 @@ export class PRReviewStore {
   // ---------------------------------------------------------------------------
 
   selectOverview = (scrollTarget?: string) => {
-    // If already on overview and just updating scroll target
-    if (this.state.showOverview && scrollTarget) {
-      this.set({ overviewScrollTarget: scrollTarget });
+    // Overview navigation (including review/comment scroll targets) always
+    // lands on the conversation timeline, never the commits/checks tabs.
+    if (
+      this.state.showOverview &&
+      this.state.overviewActiveTab === "conversation"
+    ) {
+      if (scrollTarget) {
+        this.set({ overviewScrollTarget: scrollTarget });
+      }
       return;
     }
-    if (this.state.showOverview && !scrollTarget) return;
     this.set({
       showOverview: true,
+      overviewActiveTab: "conversation",
       overviewScrollTarget: scrollTarget ?? null,
       selectedFile: null,
       selectedFiles: new Set(),

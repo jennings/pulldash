@@ -242,6 +242,19 @@ test("selectOverview resets to overview state", () => {
   expect(state.focusedLine).toBeNull();
 });
 
+test("selectOverview switches back to the conversation tab", () => {
+  const store = createStore();
+  store.setOverviewActiveTab("commits");
+  store.selectFile("src/index.ts");
+
+  store.selectOverview("pullrequestreview-1");
+
+  const state = store.getSnapshot();
+  expect(state.showOverview).toBe(true);
+  expect(state.overviewActiveTab).toBe("conversation");
+  expect(state.overviewScrollTarget).toBe("pullrequestreview-1");
+});
+
 test("navigateToFile moves between files", () => {
   const store = createStore({
     files: [
