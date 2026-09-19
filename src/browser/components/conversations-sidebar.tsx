@@ -16,6 +16,7 @@ import {
   parseCommitMetadataMarker,
   isMetadataComment,
 } from "../../shared/commit-metadata";
+import { stripReviewGroupMarker } from "../../shared/review-group";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -265,8 +266,8 @@ export const ConversationsSidebar = memo(function ConversationsSidebar() {
 
                 const author = firstComment.author;
                 const replyCount = thread.comments.nodes.length - 1;
-                const displayBody = stripCommitMetadataPrefix(
-                  firstComment.body
+                const displayBody = stripReviewGroupMarker(
+                  stripCommitMetadataPrefix(firstComment.body)
                 );
                 const truncatedBody =
                   displayBody.length > 200

@@ -6,6 +6,7 @@ import {
   type LocalPendingComment,
 } from ".";
 import { getCommitFieldLabel } from "./useCurrentDiff";
+import { withReviewGroupMarker } from "@/shared/review-group";
 
 export function useCommentActions() {
   const store = usePRReviewStore();
@@ -137,11 +138,15 @@ export function useCommentActions() {
 
   const updateComment = async (commentId: number, newBody: string) => {
     try {
+      // Re-attach the hidden review-group marker that editing strips.
+      const original = store
+        .getSnapshot()
+        .comments.find((c) => c.id === commentId);
       const updatedComment = await github.updateComment(
         owner,
         repo,
         commentId,
-        newBody
+        original ? withReviewGroupMarker(original.body, newBody) : newBody
       );
       store.updateComment(commentId, updatedComment as ReviewComment);
     } catch (error) {

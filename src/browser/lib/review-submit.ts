@@ -1,5 +1,6 @@
 import type { PullRequestFile, ReviewComment } from "@/api/types";
 import { resolveCommentPosition } from "./reviews";
+import { stripReviewGroupMarker } from "@/shared/review-group";
 
 export interface SubmitCommentPayload {
   path: string;
@@ -134,7 +135,10 @@ export function sameSubmittedComments(
     side: string | null | undefined,
     startLine: number | null | undefined,
     body: string
-  ) => `${path}:${line}:${side ?? "RIGHT"}:${startLine ?? ""}:${body}`;
+  ) =>
+    // The review-group marker is regenerated per submission attempt, so it
+    // must not participate in the comparison.
+    `${path}:${line}:${side ?? "RIGHT"}:${startLine ?? ""}:${stripReviewGroupMarker(body)}`;
   const sent = new Set(
     payloads.map((p) => key(p.path, p.line, p.side, p.start_line, p.body))
   );

@@ -104,6 +104,7 @@ import {
   isMetadataComment,
   parseCommitMetadataMarker,
 } from "../../shared/commit-metadata";
+import { stripReviewGroupMarker } from "../../shared/review-group";
 import { resolveCommentLine } from "../lib/comment-anchor";
 import { groupCommentsByLineSide } from "../lib/reviews";
 import {
@@ -4891,15 +4892,21 @@ const CommentItem = memo(function CommentItem({
     () => getTimeAgo(new Date(comment.created_at)),
     [comment.created_at]
   );
-  const [editText, setEditText] = useState(comment.body);
+  // Editing strips the hidden review-group marker for display; the save
+  // re-attaches it (via withReviewGroupMarker in the store action).
+  const visibleBody = useMemo(
+    () => stripReviewGroupMarker(comment.body),
+    [comment.body]
+  );
+  const [editText, setEditText] = useState(visibleBody);
   const [saving, setSaving] = useState(false);
   const commentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (isEditing) {
-      setEditText(comment.body);
+      setEditText(visibleBody);
     }
-  }, [isEditing, comment.body]);
+  }, [isEditing, visibleBody]);
 
   useEffect(() => {
     if (isFocused && commentRef.current) {
@@ -4911,7 +4918,7 @@ const CommentItem = memo(function CommentItem({
   }, [isFocused]);
 
   const handleSave = useCallback(async () => {
-    if (!editText.trim() || editText === comment.body) {
+    if (!editText.trim() || editText === visibleBody) {
       store.cancelEditing();
       return;
     }
@@ -4921,7 +4928,7 @@ const CommentItem = memo(function CommentItem({
     } finally {
       setSaving(false);
     }
-  }, [editText, comment.id, comment.body, onUpdate, store]);
+  }, [editText, comment.id, visibleBody, onUpdate, store]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -5507,7 +5514,9 @@ const SubmitReviewDropdown = memo(function SubmitReviewDropdown() {
                                   : `L${comment.start_line ? `${comment.start_line}-` : ""}${comment.line}`}
                               </span>
                               <span className="text-foreground/80 line-clamp-2 flex-1">
-                                {stripCommitMetadataPrefix(comment.body)}
+                                {stripReviewGroupMarker(
+                                  stripCommitMetadataPrefix(comment.body)
+                                )}
                               </span>
                             </button>
                           ))}

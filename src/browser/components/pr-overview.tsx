@@ -90,6 +90,13 @@ import {
   parseCommitMetadataMarker,
   getCommentDisplayPath,
 } from "../../shared/commit-metadata";
+import {
+  parseReviewGroupMarker,
+  reviewGroups,
+  stripReviewGroupMarker,
+  withReviewGroupMarker,
+  type MarkedReview,
+} from "../../shared/review-group";
 import { buildMetadataLines } from "../contexts/pr-review/useCurrentDiff";
 
 // ============================================================================
@@ -102,6 +109,37 @@ type CombinedStatus = GitHubCombinedStatus;
 type IssueComment = GitHubIssueComment;
 
 type TabType = OverviewTab;
+
+/** Multi-commit submissions mark each group's first thread comment with a
+ *  hidden group marker so the overview can fold the batch into one review
+ *  card. Returns member->primary and primary->member review ids. */
+function reviewGroupMaps(
+  reviews: Review[],
+  threadsByReviewId: Map<number, ReviewThread[]>
+): {
+  memberToPrimary: Map<number, number>;
+  primaryToMembers: Map<number, number[]>;
+} {
+  const marked: MarkedReview[] = [];
+  for (const review of reviews) {
+    for (const thread of threadsByReviewId.get(review.id) ?? []) {
+      const info = parseReviewGroupMarker(thread.comments.nodes[0]?.body ?? "");
+      if (!info) continue;
+      marked.push({ reviewId: review.id, info });
+      break;
+    }
+  }
+  const { memberToPrimary, primaryToMembers } = reviewGroups(marked);
+  return {
+    memberToPrimary,
+    primaryToMembers: new Map(
+      [...primaryToMembers].map(([primaryId, members]) => [
+        primaryId,
+        members.map((m) => m.reviewId),
+      ])
+    ),
+  };
+}
 
 // ============================================================================
 // Main Component
@@ -1238,6 +1276,10 @@ export const PROverview = memo(function PROverview() {
 
     const commentsById = new Map(conversation.map((c) => [c.id, c]));
     const reviewsById = new Map(reviews.map((r) => [r.id, r]));
+    const { memberToPrimary, primaryToMembers } = reviewGroupMaps(
+      reviews,
+      threadsByReviewId
+    );
     const usedReviewIds = new Set<number>();
 
     timeline.forEach((event) => {
@@ -1259,7 +1301,13 @@ export const PROverview = memo(function PROverview() {
       if (eventType === "reviewed" && "id" in event) {
         const review = reviewsById.get(event.id as unknown as number);
         if (review) {
-          const threads = threadsByReviewId.get(review.id) || [];
+          // Folded group member: navigate to the primary card instead.
+          if ((memberToPrimary.get(review.id) ?? review.id) !== review.id) {
+            return;
+          }
+          const threads = (
+            primaryToMembers.get(review.id) ?? [review.id]
+          ).flatMap((id) => threadsByReviewId.get(id) ?? []);
           const hasThreads = threads.length > 0;
           if (
             review.body ||
@@ -1517,6 +1565,8 @@ export const PROverview = memo(function PROverview() {
                       conversation.map((c) => [c.id, c])
                     );
                     const reviewsById = new Map(reviews.map((r) => [r.id, r]));
+                    const { memberToPrimary, primaryToMembers } =
+                      reviewGroupMaps(reviews, threadsByReviewId);
                     const usedReviewIds = new Set<number>();
 
                     // Add PR creation as the first timeline event (version v1)
@@ -1580,8 +1630,18 @@ export const PROverview = memo(function PROverview() {
                           event.id as unknown as number
                         );
                         if (review) {
-                          const hasThreads =
-                            (threadsByReviewId.get(review.id)?.length ?? 0) > 0;
+                          // Folded group member: its threads render under
+                          // the primary review's card.
+                          if (
+                            (memberToPrimary.get(review.id) ?? review.id) !==
+                            review.id
+                          ) {
+                            return;
+                          }
+                          const threads = (
+                            primaryToMembers.get(review.id) ?? [review.id]
+                          ).flatMap((id) => threadsByReviewId.get(id) ?? []);
+                          const hasThreads = threads.length > 0;
                           // Show APPROVED/CHANGES_REQUESTED always, COMMENTED only if they have a body OR threads
                           if (
                             review.body ||
@@ -1592,7 +1652,7 @@ export const PROverview = memo(function PROverview() {
                             entries.push({
                               type: "review",
                               data: review,
-                              threads: threadsByReviewId.get(review.id) || [],
+                              threads,
                             });
                             usedReviewIds.add(review.id);
                           }
@@ -3797,7 +3857,7 @@ function ReviewThreadBox({
           const isEditing = editingCommentId === comment.databaseId;
 
           const handleStartEdit = () => {
-            setEditText(comment.body);
+            setEditText(stripReviewGroupMarker(comment.body));
             setEditingCommentId(comment.databaseId);
           };
 
@@ -3810,7 +3870,10 @@ function ReviewThreadBox({
             if (!editText.trim() || !onEditComment) return;
             setSavingEdit(true);
             try {
-              await onEditComment(comment.databaseId, editText.trim());
+              await onEditComment(
+                comment.databaseId,
+                withReviewGroupMarker(comment.body, editText.trim())
+              );
               setEditingCommentId(null);
             } finally {
               setSavingEdit(false);
@@ -3921,9 +3984,11 @@ function ReviewThreadBox({
                     <button
                       onClick={() =>
                         handleQuoteReply(
-                          isMetadataComment
-                            ? stripCommitMetadataPrefix(comment.body)
-                            : comment.body
+                          stripReviewGroupMarker(
+                            isMetadataComment
+                              ? stripCommitMetadataPrefix(comment.body)
+                              : comment.body
+                          )
                         )
                       }
                       className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"

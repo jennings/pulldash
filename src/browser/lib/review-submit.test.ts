@@ -193,4 +193,15 @@ describe("sameSubmittedComments", () => {
       sameSubmittedComments([submitted({ side: undefined })], [payload])
     ).toBe(true);
   });
+
+  test("ignores regenerated review-group markers on retry", () => {
+    const sent = submitted({
+      body: "<!-- pulldash:review-group g=old i=0 n=2 -->\ntest",
+    });
+    const retry = {
+      ...payload,
+      body: "<!-- pulldash:review-group g=new i=0 n=2 -->\ntest",
+    };
+    expect(sameSubmittedComments([sent], [retry])).toBe(true);
+  });
 });

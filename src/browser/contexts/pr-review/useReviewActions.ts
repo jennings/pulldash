@@ -20,6 +20,7 @@ import {
   type PreparedComment,
   type SubmitCommentPayload,
 } from "@/browser/lib/review-submit";
+import { reviewGroupMarker } from "@/shared/review-group";
 
 /** Represent a just-submitted comment as a thread so it renders under its
  *  review before the review-threads query catches up. Uses the submitted
@@ -130,6 +131,9 @@ export function useReviewActions() {
       // Review id (REST database id) per target commit, so optimistic
       // threads can reference the review they were submitted under.
       const shaToReviewId = new Map<string, number>();
+      // Marked payload per comment id (multi-commit sessions mark the first
+      // comment of each group) — used by the optimistic-thread pass.
+      const markedPayloads = new Map<string, SubmitCommentPayload>();
       let submittedViaGraphQL = false;
       let reviewNodeId = store.getPendingReviewNodeId();
 
@@ -426,7 +430,39 @@ export function useReviewActions() {
                 },
               ];
 
-        for (const group of targets) {
+        // Multi-commit sessions embed a hidden group marker in each group's
+        // first comment so the overview can render the batch as one review
+        // card. GitHub renders HTML comments as nothing; review bodies stay
+        // untouched. Injecting into the payloads means the guard (which
+        // strips markers) and the optimistic threads stay consistent.
+        const groupToken =
+          targets.length > 1 ? Math.random().toString(36).slice(2, 10) : null;
+        const markedGroups: Array<{ sha: string; items: PreparedComment[] }> =
+          groupToken
+            ? targets.map((group, index) => ({
+                ...group,
+                items: group.items.map((item, itemIndex) =>
+                  itemIndex === 0
+                    ? {
+                        ...item,
+                        payload: {
+                          ...item.payload,
+                          body: `${reviewGroupMarker(groupToken, index, targets.length)}\n${item.payload.body}`,
+                        },
+                      }
+                    : item
+                ),
+              }))
+            : targets;
+
+        if (groupToken) {
+          for (const group of markedGroups) {
+            const first = group.items[0];
+            if (first) markedPayloads.set(first.comment.id, first.payload);
+          }
+        }
+
+        for (const group of markedGroups) {
           const guardReview = await findGuardReview(group.sha, group.items);
           if (guardReview) {
             shaToReviewId.set(group.sha, guardReview.id);
@@ -547,7 +583,13 @@ export function useReviewActions() {
           const reviewId = shaToReviewId.get(pendingTargetSha(fresh, headSha));
           if (!reviewId) continue;
           threads.push(
-            pendingCommentToThread(fresh, reviewId, author, timestamp, payload)
+            pendingCommentToThread(
+              fresh,
+              reviewId,
+              author,
+              timestamp,
+              markedPayloads.get(comment.id) ?? payload
+            )
           );
         }
       }
