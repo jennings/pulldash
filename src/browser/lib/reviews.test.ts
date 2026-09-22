@@ -50,6 +50,21 @@ test("comment-only reviewers fall back to their latest comment", () => {
   expect(byUser.get("glehmann")?.id).toBe(8);
 });
 
+// xcp-ng-tests#709: glehmann approved, the author re-requested, then glehmann
+// left a comment review — GitHub's reviewer badge shows COMMENTED while the
+// approval still counts for merge readiness.
+const badgeFixture: Review[] = [
+  review("glehmann", "APPROVED", "2026-09-18T12:38:47Z", 1),
+  review("glehmann", "COMMENTED", "2026-09-23T07:55:49Z", 2),
+];
+
+test("comment review downgrades the badge but not the merge decision", () => {
+  expect(getLatestReviewByUser(badgeFixture).get("glehmann")?.state).toBe(
+    "COMMENTED"
+  );
+  expect(getLatestReviewsByUser(badgeFixture)[0].state).toBe("APPROVED");
+});
+
 test("requesting changes overrides an earlier approval", () => {
   const reviews = [
     review("a", "APPROVED", "2026-01-01T00:00:00Z", 1),

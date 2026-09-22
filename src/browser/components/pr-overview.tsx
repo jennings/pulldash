@@ -1150,6 +1150,7 @@ export const PROverview = memo(function PROverview() {
   );
 
   const latestReviews = getLatestReviewsByUser(reviews);
+  const reviewerStates = [...getLatestReviewByUser(reviews).values()];
   const canMergePR = canMerge(pr, checkStatus);
 
   // Combined list of all reviewers sorted by state priority:
@@ -1737,12 +1738,20 @@ export const PROverview = memo(function PROverview() {
                             (c) => !prevShas.has(c.sha)
                           );
 
+                          // GitHub has no timeline event for normal pushes, so
+                          // the synthetic one is attributed to whoever authored
+                          // the newest commit — the PR author can differ (e.g.
+                          // a maintainer pushing to a dependabot PR).
+                          const pusher =
+                            newCommits[newCommits.length - 1]?.author ??
+                            pr.user;
+
                           const synEntry: TimelineEntry = {
                             type: "version_event",
                             event: {
                               id: -i,
                               event: "head_ref_normal_pushed",
-                              actor: pr.user,
+                              actor: pusher,
                               created_at: toVersion.pushedAt,
                               commit_id: toVersion.sha,
                               from_sha: fromVersion.sha,
@@ -2028,6 +2037,7 @@ export const PROverview = memo(function PROverview() {
                       showMergeOptions={showMergeOptions}
                       mergeError={mergeError}
                       latestReviews={latestReviews}
+                      reviewStates={reviewerStates}
                       repoAllowMergeCommit={repoAllowMergeCommit}
                       repoAllowSquashMerge={repoAllowSquashMerge}
                       repoAllowRebaseMerge={repoAllowRebaseMerge}
@@ -4180,6 +4190,7 @@ function MergeSection({
   showMergeOptions,
   mergeError,
   latestReviews,
+  reviewStates,
   repoAllowMergeCommit,
   repoAllowSquashMerge,
   repoAllowRebaseMerge,
@@ -4215,6 +4226,7 @@ function MergeSection({
   showMergeOptions: boolean;
   mergeError: string | null;
   latestReviews: Review[];
+  reviewStates: Review[];
   repoAllowMergeCommit: boolean;
   repoAllowSquashMerge: boolean;
   repoAllowRebaseMerge: boolean;
@@ -4424,10 +4436,12 @@ function MergeSection({
                 </span>
               </div>
             )}
-            {/* Individual reviewers */}
-            {latestReviews.length > 0 && (
+            {/* Individual reviewers — badge shows each reviewer's latest
+                review, mirroring GitHub (a later comment review downgrades a
+                stale approval badge; the approval still counts above). */}
+            {reviewStates.length > 0 && (
               <div className="pt-2 border-t border-border/50">
-                {latestReviews.map((review) => (
+                {reviewStates.map((review) => (
                   <div key={review.id} className="flex items-center gap-2 py-2">
                     <img
                       src={review.user?.avatar_url}
