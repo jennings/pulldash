@@ -5,6 +5,7 @@ import {
   pendingTargetSha,
   prepareGroupComments,
   sameSubmittedComments,
+  submittedCommentKey,
   type PendingCommentInput,
 } from "./review-submit";
 
@@ -203,5 +204,25 @@ describe("sameSubmittedComments", () => {
       body: "<!-- pulldash:review-group g=new i=0 n=2 -->\ntest",
     };
     expect(sameSubmittedComments([sent], [retry])).toBe(true);
+  });
+});
+
+describe("submittedCommentKey", () => {
+  test("ignores the diff side and review-group markers", () => {
+    expect(
+      submittedCommentKey(
+        "src/a.ts",
+        10,
+        5,
+        "<!-- pulldash:review-group g=x i=0 n=2 -->\nbody"
+      )
+    ).toBe(submittedCommentKey("src/a.ts", 10, 5, "body"));
+  });
+
+  test("differs on path, line, or body", () => {
+    const base = submittedCommentKey("src/a.ts", 10, null, "body");
+    expect(submittedCommentKey("src/b.ts", 10, null, "body")).not.toBe(base);
+    expect(submittedCommentKey("src/a.ts", 11, null, "body")).not.toBe(base);
+    expect(submittedCommentKey("src/a.ts", 10, null, "other")).not.toBe(base);
   });
 });

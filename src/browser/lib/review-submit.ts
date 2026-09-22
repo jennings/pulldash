@@ -122,6 +122,18 @@ export function prepareGroupComments(
   });
 }
 
+/** Content key for a submitted comment, ignoring the diff side. Used to spot
+ *  already-submitted comments in refetched threads. The review-group marker is
+ *  regenerated per submission attempt, so it must not participate. */
+export function submittedCommentKey(
+  path: string,
+  line: number | null | undefined,
+  startLine: number | null | undefined,
+  body: string
+): string {
+  return `${path}:${line}:${startLine ?? ""}:${stripReviewGroupMarker(body)}`;
+}
+
 /** Match a set of just-submitted review comments against the payloads we sent,
  *  so a retried submission can skip groups that already made it to GitHub. */
 export function sameSubmittedComments(
@@ -129,6 +141,9 @@ export function sameSubmittedComments(
   payloads: SubmitCommentPayload[]
 ): boolean {
   if (submitted.length !== payloads.length) return false;
+  // The review-group marker is regenerated per submission attempt, so it
+  // must not participate in the comparison. A missing side on the response
+  // counts as RIGHT.
   const key = (
     path: string,
     line: number | null | undefined,
@@ -136,8 +151,6 @@ export function sameSubmittedComments(
     startLine: number | null | undefined,
     body: string
   ) =>
-    // The review-group marker is regenerated per submission attempt, so it
-    // must not participate in the comparison.
     `${path}:${line}:${side ?? "RIGHT"}:${startLine ?? ""}:${stripReviewGroupMarker(body)}`;
   const sent = new Set(
     payloads.map((p) => key(p.path, p.line, p.side, p.start_line, p.body))

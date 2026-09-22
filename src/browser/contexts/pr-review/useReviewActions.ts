@@ -17,6 +17,7 @@ import {
   pendingTargetSha,
   prepareGroupComments,
   sameSubmittedComments,
+  submittedCommentKey,
   type PreparedComment,
   type SubmitCommentPayload,
 } from "@/browser/lib/review-submit";
@@ -559,6 +560,17 @@ export function useReviewActions() {
         const knownCommentIds = new Set(
           threads.flatMap((t) => t.comments.nodes.map((c) => c.databaseId))
         );
+        // REST-submitted comments carry no GitHub ID locally, so also match
+        // refetched threads by content; otherwise a thread GitHub already
+        // returned renders twice (real + optimistic copy) until the next
+        // periodic refresh clears the optimistic one.
+        const knownCommentKeys = new Set(
+          threads.flatMap((t) =>
+            t.comments.nodes.map((c) =>
+              submittedCommentKey(c.path, c.line, c.startLine, c.body)
+            )
+          )
+        );
         const author = currentUser
           ? {
               login: currentUser,
@@ -577,7 +589,18 @@ export function useReviewActions() {
           (g) => g.items
         )) {
           const fresh = freshById.get(comment.id) ?? comment;
-          if (fresh.databaseId && knownCommentIds.has(fresh.databaseId)) {
+          const threadPayload = markedPayloads.get(comment.id) ?? payload;
+          if (
+            (fresh.databaseId && knownCommentIds.has(fresh.databaseId)) ||
+            knownCommentKeys.has(
+              submittedCommentKey(
+                threadPayload.path,
+                threadPayload.line,
+                threadPayload.start_line,
+                threadPayload.body
+              )
+            )
+          ) {
             continue;
           }
           const reviewId = shaToReviewId.get(pendingTargetSha(fresh, headSha));
@@ -588,7 +611,7 @@ export function useReviewActions() {
               reviewId,
               author,
               timestamp,
-              markedPayloads.get(comment.id) ?? payload
+              threadPayload
             )
           );
         }

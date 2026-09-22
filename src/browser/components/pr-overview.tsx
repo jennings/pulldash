@@ -1644,7 +1644,7 @@ export const PROverview = memo(function PROverview() {
                           const hasThreads = threads.length > 0;
                           // Show APPROVED/CHANGES_REQUESTED always, COMMENTED only if they have a body OR threads
                           if (
-                            review.body ||
+                            review.body?.trim() ||
                             review.state === "APPROVED" ||
                             review.state === "CHANGES_REQUESTED" ||
                             hasThreads
@@ -3382,8 +3382,10 @@ function ReviewBox({
         </div>
       </div>
 
-      {/* Comment box - shows if there's a body */}
-      {review.body && (
+      {/* Comment box - shows if there's a body. COMMENT reviews submit a
+          whitespace-only body when the user typed no summary; GitHub renders
+          those reviews without a comment card, so hide blank bodies too. */}
+      {review.body?.trim() && (
         <div
           className={cn(
             "relative z-10 border rounded-md overflow-hidden bg-card ml-8",
