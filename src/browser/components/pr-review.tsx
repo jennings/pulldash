@@ -3181,6 +3181,44 @@ const DiffViewer = memo(function DiffViewer({
     virtualizer,
   ]);
 
+  // Out-of-diff comments live outside the hunks; when one is focused (via the
+  // timeline's file link or a hash navigation), expand the skip block
+  // containing its line so the code and the comment become visible. Mirrors
+  // the search-match jump above. focusFirstLine is off so the target keeps
+  // focus; the scroll effect re-runs once the rows exist.
+  useEffect(() => {
+    if (focusedLine === null) return;
+    if (lineNumToRowIndex.has(`${focusedLine}:any`)) return;
+    let skipIndex = 0;
+    for (const hunk of hunks) {
+      if (hunk.type !== "skip") continue;
+      const coords = skipBlockStartLines[skipIndex] ?? {
+        newStart: 1,
+        oldStart: 1,
+      };
+      if (
+        focusedLine >= coords.newStart &&
+        focusedLine < coords.newStart + hunk.count
+      ) {
+        expandSkipBlock(
+          skipIndex,
+          coords.newStart,
+          coords.oldStart,
+          hunk.count,
+          { focusFirstLine: false }
+        );
+        return;
+      }
+      skipIndex++;
+    }
+  }, [
+    focusedLine,
+    hunks,
+    skipBlockStartLines,
+    expandSkipBlock,
+    lineNumToRowIndex,
+  ]);
+
   // When the query changes and the open file has no match, jump to the first
   // file that has one (expanding a collapsed block on the way if needed).
   useEffect(() => {

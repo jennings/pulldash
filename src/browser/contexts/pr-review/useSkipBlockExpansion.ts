@@ -18,7 +18,8 @@ export function useSkipBlockExpansion() {
       skipIndex: number,
       startLine: number,
       oldStartLine: number,
-      count: number
+      count: number,
+      options?: { focusFirstLine?: boolean }
     ) => {
       if (!selectedFile) return;
 
@@ -57,8 +58,10 @@ export function useSkipBlockExpansion() {
 
         store.setExpandedSkipBlock(key, expandedLines);
 
-        // Focus the first expanded line so user can continue with keyboard
-        if (expandedLines.length > 0) {
+        // Focus the first expanded line so user can continue with keyboard.
+        // Skipped for programmatic expansions (e.g. revealing an
+        // out-of-diff comment) so the original target keeps focus.
+        if ((options?.focusFirstLine ?? true) && expandedLines.length > 0) {
           const firstLine = expandedLines[0];
           const firstLineNum =
             firstLine.newLineNumber || firstLine.oldLineNumber;
