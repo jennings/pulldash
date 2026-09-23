@@ -106,7 +106,12 @@ import {
 } from "../../shared/commit-metadata";
 import { stripReviewGroupMarker } from "../../shared/review-group";
 import {
+  isOutOfDiffComment,
   parseOutOfDiffMarker,
+  rebuildOutOfDiffBody,
+  stripOutOfDiffBody,
+  stripOutOfDiffPermalink,
+  stripOutOfDiffPermalinkHtml,
   type OutOfDiffInfo,
 } from "../../shared/out-of-diff";
 import { resolveCommentLine } from "../lib/comment-anchor";
@@ -4984,10 +4989,14 @@ const CommentItem = memo(function CommentItem({
   );
   // Editing strips the hidden review-group marker for display; the save
   // re-attaches it (via withReviewGroupMarker in the store action).
-  const visibleBody = useMemo(
-    () => stripReviewGroupMarker(comment.body),
-    [comment.body]
-  );
+  // Out-of-diff comments additionally hide their position marker and blob
+  // permalink; the save rebuilds them (rebuildOutOfDiffBody).
+  const visibleBody = useMemo(() => {
+    if (isOutOfDiffComment(comment.body)) {
+      return stripOutOfDiffBody(comment.body);
+    }
+    return stripReviewGroupMarker(comment.body);
+  }, [comment.body]);
   const [editText, setEditText] = useState(visibleBody);
   const [saving, setSaving] = useState(false);
   const commentRef = useRef<HTMLDivElement>(null);
@@ -5104,6 +5113,16 @@ const CommentItem = memo(function CommentItem({
               <div className="mt-1 text-sm text-foreground/90">
                 {isMetadataComment(comment.body) ? (
                   <Markdown>{stripCommitMetadataPrefix(comment.body)}</Markdown>
+                ) : isOutOfDiffComment(comment.body) ? (
+                  <Markdown
+                    html={
+                      comment.body_html
+                        ? stripOutOfDiffPermalinkHtml(comment.body_html)
+                        : undefined
+                    }
+                  >
+                    {stripOutOfDiffPermalink(stripOutOfDiffBody(comment.body))}
+                  </Markdown>
                 ) : (
                   <Markdown html={comment.body_html}>{comment.body}</Markdown>
                 )}

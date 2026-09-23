@@ -3,6 +3,8 @@ import {
   parseOutOfDiffMarker,
   buildOutOfDiffMarker,
   isOutOfDiffComment,
+  rebuildOutOfDiffBody,
+  stripOutOfDiffBody,
   stripOutOfDiffPermalink,
   stripOutOfDiffPermalinkHtml,
 } from "./out-of-diff";
@@ -74,4 +76,31 @@ test("strips the embedded snippet block from rendered HTML", () => {
 test("leaves bodies without a permalink untouched", () => {
   expect(stripOutOfDiffPermalink("plain")).toBe("plain");
   expect(stripOutOfDiffPermalinkHtml("<p>plain</p>")).toBe("<p>plain</p>");
+});
+
+test("strips marker and permalink, keeping only the user text", () => {
+  const body = [
+    "<!-- pulldash:out-of-diff sha=f9a1 line=20 start_line=18 side=RIGHT -->",
+    "another out-of-diff comment",
+    "",
+    "https://github.com/o/r/blob/f9a1167bbc9e/src/a.ts#L18-L20",
+  ].join("\n");
+  expect(stripOutOfDiffBody(body)).toBe("another out-of-diff comment");
+});
+
+test("rebuilds an out-of-diff body around edited text", () => {
+  const original = [
+    "<!-- pulldash:out-of-diff sha=f9a1 line=20 start_line=18 side=RIGHT -->",
+    "old text",
+    "",
+    "https://github.com/o/r/blob/f9a1/src/a.ts#L18-L20",
+  ].join("\n");
+  expect(rebuildOutOfDiffBody(original, "new text")).toBe(
+    [
+      "<!-- pulldash:out-of-diff sha=f9a1 line=20 start_line=18 side=RIGHT -->",
+      "new text",
+      "https://github.com/o/r/blob/f9a1/src/a.ts#L18-L20",
+    ].join("\n\n")
+  );
+  expect(rebuildOutOfDiffBody("plain body", "new text")).toBeNull();
 });

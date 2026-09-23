@@ -18,6 +18,10 @@ import {
 } from "../../shared/commit-metadata";
 import { stripReviewGroupMarker } from "../../shared/review-group";
 import {
+  isOutOfDiffComment,
+  stripOutOfDiffBody,
+} from "../../shared/out-of-diff";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuCheckboxItem,
@@ -266,9 +270,13 @@ export const ConversationsSidebar = memo(function ConversationsSidebar() {
 
                 const author = firstComment.author;
                 const replyCount = thread.comments.nodes.length - 1;
-                const displayBody = stripReviewGroupMarker(
-                  stripCommitMetadataPrefix(firstComment.body)
-                );
+                // Out-of-diff comments hide their position marker and blob
+                // permalink everywhere they're listed.
+                const displayBody = isOutOfDiffComment(firstComment.body)
+                  ? stripOutOfDiffBody(firstComment.body)
+                  : stripReviewGroupMarker(
+                      stripCommitMetadataPrefix(firstComment.body)
+                    );
                 const truncatedBody =
                   displayBody.length > 200
                     ? displayBody.slice(0, 200) + "…"

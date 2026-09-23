@@ -104,7 +104,7 @@ import {
 } from "../../shared/review-group";
 import {
   parseOutOfDiffMarker,
-  stripOutOfDiffPermalink,
+  stripOutOfDiffBody,
   stripOutOfDiffPermalinkHtml,
 } from "../../shared/out-of-diff";
 import { buildMetadataLines } from "../contexts/pr-review/useCurrentDiff";
@@ -4069,7 +4069,7 @@ function ReviewThreadBox({
                         : undefined
                     }
                   >
-                    {stripOutOfDiffPermalink(comment.body ?? "")}
+                    {stripOutOfDiffBody(comment.body ?? "")}
                   </Markdown>
                 ) : (
                   <Markdown html={comment.bodyHTML}>{comment.body}</Markdown>

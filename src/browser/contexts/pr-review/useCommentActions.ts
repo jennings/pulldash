@@ -7,6 +7,7 @@ import {
 } from ".";
 import { getCommitFieldLabel } from "./useCurrentDiff";
 import { withReviewGroupMarker } from "@/shared/review-group";
+import { isOutOfDiffComment, rebuildOutOfDiffBody } from "@/shared/out-of-diff";
 import { resolveCommentPosition } from "@/browser/lib/reviews";
 
 export function useCommentActions() {
@@ -150,15 +151,22 @@ export function useCommentActions() {
 
   const updateComment = async (commentId: number, newBody: string) => {
     try {
-      // Re-attach the hidden review-group marker that editing strips.
+      // Re-attach the hidden markers that editing strips: out-of-diff
+      // comments keep their position marker + blob permalink, other comments
+      // re-attach the review-group marker.
       const original = store
         .getSnapshot()
         .comments.find((c) => c.id === commentId);
+      const body = original
+        ? isOutOfDiffComment(original.body)
+          ? (rebuildOutOfDiffBody(original.body, newBody) ?? newBody)
+          : withReviewGroupMarker(original.body, newBody)
+        : newBody;
       const updatedComment = await github.updateComment(
         owner,
         repo,
         commentId,
-        original ? withReviewGroupMarker(original.body, newBody) : newBody
+        body
       );
       store.updateComment(commentId, updatedComment as ReviewComment);
     } catch (error) {

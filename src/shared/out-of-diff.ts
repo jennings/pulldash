@@ -41,6 +41,34 @@ export function buildOutOfDiffMarker(
   return `<!-- pulldash:out-of-diff${withSha} line=${line}${start} side=${side} -->`;
 }
 
+/** The user text of an out-of-diff body: the marker line and the blob
+ *  permalink removed. */
+export function stripOutOfDiffBody(body: string): string {
+  const idx = body.indexOf(OUT_OF_DIFF_MARKER);
+  const withoutMarker =
+    idx === -1 ? body : body.slice(body.indexOf("-->", idx) + 3);
+  return stripOutOfDiffPermalink(withoutMarker).trim();
+}
+
+/** Rebuild an out-of-diff body around edited text, preserving the marker and
+ *  the blob permalink. Returns null when the body is not an out-of-diff one. */
+export function rebuildOutOfDiffBody(
+  originalBody: string,
+  newText: string
+): string | null {
+  const info = parseOutOfDiffMarker(originalBody);
+  if (!info) return null;
+  const permalink = originalBody.match(
+    /https:\/\/github\.com\/[^\s]+\/blob\/[0-9a-f]+\/\S+#[^\s]*/
+  )?.[0];
+  const parts = [
+    buildOutOfDiffMarker(info.line, info.startLine, info.side, info.sha),
+    newText,
+  ];
+  if (permalink) parts.push(permalink);
+  return parts.join("\n\n");
+}
+
 /** The blob permalink appended to out-of-diff comments, matched anywhere in
  *  a body (raw markdown or pre-rendered HTML). */
 const PERMALINK_RE =
