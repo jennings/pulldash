@@ -1,14 +1,17 @@
 import type { PullRequestFile, ReviewComment } from "@/api/types";
 import { resolveCommentPosition } from "./reviews";
 import { stripReviewGroupMarker } from "@/shared/review-group";
+import { buildOutOfDiffMarker } from "@/shared/out-of-diff";
 
 export interface SubmitCommentPayload {
   path: string;
-  line: number;
+  /** Undefined for file-level comments (lines outside the diff hunks). */
+  line?: number;
   start_line?: number;
   start_side?: "LEFT" | "RIGHT";
   side: "LEFT" | "RIGHT";
   body: string;
+  subject_type?: "file";
 }
 
 /** Local pending comment fields needed for submission. */
@@ -67,7 +70,7 @@ export function groupPendingCommentsByTarget(
   );
 }
 
-/** Repo context for building permalinks in moved-comment notes. */
+/** Repo context for building permalinks in file-level comment bodies. */
 export interface PermalinkContext {
   owner: string;
   repo: string;
@@ -75,12 +78,13 @@ export interface PermalinkContext {
 }
 
 /** Prepare REST payloads for one commit group. :commit metadata comments
- *  redirect to the first file of the group's diff; comments on lines outside
- *  the diff snap to the nearest line GitHub will accept. GitHub validates
- *  every comment of a review against the cumulative diff at the review's
- *  commit and rejects the whole review otherwise, so lines must be pre-snapped.
- *  (GitHub's web UI anchors out-of-diff comments exactly because it uses an
- *  internal endpoint; the public API always rejects them with 422.) */
+ *  redirect to the first file of the group's diff. Comments on lines outside
+ *  the diff hunks cannot be line-anchored — GitHub's API rejects them with
+ *  422 ("Line could not be resolved") in every submission path, and its web
+ *  UI anchors them exactly through an internal endpoint. They are submitted
+ *  as file-level comments (subject_type: file, no line); the body carries a
+ *  hidden marker with the real position for pulldash to re-anchor, plus a
+ *  blob permalink GitHub renders as an embedded code snippet. */
 export function prepareGroupComments(
   comments: PendingCommentInput[],
   files: PullRequestFile[],
@@ -116,23 +120,33 @@ export function prepareGroupComments(
       },
       file?.patch
     );
-    const movedNote = ((): string | null => {
-      if (!anchor.adjusted) return null;
-      const range =
+    if (anchor.adjusted) {
+      // Out-of-diff line: submit as a file-level comment carrying the real
+      // position in a hidden marker, plus a blob permalink (GitHub embeds the
+      // referenced code range in the rendered comment).
+      const anchorPart =
         comment.start_line !== undefined && comment.start_line !== comment.line
-          ? `lines ${comment.start_line}-${comment.line}`
-          : `line ${comment.line}`;
+          ? `#L${comment.start_line}-L${comment.line}`
+          : `#L${comment.line}`;
+      const parts = [
+        buildOutOfDiffMarker(comment.line, comment.start_line, comment.side),
+        comment.body,
+      ];
       if (permalink) {
-        const anchorPart =
-          comment.start_line !== undefined &&
-          comment.start_line !== comment.line
-            ? `#L${comment.start_line}-L${comment.line}`
-            : `#L${comment.line}`;
-        const href = `https://github.com/${permalink.owner}/${permalink.repo}/blob/${permalink.sha}/${comment.path}${anchorPart}`;
-        return `_This comment was originally on [${range} of \`${comment.path}\`](${href}), which is outside the diff — GitHub's API can only anchor review comments to diff lines, so it was moved to the nearest one._`;
+        parts.push(
+          `https://github.com/${permalink.owner}/${permalink.repo}/blob/${permalink.sha}/${comment.path}${anchorPart}`
+        );
       }
-      return `_This comment was originally on ${range} of \`${comment.path}\`, which is outside the diff — GitHub's API can only anchor review comments to diff lines, so it was moved to the nearest one._`;
-    })();
+      return {
+        comment,
+        payload: {
+          path: comment.path,
+          body: parts.join("\n\n"),
+          side: comment.side,
+          subject_type: "file" as const,
+        },
+      };
+    }
     return {
       comment,
       payload: {
@@ -141,7 +155,7 @@ export function prepareGroupComments(
         start_line: anchor.start_line,
         start_side: anchor.start_line === undefined ? undefined : comment.side,
         side: comment.side,
-        body: movedNote ? `${movedNote}\n\n${comment.body}` : comment.body,
+        body: comment.body,
       },
     };
   });

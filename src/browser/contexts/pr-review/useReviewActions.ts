@@ -84,6 +84,9 @@ export function useReviewActions() {
     const state = store.getSnapshot();
     store.setSubmittingReview(true);
     const newReviews: Review[] = [];
+    // Standalone file-level comments created during this submission; merged
+    // into the refetched comments if GitHub's list lags behind.
+    const optimisticFileComments: ReviewComment[] = [];
 
     try {
       const headSha = pr.head.sha;
@@ -132,6 +135,14 @@ export function useReviewActions() {
         }),
       }));
       const headItems = preparedGroups[0]?.items ?? [];
+
+      // Comments on lines outside the diff hunks cannot be line-anchored;
+      // they are submitted as standalone file-level comments instead of
+      // being part of a review batch.
+      const isFileLevel = (item: PreparedComment) =>
+        item.payload.subject_type === "file";
+      const headFileItems = headItems.filter(isFileLevel);
+      const headLineItems = headItems.filter((item) => !isFileLevel(item));
 
       // Review id (REST database id) per target commit, so optimistic
       // threads can reference the review they were submitted under.
@@ -230,9 +241,12 @@ export function useReviewActions() {
 
         const usedPendingCommentIds = new Set<number>();
         let syncFailed = false;
+        // File-level comments (out-of-diff lines) are never part of the
+        // pending review — GitHub rejects out-of-diff threads on it. They
+        // stay local and are submitted as standalone comments afterwards.
         for (const { comment, payload } of submittedViaGraphQL
           ? []
-          : headItems) {
+          : headLineItems) {
           if (comment.databaseId) continue;
 
           const existing = pendingReview?.comments.nodes.find(
@@ -263,7 +277,7 @@ export function useReviewActions() {
               pr.number,
               {
                 path: payload.path,
-                line: payload.line,
+                line: payload.line!,
                 body: payload.body,
                 side: payload.side,
                 startLine: payload.start_line,
@@ -345,6 +359,21 @@ export function useReviewActions() {
               submitted_at: submitted.submittedAt,
             } as Review);
             submittedViaGraphQL = true;
+            // Out-of-diff comments are not part of the pending review; they
+            // go out as standalone file-level comments on the head commit.
+            for (const item of headFileItems) {
+              const created = await github.createFileLevelComment(
+                owner,
+                repo,
+                pr.number,
+                {
+                  commitId: headSha,
+                  path: item.payload.path,
+                  body: item.payload.body,
+                }
+              );
+              optimisticFileComments.push(created);
+            }
           } catch (submitError) {
             // A failed submit can still mean the review went through (e.g. a
             // retry after a partial failure). Only fall back to REST while the
@@ -436,78 +465,120 @@ export function useReviewActions() {
               ];
 
         // Multi-commit sessions embed a hidden group marker in each group's
-        // first comment so the overview can render the batch as one review
-        // card. GitHub renders HTML comments as nothing; review bodies stay
-        // untouched. Injecting into the payloads means the guard (which
-        // strips markers) and the optimistic threads stay consistent.
+        // first line comment so the overview can render the batch as one
+        // review card. GitHub renders HTML comments as nothing; review bodies
+        // stay untouched. Injecting into the payloads means the guard (which
+        // strips markers) and the optimistic threads stay consistent. The
+        // marker always lands on a line comment — file-level ones are not
+        // part of the review batch.
         const groupToken =
           targets.length > 1 ? Math.random().toString(36).slice(2, 10) : null;
-        const markedGroups: Array<{ sha: string; items: PreparedComment[] }> =
-          groupToken
-            ? targets.map((group, index) => ({
-                ...group,
-                items: group.items.map((item, itemIndex) =>
-                  itemIndex === 0
-                    ? {
-                        ...item,
-                        payload: {
-                          ...item.payload,
-                          body: `${reviewGroupMarker(groupToken, index, targets.length)}\n${item.payload.body}`,
-                        },
-                      }
-                    : item
-                ),
-              }))
-            : targets;
+        const markedGroups: Array<{
+          sha: string;
+          lineItems: PreparedComment[];
+          fileItems: PreparedComment[];
+        }> = targets.map((group, index) => {
+          const fileItems = group.items.filter(isFileLevel);
+          let lineItems = group.items.filter((item) => !isFileLevel(item));
+          if (groupToken && lineItems.length > 0) {
+            lineItems = [
+              {
+                ...lineItems[0],
+                payload: {
+                  ...lineItems[0].payload,
+                  body: `${reviewGroupMarker(groupToken, index, targets.length)}\n${lineItems[0].payload.body}`,
+                },
+              },
+              ...lineItems.slice(1),
+            ];
+          }
+          return { sha: group.sha, lineItems, fileItems };
+        });
 
         if (groupToken) {
           for (const group of markedGroups) {
-            const first = group.items[0];
+            const first = group.lineItems[0];
             if (first) markedPayloads.set(first.comment.id, first.payload);
           }
         }
 
         for (const group of markedGroups) {
-          const guardReview = await findGuardReview(group.sha, group.items);
+          const guardReview =
+            group.lineItems.length > 0
+              ? await findGuardReview(group.sha, group.lineItems)
+              : null;
           if (guardReview) {
             shaToReviewId.set(group.sha, guardReview.id);
             newReviews.push(guardReview);
-            continue;
+          } else {
+            try {
+              const review = await github.createPRReview(
+                owner,
+                repo,
+                pr.number,
+                {
+                  commit_id: group.sha,
+                  event,
+                  body: group.sha === targets[0].sha ? submissionBody : "",
+                  comments: group.lineItems.map(({ payload }) => ({
+                    path: payload.path,
+                    line: payload.line,
+                    body: payload.body,
+                    side: payload.side,
+                    start_line: payload.start_line,
+                    start_side: payload.start_side,
+                  })),
+                }
+              );
+              shaToReviewId.set(group.sha, review.id);
+              newReviews.push(review);
+            } catch (error) {
+              console.error("Failed to submit review group:", error);
+              // Groups submitted so far persist on GitHub. Surface the error;
+              // retrying skips them via the local strip below.
+              if (newReviews.length === 0) throw error;
+              github.invalidatePR(owner, repo, pr.number);
+              throw error;
+            }
           }
-          try {
-            const review = await github.createPRReview(owner, repo, pr.number, {
-              commit_id: group.sha,
-              event,
-              body: group.sha === targets[0].sha ? submissionBody : "",
-              comments: group.items.map(({ payload }) => ({
-                path: payload.path,
-                line: payload.line,
-                body: payload.body,
-                side: payload.side,
-                start_line: payload.start_line,
-                start_side: payload.start_side,
-              })),
-            });
-            shaToReviewId.set(group.sha, review.id);
-            newReviews.push(review);
-            // Drop the group's comments locally so a retried submission
-            // cannot send them again.
-            const submittedIds = new Set(
-              group.items.map(({ comment }) => comment.id)
-            );
-            store.setPendingComments(
-              store
-                .getSnapshot()
-                .pendingComments.filter((c) => !submittedIds.has(c.id))
-            );
-          } catch (error) {
-            console.error("Failed to submit review group:", error);
-            // Groups submitted so far persist on GitHub. Surface the error;
-            // retrying skips them via the local strip above.
-            if (newReviews.length === 0) throw error;
-            github.invalidatePR(owner, repo, pr.number);
-            throw error;
+          // Out-of-diff comments become standalone file-level comments on
+          // the group's commit. Each one is stripped locally as it lands so
+          // a retry only re-posts the ones that failed.
+          for (const item of group.fileItems) {
+            try {
+              const created = await github.createFileLevelComment(
+                owner,
+                repo,
+                pr.number,
+                {
+                  commitId: group.sha,
+                  path: item.payload.path,
+                  body: item.payload.body,
+                }
+              );
+              optimisticFileComments.push(created);
+              store.setPendingComments(
+                store
+                  .getSnapshot()
+                  .pendingComments.filter((c) => c.id !== item.comment.id)
+              );
+            } catch (error) {
+              console.error("Failed to submit file-level comment:", error);
+              if (newReviews.length === 0) throw error;
+              github.invalidatePR(owner, repo, pr.number);
+              throw error;
+            }
           }
+          // Drop the group's line comments locally so a retried submission
+          // cannot send them again.
+          const submittedIds = new Set(
+            group.lineItems.map(({ comment }) => comment.id)
+          );
+          store.setPendingComments(
+            store
+              .getSnapshot()
+              .pendingComments.filter((c) => !submittedIds.has(c.id))
+          );
         }
       }
 
@@ -528,6 +599,13 @@ export function useReviewActions() {
             .catch(() => ({ threads: [] as ReviewThread[] })),
         ]
       );
+
+      // File-level comments can lag behind the submit as well. Merge ours in
+      // when the refetch missed them so the diff shows them immediately.
+      const fetchedCommentIds = new Set(newComments.map((c) => c.id));
+      for (const created of optimisticFileComments) {
+        if (!fetchedCommentIds.has(created.id)) newComments.unshift(created);
+      }
 
       // If a review we just submitted isn't in the re-fetched data yet
       // (eventual consistency), add it manually so it appears immediately.
@@ -592,6 +670,9 @@ export function useReviewActions() {
         for (const { comment, payload } of preparedGroups.flatMap(
           (g) => g.items
         )) {
+          // File-level comments are not review threads; they render via
+          // optimisticFileComments above.
+          if (payload.subject_type === "file") continue;
           const fresh = freshById.get(comment.id) ?? comment;
           const threadPayload = markedPayloads.get(comment.id) ?? payload;
           if (

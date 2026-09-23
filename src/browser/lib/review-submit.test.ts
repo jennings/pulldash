@@ -117,7 +117,7 @@ describe("prepareGroupComments", () => {
     });
   });
 
-  test("snaps lines outside the diff to the nearest diff line and notes it", () => {
+  test("out-of-diff comments become file-level payloads carrying the real position", () => {
     const prepared = prepareGroupComments(
       [
         makeComment({ id: "1", path: "src/first.ts", line: 40 }),
@@ -131,16 +131,21 @@ describe("prepareGroupComments", () => {
       ],
       files
     );
-    expect(prepared[0].payload.line).toBe(4);
-    expect(prepared[0].payload.body).toContain(
-      "originally on line 40 of `src/first.ts`"
-    );
-    // Multi-line ranges that cannot stay intact collapse to a single line.
-    expect(prepared[1].payload.start_line).toBeUndefined();
-    expect(prepared[1].payload.body).toContain("originally on lines 38-40");
+    expect(prepared[0].payload).toEqual({
+      path: "src/first.ts",
+      body: "<!-- pulldash:out-of-diff line=40 side=RIGHT -->\n\ntest",
+      side: "RIGHT",
+      subject_type: "file",
+    });
+    expect(prepared[1].payload).toEqual({
+      path: "src/first.ts",
+      body: "<!-- pulldash:out-of-diff line=40 start_line=38 side=LEFT -->\n\ntest",
+      side: "LEFT",
+      subject_type: "file",
+    });
   });
 
-  test("moved-comment note links the original lines at the target commit", () => {
+  test("file-level payload ends with a blob permalink at the target commit", () => {
     const prepared = prepareGroupComments(
       [
         makeComment({ id: "1", path: "src/first.ts", line: 40 }),
@@ -155,11 +160,12 @@ describe("prepareGroupComments", () => {
       { owner: "o", repo: "r", sha: "abc123" }
     );
     expect(prepared[0].payload.body).toContain(
-      "[line 40 of `src/first.ts`](https://github.com/o/r/blob/abc123/src/first.ts#L40)"
+      "https://github.com/o/r/blob/abc123/src/first.ts#L40"
     );
     expect(prepared[1].payload.body).toContain(
-      "[lines 38-40 of `src/first.ts`](https://github.com/o/r/blob/abc123/src/first.ts#L38-L40)"
+      "https://github.com/o/r/blob/abc123/src/first.ts#L38-L40"
     );
+    expect(prepared[0].payload.subject_type).toBe("file");
   });
 
   test("leaves comments for files missing from the diff unsnapped", () => {

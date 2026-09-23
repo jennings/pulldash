@@ -105,6 +105,10 @@ import {
   parseCommitMetadataMarker,
 } from "../../shared/commit-metadata";
 import { stripReviewGroupMarker } from "../../shared/review-group";
+import {
+  parseOutOfDiffMarker,
+  type OutOfDiffInfo,
+} from "../../shared/out-of-diff";
 import { resolveCommentLine } from "../lib/comment-anchor";
 import { groupCommentsByLineSide } from "../lib/reviews";
 import {
@@ -1876,10 +1880,49 @@ const DiffViewer = memo(function DiffViewer({
   const [isDraggingState, setIsDraggingState] = useState(false);
 
   // Pre-compute comment lookup maps for O(1) access
+  const outOfDiffMarkers = useMemo(() => {
+    // File-level comments created by pulldash for lines outside the diff
+    // hunks carry a marker with the real position; replies inherit it.
+    const markers = new Map<number, OutOfDiffInfo>();
+    for (const comment of comments) {
+      if (comment.subject_type !== "file" || comment.in_reply_to_id) continue;
+      const info = parseOutOfDiffMarker(comment.body);
+      if (info) markers.set(comment.id, info);
+    }
+    return markers;
+  }, [comments]);
+
   const commentsByLine = useMemo(() => {
     const map = new Map<number, ReviewComment[]>();
     for (const comment of comments) {
-      if (comment.subject_type === "file") continue;
+      if (comment.subject_type === "file") {
+        // Pseudo file-level comments carry the real line in their marker and
+        // render at it; genuine file-level comments render above the diff.
+        const info =
+          outOfDiffMarkers.get(comment.id) ??
+          (comment.in_reply_to_id
+            ? outOfDiffMarkers.get(comment.in_reply_to_id)
+            : undefined);
+        if (!info) continue;
+        // Marker lines are in the comment's commit coordinates; only anchor
+        // while that commit is being viewed.
+        if (
+          (comment.commit_id ?? "").slice(0, 7) !== viewedCommitSha.slice(0, 7)
+        ) {
+          continue;
+        }
+        // Shim the marker's position onto the comment so line maps, ranges
+        // and side rendering all use the real anchoring.
+        const existing = map.get(info.line) || [];
+        existing.push({
+          ...comment,
+          line: info.line,
+          start_line: info.startLine,
+          side: info.side,
+        });
+        map.set(info.line, existing);
+        continue;
+      }
       const line = resolveCommentLine(
         {
           commitId: comment.commit_id,
@@ -1900,15 +1943,24 @@ const DiffViewer = memo(function DiffViewer({
       }
     }
     return map;
-  }, [comments, diff, viewedCommitSha]);
+  }, [comments, outOfDiffMarkers, diff, viewedCommitSha]);
 
   // File-level comments (subject_type === "file") aren't tied to a diff line.
   // GitHub still returns them with line=1, but they belong above the diff
   // rather than at line 1 (which often isn't in the diff at all).
+  // Out-of-diff comments (marker'd, with replies) render at their real lines
+  // in commentsByLine instead.
   const fileLevelThreads = useMemo(() => {
     const threadMap = new Map<number, ReviewComment[]>();
     for (const comment of comments) {
       if (comment.subject_type !== "file") continue;
+      if (outOfDiffMarkers.has(comment.id)) continue;
+      if (
+        comment.in_reply_to_id &&
+        outOfDiffMarkers.has(comment.in_reply_to_id)
+      ) {
+        continue;
+      }
       if (!comment.in_reply_to_id) {
         threadMap.set(comment.id, [comment]);
       }
@@ -1921,7 +1973,7 @@ const DiffViewer = memo(function DiffViewer({
       }
     }
     return [...threadMap.values()];
-  }, [comments]);
+  }, [comments, outOfDiffMarkers]);
 
   // Anchor lines derived from re-anchored comments + pending comments,
   // replacing the store's raw-line-based commentAnchorLookup

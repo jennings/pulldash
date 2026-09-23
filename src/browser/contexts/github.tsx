@@ -917,11 +917,38 @@ function createGitHubStore() {
       );
       result = data;
     }
-
     queryClient.invalidateQueries({
       queryKey: queries.pullRequestComments(owner, repo, number).queryKey,
     });
     return result;
+  }
+
+  /** File-level review comment (subject_type: file, no line anchor). Used for
+   *  comments on lines outside the diff hunks, which GitHub's API cannot
+   *  line-anchor in any submission path. */
+  async function createFileLevelComment(
+    owner: string,
+    repo: string,
+    number: number,
+    options: { commitId: string; path: string; body: string }
+  ): Promise<ReviewComment> {
+    if (!octokit) throw new Error("Not initialized");
+    const { data } = await octokit.request(
+      "POST /repos/{owner}/{repo}/pulls/{pull_number}/comments",
+      {
+        owner,
+        repo,
+        pull_number: number,
+        commit_id: options.commitId,
+        path: options.path,
+        subject_type: "file",
+        body: options.body,
+      }
+    );
+    queryClient.invalidateQueries({
+      queryKey: queries.pullRequestComments(owner, repo, number).queryKey,
+    });
+    return data;
   }
 
   function getPRReviews(
@@ -982,7 +1009,7 @@ function createGitHubStore() {
       body?: string;
       comments?: Array<{
         path: string;
-        line: number;
+        line: number | undefined;
         body: string;
         side?: "LEFT" | "RIGHT";
         start_line?: number;
@@ -2906,6 +2933,7 @@ function createGitHubStore() {
     getRawCompareDiff,
     getPRComments,
     createPRComment,
+    createFileLevelComment,
     getPRReviews,
     getPRReviewsFresh,
     getReviewComments,

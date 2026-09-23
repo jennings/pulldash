@@ -7,6 +7,7 @@ import {
 } from ".";
 import { getCommitFieldLabel } from "./useCurrentDiff";
 import { withReviewGroupMarker } from "@/shared/review-group";
+import { resolveCommentPosition } from "@/browser/lib/reviews";
 
 export function useCommentActions() {
   const store = usePRReviewStore();
@@ -79,7 +80,18 @@ export function useCommentActions() {
     // Comments made on a non-head diff skip the sync: GitHub's thread
     // mutation can only anchor to the head diff, so they stay local until
     // submission groups them by commit.
-    if (!targetSha || targetSha === pr.head.sha) {
+    // Out-of-diff lines (context outside the hunks) are skipped too: GitHub
+    // rejects out-of-diff threads on the pending review, and they are
+    // submitted as standalone file-level comments instead.
+    const patch =
+      state.files.find((f) => f.filename === state.selectedFile)?.patch ?? null;
+    const outOfDiff =
+      !!patch &&
+      resolveCommentPosition(
+        { line, start_line: startLine, side: commentSide },
+        patch
+      ).adjusted;
+    if (!outOfDiff && (!targetSha || targetSha === pr.head.sha)) {
       try {
         const result = await github.addPendingComment(owner, repo, pr.number, {
           path: githubPath,
