@@ -18,7 +18,7 @@ import {
   type Tab,
   type TabStatus,
 } from "../contexts/tabs";
-import { useGitHubStore } from "../contexts/github";
+import { useGitHubStore, useCurrentUser } from "../contexts/github";
 import { setLastViewed } from "../lib/waiting-prs";
 import { consumeDueReminders } from "../lib/reminders";
 import { parsePRUrl } from "../lib/pr-url";
@@ -133,6 +133,7 @@ export function AppShell() {
   const queryClient = useQueryClient();
   const githubStore = useGitHubStore();
   const openPRReviewTab = useOpenPRReviewTab();
+  const currentUserLogin = useCurrentUser()?.login ?? null;
 
   const tabScrollRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
@@ -426,8 +427,12 @@ export function AppShell() {
           notifiedThisCycle.add(prId);
           setNotifiedAt(prId, enrichment.updatedAt);
           // Activity caused by pulldash itself (the marker is set by every
-          // mutation) must not notify.
+          // mutation) must not notify. Notifications for the viewer's own
+          // PRs are suppressed too: pushing to your own PR is your own
+          // activity, and GitHub keeps the thread unread for it.
           const selfMutated = consumeSelfActivity(prId);
+          const ownPr =
+            !!currentUserLogin && enrichment.authorLogin === currentUserLogin;
           // Drop cached PR data so the refetches hit the network.
           queryClient.invalidateQueries({
             queryKey: ["pull-request", tab.owner, tab.repo, tab.number],
@@ -437,10 +442,10 @@ export function AppShell() {
           if (tab.id === activeTab?.id) {
             notifyPRRefresh(tab.owner, tab.repo, tab.number);
             if (mergeTransition) {
-              if (!selfMutated) {
+              if (!selfMutated && !ownPr) {
                 setHint({ text: "PR merged", kind: "success" });
               }
-            } else if (!enrichment.isReadByViewer && !selfMutated) {
+            } else if (!enrichment.isReadByViewer && !selfMutated && !ownPr) {
               setHint({ text: "New activity on this PR", kind: "success" });
             }
           } else {
@@ -453,6 +458,7 @@ export function AppShell() {
           if (
             notifsEnabled() &&
             !selfMutated &&
+            !ownPr &&
             (mergeTransition || !enrichment.isReadByViewer)
           ) {
             const prUrl = `/${tab.owner}/${tab.repo}/pull/${tab.number}`;
@@ -499,8 +505,10 @@ export function AppShell() {
         ) {
           notifiedThisCycle.add(prId);
           const selfMutated = consumeSelfActivity(prId);
+          const ownPr =
+            !!currentUserLogin && enrichment.authorLogin === currentUserLogin;
           const prUrl = `/${owner}/${repo}/pull/${number}`;
-          if (!selfMutated) {
+          if (!selfMutated && !ownPr) {
             if (mergeTransition) {
               notifyMerged(owner, repo, number, pr.title);
             } else {
@@ -527,7 +535,14 @@ export function AppShell() {
       // is indistinguishable from "no new activity".
       console.warn("PR activity poll failed", e);
     }
-  }, [tabs, activeTab, githubStore, markTabUpdated, queryClient]);
+  }, [
+    tabs,
+    activeTab,
+    githubStore,
+    markTabUpdated,
+    queryClient,
+    currentUserLogin,
+  ]);
 
   // Poll PR activity every 60s. The interval lives in a stable effect and
   // reads the latest checkPRs via a ref: depending on `tabs` directly would

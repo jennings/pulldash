@@ -236,6 +236,8 @@ export interface PREnrichment {
   deletions: number;
   updatedAt: string;
   isReadByViewer: boolean;
+  /** PR author — notifications for the viewer's own PRs are suppressed. */
+  authorLogin: string | null;
   lastCommitAt: string | null;
   viewerLastReviewAt: string | null;
   hasNewChanges: boolean;
@@ -2021,6 +2023,9 @@ function createGitHubStore() {
           isInMergeQueue
           merged
           reviewDecision
+          author {
+            login
+          }
           latestOpinionatedReviews(first: 10) {
             nodes {
               author {
@@ -2094,6 +2099,7 @@ function createGitHubStore() {
               | "CHANGES_REQUESTED"
               | "REVIEW_REQUIRED"
               | null;
+            author: { login: string } | null;
             latestOpinionatedReviews: {
               nodes: Array<{
                 author: { login: string; avatarUrl: string } | null;
@@ -2230,6 +2236,7 @@ function createGitHubStore() {
           deletions: result.deletions,
           updatedAt: result.updatedAt,
           isReadByViewer: result.isReadByViewer,
+          authorLogin: result.author?.login ?? null,
           lastCommitAt,
           viewerLastReviewAt,
           hasNewChanges,
