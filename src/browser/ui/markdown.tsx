@@ -41,6 +41,7 @@ import {
   Quote,
   Heading2,
   Smile,
+  Users,
   X,
   ZoomIn,
   ZoomOut,
@@ -48,6 +49,8 @@ import {
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./tooltip";
 import { Dialog, DialogContent, DialogTitle } from "./dialog";
+import { useQuery } from "@tanstack/react-query";
+import { queries } from "../lib/queries";
 
 interface MarkdownProps {
   children: string;
@@ -1070,6 +1073,59 @@ export interface MentionUser {
   type?: string;
 }
 
+export interface MentionTeam {
+  slug: string;
+}
+
+export interface MentionSuggestion {
+  login: string;
+  avatar_url: string;
+  type?: string;
+  /** Team mention — inserted and displayed as @owner/slug. */
+  team?: boolean;
+}
+
+/**
+ * Tiered mention candidates matching GitHub's popup order: PR participants,
+ * then repo users, then org teams. GitHub-wide search results are merged on
+ * top by the editor.
+ */
+export function buildMentionSuggestions(
+  query: string,
+  participants: MentionUser[],
+  collaborators: MentionUser[],
+  teams: MentionTeam[]
+): MentionSuggestion[] {
+  const q = query.toLowerCase();
+  const seen = new Set<string>();
+  const out: MentionSuggestion[] = [];
+
+  const addUser = (login: string, avatar_url: string, type?: string) => {
+    if (!login || seen.has(login.toLowerCase())) return;
+    seen.add(login.toLowerCase());
+    out.push({
+      login,
+      avatar_url:
+        avatar_url || `https://avatars.githubusercontent.com/${login}`,
+      type,
+    });
+  };
+  const addTeam = (slug: string) => {
+    if (!slug || seen.has(slug.toLowerCase())) return;
+    seen.add(slug.toLowerCase());
+    out.push({ login: slug, avatar_url: "", team: true });
+  };
+
+  for (const u of participants)
+    if (u.login.toLowerCase().includes(q))
+      addUser(u.login, u.avatar_url, u.type);
+  for (const u of collaborators)
+    if (u.login.toLowerCase().includes(q))
+      addUser(u.login, u.avatar_url, u.type);
+  for (const t of teams) if (t.slug.toLowerCase().includes(q)) addTeam(t.slug);
+  return out;
+}
+
 interface MentionSuggestionsContextValue {
   suggestedUsers: MentionUser[];
   owner?: string;
@@ -1172,7 +1228,7 @@ export const MarkdownEditor = memo(function MarkdownEditor({
   // Mention autocomplete state
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionStart, setMentionStart] = useState<number>(0);
-  const [mentionUsers, setMentionUsers] = useState<MentionUser[]>([]);
+  const [mentionUsers, setMentionUsers] = useState<MentionSuggestion[]>([]);
   const [mentionLoading, setMentionLoading] = useState(false);
   const [selectedMentionIndex, setSelectedMentionIndex] = useState(0);
   const [anchorPosition, setAnchorPosition] = useState({ top: 0, left: 0 });
@@ -1183,6 +1239,33 @@ export const MarkdownEditor = memo(function MarkdownEditor({
   // Get contextual suggestions from context (if available)
   const mentionContext = useMentionSuggestions();
   const suggestedUsers = mentionContext?.suggestedUsers ?? [];
+  const owner = mentionContext?.owner;
+  const repo = mentionContext?.repo;
+
+  // Repo users and org teams for the second and third tiers of the popup.
+  // Queries are shared (same key) across every open editor, so no duplicate
+  // fetches; personal repos return no teams.
+  const { data: collaborators = [] } = useQuery({
+    ...queries.collaborators(owner ?? "", repo ?? ""),
+    enabled: ready && !!owner && !!repo,
+  });
+  const { data: orgTeams = [] } = useQuery({
+    ...queries.orgTeams(owner ?? ""),
+    enabled: ready && !!owner,
+  });
+  const collaboratorUsers = useMemo(
+    () =>
+      collaborators.map((c) => ({
+        login: c.login,
+        avatar_url: c.avatar_url,
+        type: c.type,
+      })),
+    [collaborators]
+  );
+  const teams = useMemo(
+    () => orgTeams.map((t) => ({ slug: t.slug })),
+    [orgTeams]
+  );
 
   useEffect(() => {
     if (autoFocus && textareaRef.current) {
@@ -1258,27 +1341,28 @@ export const MarkdownEditor = memo(function MarkdownEditor({
       return;
     }
 
-    const query = mentionQuery.toLowerCase();
-
-    // Filter suggested users first
-    const filteredSuggestions = suggestedUsers.filter((u) =>
-      u.login.toLowerCase().includes(query)
+    // Tiered local candidates: PR participants, repo users, org teams.
+    const local = buildMentionSuggestions(
+      mentionQuery,
+      suggestedUsers,
+      collaboratorUsers,
+      teams
     );
 
     // If we have enough local matches or query is empty, use those
-    if (filteredSuggestions.length >= 5 || query.length === 0) {
-      setMentionUsers(filteredSuggestions.slice(0, 8));
+    if (local.length >= 5 || mentionQuery.length === 0) {
+      setMentionUsers(local.slice(0, 8));
       setMentionLoading(false);
       setSelectedMentionIndex(0);
       return;
     }
 
     // Show local results immediately while searching
-    setMentionUsers(filteredSuggestions);
+    setMentionUsers(local.slice(0, 8));
     setSelectedMentionIndex(0);
 
     // Only search GitHub if query is at least 1 character
-    if (query.length < 1) {
+    if (mentionQuery.length < 1) {
       return;
     }
 
@@ -1292,12 +1376,10 @@ export const MarkdownEditor = memo(function MarkdownEditor({
           type: u.type,
         }));
 
-        // Merge: suggested users first (filtered), then search results (deduplicated)
-        const seen = new Set(
-          filteredSuggestions.map((u) => u.login.toLowerCase())
-        );
+        // Merge: local candidates first, then search results (deduplicated)
+        const seen = new Set(local.map((u) => u.login.toLowerCase()));
         const merged = [
-          ...filteredSuggestions,
+          ...local,
           ...searchResults.filter((u) => !seen.has(u.login.toLowerCase())),
         ].slice(0, 8);
 
@@ -1305,14 +1387,14 @@ export const MarkdownEditor = memo(function MarkdownEditor({
         setSelectedMentionIndex(0);
       } catch (e) {
         console.error("Failed to search users:", e);
-        // Keep showing filtered suggestions on error
+        // Keep showing local candidates on error
       } finally {
         setMentionLoading(false);
       }
     }, 150);
 
     return () => clearTimeout(timeout);
-  }, [mentionQuery, ready, github, suggestedUsers]);
+  }, [mentionQuery, ready, github, suggestedUsers, collaboratorUsers, teams]);
 
   const handleTabChange = useCallback((tab: "write" | "preview") => {
     setActiveTab(tab);
@@ -1390,26 +1472,31 @@ export const MarkdownEditor = memo(function MarkdownEditor({
   );
 
   const insertMention = useCallback(
-    (username: string) => {
+    (suggestion: MentionSuggestion) => {
       const textarea = textareaRef.current;
       if (!textarea) return;
 
-      // Replace @query with @username
+      // Teams are mentioned as @owner/slug, users as @login
+      const name = suggestion.team
+        ? `${owner}/${suggestion.login}`
+        : suggestion.login;
+
+      // Replace @query with @name
       const before = value.substring(0, mentionStart);
       const after = value.substring(textarea.selectionStart);
-      const newValue = `${before}@${username} ${after}`;
+      const newValue = `${before}@${name} ${after}`;
 
       onChange(newValue);
       setMentionQuery(null);
 
       // Set cursor after the mention
-      const newCursorPos = mentionStart + username.length + 2; // +2 for @ and space
+      const newCursorPos = mentionStart + name.length + 2; // +2 for @ and space
       setTimeout(() => {
         textarea.focus();
         textarea.setSelectionRange(newCursorPos, newCursorPos);
       }, 0);
     },
-    [value, mentionStart, onChange]
+    [value, mentionStart, onChange, owner]
   );
 
   const handleKeyDown = useCallback(
@@ -1430,7 +1517,7 @@ export const MarkdownEditor = memo(function MarkdownEditor({
         }
         if (e.key === "Enter" || e.key === "Tab") {
           e.preventDefault();
-          insertMention(mentionUsers[selectedMentionIndex].login);
+          insertMention(mentionUsers[selectedMentionIndex]);
           return;
         }
         if (e.key === "Escape") {
@@ -1839,7 +1926,7 @@ export const MarkdownEditor = memo(function MarkdownEditor({
               <div className="max-h-48 overflow-y-auto">
                 {mentionUsers.map((user, index) => (
                   <button
-                    key={user.login}
+                    key={user.team ? `team-${user.login}` : user.login}
                     type="button"
                     className={cn(
                       "w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm text-left transition-colors",
@@ -1847,17 +1934,31 @@ export const MarkdownEditor = memo(function MarkdownEditor({
                         ? "bg-accent text-accent-foreground"
                         : "hover:bg-muted"
                     )}
-                    onClick={() => insertMention(user.login)}
+                    onClick={() => insertMention(user)}
                     onMouseEnter={() => setSelectedMentionIndex(index)}
                   >
-                    <img
-                      src={user.avatar_url}
-                      alt={user.login}
-                      className="w-5 h-5 rounded-full"
-                    />
-                    <span className="font-medium">{user.login}</span>
-                    {user.type === "Organization" && (
-                      <span className="text-xs text-muted-foreground">org</span>
+                    {user.team ? (
+                      <Users className="w-5 h-5 text-muted-foreground shrink-0" />
+                    ) : (
+                      <img
+                        src={user.avatar_url}
+                        alt={user.login}
+                        className="w-5 h-5 rounded-full"
+                      />
+                    )}
+                    <span className="font-medium">
+                      {user.team ? `${owner}/${user.login}` : user.login}
+                    </span>
+                    {user.team ? (
+                      <span className="text-xs text-muted-foreground">
+                        team
+                      </span>
+                    ) : (
+                      user.type === "Organization" && (
+                        <span className="text-xs text-muted-foreground">
+                          org
+                        </span>
+                      )
                     )}
                   </button>
                 ))}

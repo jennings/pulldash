@@ -4526,7 +4526,19 @@ export function PRReviewProvider({
   }, [owner, repo, pr.number]);
 
   // Extract relevant users for @mention suggestions
-  // Priority: PR participants (author, reviewers, assignees, commenters)
+  // Priority: PR participants (author, reviewers, assignees, commenters).
+  // Reviews and issue comments load async into the store; subscribe so the
+  // participant list stays current.
+  const store = storeRef.current;
+  const reviews = useSyncExternalStore(
+    store.subscribe,
+    () => store.getSnapshot().reviews
+  );
+  const conversation = useSyncExternalStore(
+    store.subscribe,
+    () => store.getSnapshot().conversation
+  );
+
   const suggestedUsers = useMemo(() => {
     const seen = new Set<string>();
     const users: MentionUser[] = [];
@@ -4561,15 +4573,29 @@ export function PRReviewProvider({
       }
     }
 
-    // Commenters (from review comments)
+    // Reviewers
+    for (const review of reviews) {
+      if (review.user) {
+        addUser(review.user.login, review.user.avatar_url);
+      }
+    }
+
+    // Review comment authors
     for (const comment of comments) {
       if (comment.user) {
         addUser(comment.user.login, comment.user.avatar_url);
       }
     }
 
+    // Issue commenters
+    for (const comment of conversation) {
+      if (comment.user) {
+        addUser(comment.user.login, comment.user.avatar_url);
+      }
+    }
+
     return users;
-  }, [pr, comments]);
+  }, [pr, comments, reviews, conversation]);
 
   return (
     <PRReviewContext.Provider value={storeRef.current}>
