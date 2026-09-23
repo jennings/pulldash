@@ -1244,24 +1244,33 @@ export const MarkdownEditor = memo(function MarkdownEditor({
 
   // Repo users and org teams for the second and third tiers of the popup.
   // Queries are shared (same key) across every open editor, so no duplicate
-  // fetches; personal repos return no teams.
+  // fetches; personal repos return no teams/members.
   const { data: collaborators = [] } = useQuery({
     ...queries.collaborators(owner ?? "", repo ?? ""),
     enabled: ready && !!owner && !!repo,
+  });
+  const { data: orgMembers = [] } = useQuery({
+    ...queries.orgMembers(owner ?? ""),
+    enabled: ready && !!owner,
   });
   const { data: orgTeams = [] } = useQuery({
     ...queries.orgTeams(owner ?? ""),
     enabled: ready && !!owner,
   });
-  const collaboratorUsers = useMemo(
-    () =>
-      collaborators.map((c) => ({
-        login: c.login,
-        avatar_url: c.avatar_url,
-        type: c.type,
-      })),
-    [collaborators]
-  );
+  // Repo users: collaborators plus org members (team members without direct
+  // collaborator access are covered by the org roster), deduplicated.
+  const repoUsers = useMemo(() => {
+    const seen = new Set<string>();
+    const users: MentionUser[] = [];
+    for (const list of [collaborators, orgMembers]) {
+      for (const u of list) {
+        if (!u.login || seen.has(u.login.toLowerCase())) continue;
+        seen.add(u.login.toLowerCase());
+        users.push({ login: u.login, avatar_url: u.avatar_url, type: u.type });
+      }
+    }
+    return users;
+  }, [collaborators, orgMembers]);
   const teams = useMemo(
     () => orgTeams.map((t) => ({ slug: t.slug })),
     [orgTeams]
@@ -1345,7 +1354,7 @@ export const MarkdownEditor = memo(function MarkdownEditor({
     const local = buildMentionSuggestions(
       mentionQuery,
       suggestedUsers,
-      collaboratorUsers,
+      repoUsers,
       teams
     );
 
@@ -1394,7 +1403,7 @@ export const MarkdownEditor = memo(function MarkdownEditor({
     }, 150);
 
     return () => clearTimeout(timeout);
-  }, [mentionQuery, ready, github, suggestedUsers, collaboratorUsers, teams]);
+  }, [mentionQuery, ready, github, suggestedUsers, repoUsers, teams]);
 
   const handleTabChange = useCallback((tab: "write" | "preview") => {
     setActiveTab(tab);

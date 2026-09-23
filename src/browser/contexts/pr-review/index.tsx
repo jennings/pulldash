@@ -4527,8 +4527,8 @@ export function PRReviewProvider({
 
   // Extract relevant users for @mention suggestions
   // Priority: PR participants (author, reviewers, assignees, commenters).
-  // Reviews and issue comments load async into the store; subscribe so the
-  // participant list stays current.
+  // Reviews, issue comments and timeline load async into the store; subscribe
+  // so the participant list stays current.
   const store = storeRef.current;
   const reviews = useSyncExternalStore(
     store.subscribe,
@@ -4538,64 +4538,16 @@ export function PRReviewProvider({
     store.subscribe,
     () => store.getSnapshot().conversation
   );
+  const timeline = useSyncExternalStore(
+    store.subscribe,
+    () => store.getSnapshot().timeline
+  );
 
-  const suggestedUsers = useMemo(() => {
-    const seen = new Set<string>();
-    const users: MentionUser[] = [];
-
-    const addUser = (
-      login: string | undefined,
-      avatar_url: string | undefined
-    ) => {
-      if (!login || seen.has(login.toLowerCase())) return;
-      seen.add(login.toLowerCase());
-      users.push({
-        login,
-        avatar_url:
-          avatar_url || `https://avatars.githubusercontent.com/${login}`,
-      });
-    };
-
-    // PR author first
-    if (pr.user) {
-      addUser(pr.user.login, pr.user.avatar_url);
-    }
-
-    // Assignees
-    for (const assignee of pr.assignees || []) {
-      addUser(assignee.login, assignee.avatar_url);
-    }
-
-    // Requested reviewers (can be users or teams)
-    for (const reviewer of pr.requested_reviewers || []) {
-      if ("login" in reviewer) {
-        addUser(reviewer.login, reviewer.avatar_url);
-      }
-    }
-
-    // Reviewers
-    for (const review of reviews) {
-      if (review.user) {
-        addUser(review.user.login, review.user.avatar_url);
-      }
-    }
-
-    // Review comment authors
-    for (const comment of comments) {
-      if (comment.user) {
-        addUser(comment.user.login, comment.user.avatar_url);
-      }
-    }
-
-    // Issue commenters
-    for (const comment of conversation) {
-      if (comment.user) {
-        addUser(comment.user.login, comment.user.avatar_url);
-      }
-    }
-
-    return users;
-  }, [pr, comments, reviews, conversation]);
+  const suggestedUsers = useMemo(
+    () =>
+      extractMentionParticipants(pr, comments, reviews, conversation, timeline),
+    [pr, comments, reviews, conversation, timeline]
+  );
 
   return (
     <PRReviewContext.Provider value={storeRef.current}>
@@ -4608,6 +4560,90 @@ export function PRReviewProvider({
       </MentionSuggestionsProvider>
     </PRReviewContext.Provider>
   );
+}
+
+/**
+ * Users to suggest for @mentions, in rank order: PR author, assignees,
+ * requested reviewers, reviewers, review-comment authors, issue commenters,
+ * then users involved via timeline activity (mentioned users and authors of
+ * cross-referenced items — GitHub suggests these too, even without a
+ * comment or review on the PR itself).
+ */
+export function extractMentionParticipants(
+  pr: PullRequest,
+  comments: ReviewComment[],
+  reviews: Review[],
+  conversation: IssueComment[],
+  timeline: TimelineEvent[]
+): MentionUser[] {
+  const seen = new Set<string>();
+  const users: MentionUser[] = [];
+
+  const addUser = (
+    login: string | undefined,
+    avatar_url: string | undefined
+  ) => {
+    if (!login || seen.has(login.toLowerCase())) return;
+    seen.add(login.toLowerCase());
+    users.push({
+      login,
+      avatar_url:
+        avatar_url || `https://avatars.githubusercontent.com/${login}`,
+    });
+  };
+
+  // PR author first
+  if (pr.user) {
+    addUser(pr.user.login, pr.user.avatar_url);
+  }
+
+  // Assignees
+  for (const assignee of pr.assignees || []) {
+    addUser(assignee.login, assignee.avatar_url);
+  }
+
+  // Requested reviewers (can be users or teams)
+  for (const reviewer of pr.requested_reviewers || []) {
+    if ("login" in reviewer) {
+      addUser(reviewer.login, reviewer.avatar_url);
+    }
+  }
+
+  // Reviewers
+  for (const review of reviews) {
+    if (review.user) {
+      addUser(review.user.login, review.user.avatar_url);
+    }
+  }
+
+  // Review comment authors
+  for (const comment of comments) {
+    if (comment.user) {
+      addUser(comment.user.login, comment.user.avatar_url);
+    }
+  }
+
+  // Issue commenters
+  for (const comment of conversation) {
+    if (comment.user) {
+      addUser(comment.user.login, comment.user.avatar_url);
+    }
+  }
+
+  // Mentioned users (the actor of a mentioned event is the mentioned user)
+  // and authors of cross-referenced items.
+  for (const event of timeline) {
+    if (
+      "event" in event &&
+      (event.event === "mentioned" || event.event === "cross-referenced") &&
+      "actor" in event &&
+      event.actor
+    ) {
+      addUser(event.actor.login, event.actor.avatar_url);
+    }
+  }
+
+  return users;
 }
 
 // ============================================================================

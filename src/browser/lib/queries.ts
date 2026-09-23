@@ -159,6 +159,37 @@ export const queries = {
       meta: { persist: true },
     }),
 
+  orgMembers: (org: string) =>
+    queryOptions({
+      queryKey: ["org-members", org],
+      queryFn: async ({ signal }) => {
+        const members: components["schemas"]["simple-user"][] = [];
+        try {
+          let page = 1;
+          while (true) {
+            const { data } = await getOctokit().request(
+              "GET /orgs/{org}/members",
+              { org, per_page: 100, page, request: { signal } }
+            );
+            members.push(...(data as components["schemas"]["simple-user"][]));
+            if (data.length < 100) break;
+            page++;
+          }
+        } catch (e) {
+          // User-owned repos have no organization; orgs may also hide their
+          // member list (403/404).
+          if (e && typeof e === "object" && "status" in e) {
+            const status = e.status;
+            if (status === 403 || status === 404) return members;
+          }
+          throw e;
+        }
+        return members;
+      },
+      staleTime: 5 * 60_000,
+      meta: { persist: true },
+    }),
+
   labels: (owner: string, repo: string) =>
     queryOptions({
       queryKey: ["labels", owner, repo],

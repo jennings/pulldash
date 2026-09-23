@@ -1,6 +1,10 @@
 import { test, expect, beforeEach, mock } from "bun:test";
 import type { PullRequest, PullRequestFile, ReviewComment } from "@/api/types";
-import { PRReviewStore, sortFilesLikeTree } from "./index";
+import {
+  PRReviewStore,
+  sortFilesLikeTree,
+  extractMentionParticipants,
+} from "./index";
 import type {
   GitHubStore,
   PRCommit,
@@ -1972,4 +1976,25 @@ test("setSelectedParentSha(sha) sets parent and resets compare", async () => {
   expect(state.selectedParentSha).toBe("parentsha");
   // Compare should be cleared since parents and version comparison are exclusive
   expect(state.compareToSha).toBeNull();
+});
+
+// ============================================================================
+// extractMentionParticipants
+// ============================================================================
+
+test("extractMentionParticipants includes mentioned and cross-referenced users", () => {
+  // xcp-ng-tests#491: vxgmichel never commented or reviewed, but was
+  // mentioned in the conversation and authored a cross-referenced PR —
+  // GitHub suggests him for @v, so pulldash must too.
+  const pr = createMockPR();
+  const timeline = [
+    { event: "mentioned", actor: { login: "vxgmichel" } },
+    { event: "cross-referenced", actor: { login: "vxgmichel" } },
+    { event: "committed" },
+    { event: "labeled", actor: { login: "botnoise" } },
+  ] as any;
+
+  const users = extractMentionParticipants(pr, [], [], [], timeline);
+
+  expect(users.map((u) => u.login)).toEqual(["testuser", "vxgmichel"]);
 });
