@@ -310,7 +310,8 @@ export function useReviewActions() {
             reviewNodeId = recoveredReview.id;
             pendingReview = recoveredReview;
             store.setPendingReviewNodeId(reviewNodeId);
-            for (const { comment, payload } of headItems) {
+            // File-level comments cannot exist in a pending review.
+            for (const { comment, payload } of headLineItems) {
               if (comment.databaseId) continue;
               const existing = pendingReview.comments.nodes.find(
                 (candidate) =>
@@ -359,21 +360,6 @@ export function useReviewActions() {
               submitted_at: submitted.submittedAt,
             } as Review);
             submittedViaGraphQL = true;
-            // Out-of-diff comments are not part of the pending review; they
-            // go out as standalone file-level comments on the head commit.
-            for (const item of headFileItems) {
-              const created = await github.createFileLevelComment(
-                owner,
-                repo,
-                pr.number,
-                {
-                  commitId: headSha,
-                  path: item.payload.path,
-                  body: item.payload.body,
-                }
-              );
-              optimisticFileComments.push(created);
-            }
           } catch (submitError) {
             // A failed submit can still mean the review went through (e.g. a
             // retry after a partial failure). Only fall back to REST while the
@@ -392,6 +378,33 @@ export function useReviewActions() {
               newReviews.push(review);
               submittedViaGraphQL = true;
             }
+          }
+        }
+
+        // Out-of-diff comments are not part of the pending review; they go
+        // out as standalone file-level comments on the head commit. Runs for
+        // every GraphQL success path (including the dedup branches above so
+        // a retry still posts them). Each one is stripped locally as it
+        // lands, and a failure throws before the refetch below clears
+        // pending state, so nothing is lost for a retry.
+        if (submittedViaGraphQL) {
+          for (const item of headFileItems) {
+            const created = await github.createFileLevelComment(
+              owner,
+              repo,
+              pr.number,
+              {
+                commitId: headSha,
+                path: item.payload.path,
+                body: item.payload.body,
+              }
+            );
+            optimisticFileComments.push(created);
+            store.setPendingComments(
+              store
+                .getSnapshot()
+                .pendingComments.filter((c) => c.id !== item.comment.id)
+            );
           }
         }
       }
@@ -503,15 +516,37 @@ export function useReviewActions() {
         }
 
         for (const group of markedGroups) {
+          const isFirstGroup = group.sha === targets[0].sha;
+          const body = isFirstGroup ? submissionBody : "";
           const guardReview =
             group.lineItems.length > 0
               ? await findGuardReview(group.sha, group.lineItems)
               : null;
-          if (guardReview) {
-            shaToReviewId.set(group.sha, guardReview.id);
-            newReviews.push(guardReview);
-          } else {
-            try {
+          try {
+            if (guardReview) {
+              shaToReviewId.set(group.sha, guardReview.id);
+              newReviews.push(guardReview);
+            } else if (
+              event === "COMMENT" &&
+              group.lineItems.length === 0 &&
+              !body.trim()
+            ) {
+              // GitHub rejects COMMENT reviews with no comments and no real
+              // body; the file-level comments below carry the content.
+            } else if (
+              event === "COMMENT" &&
+              group.lineItems.length === 0 &&
+              !!body.trim()
+            ) {
+              // A summary with only out-of-diff comments: GitHub's own UI
+              // posts the summary as a conversation comment in this case.
+              await github.createPRConversationComment(
+                owner,
+                repo,
+                pr.number,
+                body
+              );
+            } else {
               const review = await github.createPRReview(
                 owner,
                 repo,
@@ -519,7 +554,7 @@ export function useReviewActions() {
                 {
                   commit_id: group.sha,
                   event,
-                  body: group.sha === targets[0].sha ? submissionBody : "",
+                  body,
                   comments: group.lineItems.map(({ payload }) => ({
                     path: payload.path,
                     line: payload.line,
@@ -532,20 +567,11 @@ export function useReviewActions() {
               );
               shaToReviewId.set(group.sha, review.id);
               newReviews.push(review);
-            } catch (error) {
-              console.error("Failed to submit review group:", error);
-              // Groups submitted so far persist on GitHub. Surface the error;
-              // retrying skips them via the local strip below.
-              if (newReviews.length === 0) throw error;
-              github.invalidatePR(owner, repo, pr.number);
-              throw error;
             }
-          }
-          // Out-of-diff comments become standalone file-level comments on
-          // the group's commit. Each one is stripped locally as it lands so
-          // a retry only re-posts the ones that failed.
-          for (const item of group.fileItems) {
-            try {
+            // Out-of-diff comments become standalone file-level comments on
+            // the group's commit. Each one is stripped locally as it lands so
+            // a retry only re-posts the ones that failed.
+            for (const item of group.fileItems) {
               const created = await github.createFileLevelComment(
                 owner,
                 repo,
@@ -562,23 +588,25 @@ export function useReviewActions() {
                   .getSnapshot()
                   .pendingComments.filter((c) => c.id !== item.comment.id)
               );
-            } catch (error) {
-              console.error("Failed to submit file-level comment:", error);
-              if (newReviews.length === 0) throw error;
-              github.invalidatePR(owner, repo, pr.number);
-              throw error;
             }
+            // Drop the group's line comments locally so a retried submission
+            // cannot send them again.
+            const submittedIds = new Set(
+              group.lineItems.map(({ comment }) => comment.id)
+            );
+            store.setPendingComments(
+              store
+                .getSnapshot()
+                .pendingComments.filter((c) => !submittedIds.has(c.id))
+            );
+          } catch (error) {
+            console.error("Failed to submit review group:", error);
+            // Groups submitted so far persist on GitHub. Surface the error;
+            // retrying skips them via the local strip above.
+            if (newReviews.length === 0) throw error;
+            github.invalidatePR(owner, repo, pr.number);
+            throw error;
           }
-          // Drop the group's line comments locally so a retried submission
-          // cannot send them again.
-          const submittedIds = new Set(
-            group.lineItems.map(({ comment }) => comment.id)
-          );
-          store.setPendingComments(
-            store
-              .getSnapshot()
-              .pendingComments.filter((c) => !submittedIds.has(c.id))
-          );
         }
       }
 
