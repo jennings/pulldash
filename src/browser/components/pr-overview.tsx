@@ -3549,9 +3549,13 @@ function ReviewStateIcon({
 
   const { icon, tooltip } = getIconAndTooltip();
 
-  const content = stale ? (
+  // Only decisions can be stale — comment and pending badges have nothing
+  // to re-review.
+  const showStale =
+    stale && (state === "APPROVED" || state === "CHANGES_REQUESTED");
+
+  const content = showStale ? (
     <span className="inline-flex items-center gap-1">
-      {icon}
       <Tooltip>
         <TooltipTrigger asChild>
           <span className="inline-flex cursor-default">
@@ -3560,6 +3564,7 @@ function ReviewStateIcon({
         </TooltipTrigger>
         <TooltipContent>New changes since this review</TooltipContent>
       </Tooltip>
+      {icon}
     </span>
   ) : (
     icon
