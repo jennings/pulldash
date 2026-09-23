@@ -37,6 +37,7 @@ import {
   Lock,
   Unlock,
   GitBranch,
+  Hourglass,
   Users,
   UserPlus,
   UserMinus,
@@ -60,7 +61,11 @@ import {
 import { getTimeAgo, formatDateTime } from "../lib/dates";
 import { parseDiffCached, type ParsedDiff } from "../lib/diff";
 import { discussionUrl } from "../lib/pr-url";
-import { getLatestReviewsByUser, getLatestReviewByUser } from "../lib/reviews";
+import {
+  getLatestReviewsByUser,
+  getLatestReviewByUser,
+  isReviewStale,
+} from "../lib/reviews";
 import type { ReviewComment } from "@/api/types";
 import type { components } from "@octokit/openapi-types";
 import { useQuery } from "@tanstack/react-query";
@@ -97,6 +102,11 @@ import {
   withReviewGroupMarker,
   type MarkedReview,
 } from "../../shared/review-group";
+import {
+  parseOutOfDiffMarker,
+  stripOutOfDiffPermalink,
+  stripOutOfDiffPermalinkHtml,
+} from "../../shared/out-of-diff";
 import { buildMetadataLines } from "../contexts/pr-review/useCurrentDiff";
 
 // ============================================================================
@@ -1162,22 +1172,25 @@ export const PROverview = memo(function PROverview() {
       avatar_url: string;
       state: Review["state"] | "PENDING";
       isTeam?: boolean;
+      stale?: boolean;
     }> = [];
 
     const byUser = getLatestReviewByUser(reviews);
     const requestedLogins = new Set(
       pr.requested_reviewers?.map((r) => r.login) ?? []
     );
+    const headSha = pr.head?.sha;
 
     const addReviewer = (
       login: string,
       avatar_url: string,
       state: Review["state"] | "PENDING",
-      isTeam?: boolean
+      isTeam?: boolean,
+      stale?: boolean
     ) => {
       if (seen.has(login)) return;
       seen.add(login);
-      result.push({ login, avatar_url, state, isTeam });
+      result.push({ login, avatar_url, state, isTeam, stale });
     };
 
     // Priority order function
@@ -1195,7 +1208,13 @@ export const PROverview = memo(function PROverview() {
       if (r.user) {
         // Skip re-requested reviewers — they'll show as PENDING instead
         if (requestedLogins.has(r.user.login)) continue;
-        addReviewer(r.user.login, r.user.avatar_url, r.state);
+        addReviewer(
+          r.user.login,
+          r.user.avatar_url,
+          r.state,
+          undefined,
+          isReviewStale(r, headSha)
+        );
       }
     } // Then pending reviewers who haven't submitted any review
     if (pr.requested_reviewers) {
@@ -1212,7 +1231,7 @@ export const PROverview = memo(function PROverview() {
 
     result.sort((a, b) => priority(a.state) - priority(b.state));
     return result;
-  }, [reviews, pr.requested_reviewers, pr.requested_teams]);
+  }, [reviews, pr.requested_reviewers, pr.requested_teams, pr.head?.sha]);
 
   // Tab counts
   const checksCount = checks
@@ -2038,6 +2057,7 @@ export const PROverview = memo(function PROverview() {
                       mergeError={mergeError}
                       latestReviews={latestReviews}
                       reviewStates={reviewerStates}
+                      headSha={pr.head?.sha}
                       repoAllowMergeCommit={repoAllowMergeCommit}
                       repoAllowSquashMerge={repoAllowSquashMerge}
                       repoAllowRebaseMerge={repoAllowRebaseMerge}
@@ -2441,7 +2461,11 @@ export const PROverview = memo(function PROverview() {
                               <RefreshCw className="w-3 h-3" />
                             </button>
                           )}
-                          <ReviewStateIcon state={reviewer.state} showTooltip />
+                          <ReviewStateIcon
+                            state={reviewer.state}
+                            showTooltip
+                            stale={reviewer.stale}
+                          />
                         </>
                       )}
                     </div>
@@ -3266,6 +3290,8 @@ function ReviewBox({
   const cachedKey = review.id ? `review-${review.id}` : null;
   const cachedReactions = cachedKey ? parentReactions[cachedKey] : undefined;
   const [reactions, setReactions] = useState<Reaction[]>(cachedReactions ?? []);
+  const headSha = usePRReviewSelector((s) => s.pr.head?.sha);
+  const stale = isReviewStale(review, headSha);
 
   // Fetch reactions via GraphQL if not cached by the parent batch
   useEffect(() => {
@@ -3371,7 +3397,7 @@ function ReviewBox({
             iconColor
           )}
         >
-          <ReviewStateIcon state={review.state} />
+          <ReviewStateIcon state={review.state} stale={stale} />
         </div>
         <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
           <UserHoverCard login={review.user.login}>
@@ -3472,9 +3498,12 @@ function ReviewBox({
 function ReviewStateIcon({
   state,
   showTooltip = false,
+  stale = false,
 }: {
   state: string;
   showTooltip?: boolean;
+  /** Gitea-style hourglass: new changes were pushed since this review. */
+  stale?: boolean;
 }) {
   const getIconAndTooltip = () => {
     switch (state) {
@@ -3508,14 +3537,30 @@ function ReviewStateIcon({
 
   const { icon, tooltip } = getIconAndTooltip();
 
+  const content = stale ? (
+    <span className="inline-flex items-center gap-1">
+      {icon}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="inline-flex cursor-default">
+            <Hourglass className="w-3.5 h-3.5 text-amber-500" />
+          </span>
+        </TooltipTrigger>
+        <TooltipContent>New changes since this review</TooltipContent>
+      </Tooltip>
+    </span>
+  ) : (
+    icon
+  );
+
   if (!showTooltip) {
-    return icon;
+    return content;
   }
 
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span className="ml-auto cursor-default">{icon}</span>
+        <span className="ml-auto cursor-default">{content}</span>
       </TooltipTrigger>
       <TooltipContent>{tooltip}</TooltipContent>
     </Tooltip>
@@ -3585,7 +3630,63 @@ function ReviewThreadBox({
     isSingleCommentMetadata(c.body)
   );
   const store = usePRReviewStore();
+  const github = useGitHub();
   const prHtmlUrl = usePRReviewSelector((s) => s.pr.html_url);
+  // Out-of-diff comments (submitted as file-level with a position marker)
+  // render their referenced code range as the context block.
+  const outOfDiff = useMemo(
+    () => (firstComment ? parseOutOfDiffMarker(firstComment.body) : null),
+    [firstComment?.body]
+  );
+  const outOfDiffSha = useMemo(() => {
+    if (outOfDiff?.sha) return outOfDiff.sha;
+    const match = firstComment?.body.match(
+      /https:\/\/github\.com\/[^/\s]+\/[^/\s]+\/blob\/([0-9a-f]{7,40})\//
+    );
+    return match?.[1] ?? null;
+  }, [outOfDiff, firstComment?.body]);
+  const [outOfDiffContent, setOutOfDiffContent] = useState<string | null>(null);
+  useEffect(() => {
+    if (!outOfDiff || !outOfDiffSha || !filePath) {
+      setOutOfDiffContent(null);
+      return;
+    }
+    let cancelled = false;
+    // RIGHT-side markers are in the anchored commit's file coordinates;
+    // LEFT-side ones are in the base version's.
+    const state = store.getSnapshot();
+    const ref = outOfDiff.side === "LEFT" ? state.pr.base.sha : outOfDiffSha!;
+    github
+      .getFileContent(
+        state.owner,
+        state.repo,
+        filePath,
+        ref,
+        `${state.owner}/${state.repo}/${state.pr.number}`
+      )
+      .then((content) => {
+        if (!cancelled) setOutOfDiffContent(content);
+      })
+      .catch(() => {
+        if (!cancelled) setOutOfDiffContent(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [outOfDiff, outOfDiffSha, filePath, github, store]);
+  const outOfDiffHunk = useMemo(() => {
+    if (!outOfDiff || !outOfDiffContent) return null;
+    const lines = outOfDiffContent.split("\n");
+    const contextStart = Math.max(1, outOfDiff.startLine ?? outOfDiff.line);
+    const contextEnd = Math.min(lines.length, outOfDiff.line);
+    const count = contextEnd - contextStart + 1;
+    // Synthesize an all-context hunk; parseDiffCached numbers old and new
+    // sides identically, matching file coordinates.
+    return [
+      `@@ -${contextStart},${count} +${contextStart},${count} @@`,
+      ...lines.slice(contextStart - 1, contextEnd).map((l) => ` ${l}`),
+    ].join("\n");
+  }, [outOfDiff, outOfDiffContent]);
   const metadataContext = useMemo(() => {
     if (!isMetadataComment) return null;
     const info = parseCommitMetadataMarker(firstComment?.body ?? "");
@@ -3613,15 +3714,14 @@ function ReviewThreadBox({
   // Parse diff hunk with syntax highlighting using the worker
   // Note: The worker already adds git diff headers, so we pass diffHunk directly
   useEffect(() => {
-    if (!diffHunk || !filePath) {
+    const text = outOfDiffHunk ?? diffHunk;
+    if (!text || !filePath) {
       setParsedDiff(null);
       return;
     }
 
-    parseDiffCached(diffHunk, filePath)
-      .then(setParsedDiff)
-      .catch(console.error);
-  }, [diffHunk, filePath]);
+    parseDiffCached(text, filePath).then(setParsedDiff).catch(console.error);
+  }, [diffHunk, outOfDiffHunk, filePath]);
 
   // Get diff lines from parsed diff (first hunk), filtered to show only relevant lines
   // GitHub's UI shows ~10 lines of context around the comment, not the entire diff hunk
@@ -3739,14 +3839,14 @@ function ReviewThreadBox({
         ) : (
           <>
             <a
-              href={`#file=${encodeURIComponent(filePath)}&L=${firstComment.line}`}
+              href={`#file=${encodeURIComponent(filePath)}&L=${outOfDiff?.line ?? firstComment.line}`}
               className="font-mono text-muted-foreground hover:text-blue-400 hover:underline"
             >
               {filePath}
             </a>
             {firstComment.originalCommit?.oid && (
               <a
-                href={`#file=${encodeURIComponent(filePath)}&commit=${firstComment.originalCommit?.oid}&L=${firstComment.originalLine ?? firstComment.line}`}
+                href={`#file=${encodeURIComponent(filePath)}&commit=${firstComment.originalCommit?.oid}&L=${outOfDiff?.line ?? firstComment.originalLine ?? firstComment.line}`}
                 title="Open in original commit"
                 className="text-muted-foreground hover:text-blue-400 transition-colors"
               >
@@ -3961,6 +4061,16 @@ function ReviewThreadBox({
                   </div>
                 ) : isMetadataComment ? (
                   <Markdown>{stripCommitMetadataPrefix(comment.body)}</Markdown>
+                ) : comment === firstComment && outOfDiff ? (
+                  <Markdown
+                    html={
+                      comment.bodyHTML
+                        ? stripOutOfDiffPermalinkHtml(comment.bodyHTML)
+                        : undefined
+                    }
+                  >
+                    {stripOutOfDiffPermalink(comment.body ?? "")}
+                  </Markdown>
                 ) : (
                   <Markdown html={comment.bodyHTML}>{comment.body}</Markdown>
                 )}
@@ -4191,6 +4301,7 @@ function MergeSection({
   mergeError,
   latestReviews,
   reviewStates,
+  headSha,
   repoAllowMergeCommit,
   repoAllowSquashMerge,
   repoAllowRebaseMerge,
@@ -4227,6 +4338,7 @@ function MergeSection({
   mergeError: string | null;
   latestReviews: Review[];
   reviewStates: Review[];
+  headSha?: string;
   repoAllowMergeCommit: boolean;
   repoAllowSquashMerge: boolean;
   repoAllowRebaseMerge: boolean;
@@ -4449,7 +4561,11 @@ function MergeSection({
                       className="w-5 h-5 rounded-full"
                     />
                     <span className="text-sm">{review.user?.login ?? ""}</span>
-                    <ReviewStateIcon state={review.state} showTooltip />
+                    <ReviewStateIcon
+                      state={review.state}
+                      showTooltip
+                      stale={isReviewStale(review, headSha)}
+                    />
                   </div>
                 ))}
               </div>

@@ -166,6 +166,9 @@ describe("prepareGroupComments", () => {
       "https://github.com/o/r/blob/abc123/src/first.ts#L38-L40"
     );
     expect(prepared[0].payload.subject_type).toBe("file");
+    expect(prepared[0].payload.body).toContain(
+      "<!-- pulldash:out-of-diff sha=abc123 line=40 side=RIGHT -->"
+    );
   });
 
   test("leaves comments for files missing from the diff unsnapped", () => {

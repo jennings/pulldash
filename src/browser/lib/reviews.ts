@@ -28,6 +28,18 @@ export function getLatestReviewByUser(reviews: Review[]): Map<string, Review> {
 }
 
 /**
+ * Whether a review predates the current head — new changes were pushed since
+ * it was submitted (Gitea's stale-review hourglass). A missing commit_id or
+ * head SHA means the check can't be made.
+ */
+export function isReviewStale(
+  review: Review,
+  headSha?: string | null
+): boolean {
+  return !!headSha && !!review.commit_id && review.commit_id !== headSha;
+}
+
+/**
  * Latest opinionated (APPROVED/CHANGES_REQUESTED) review per user — GitHub's
  * `latestOpinionatedReviews`: a later COMMENTED review does not mask the
  * decision, and a DISMISSED one revokes it. Drives approval counts and merge

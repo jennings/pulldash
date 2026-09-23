@@ -2,6 +2,7 @@ import { test, expect } from "bun:test";
 import {
   getLatestReviewByUser,
   getLatestReviewsByUser,
+  isReviewStale,
   groupCommentsByLineSide,
   resolveCommentPosition,
 } from "./reviews";
@@ -63,6 +64,19 @@ test("comment review downgrades the badge but not the merge decision", () => {
     "COMMENTED"
   );
   expect(getLatestReviewsByUser(badgeFixture)[0].state).toBe("APPROVED");
+});
+
+test("reviews submitted on an older head are stale", () => {
+  const approved = {
+    ...review("a", "APPROVED", "2026-01-01T00:00:00Z", 1),
+    commit_id: "oldsha",
+  };
+  expect(isReviewStale(approved, "newsha")).toBe(true);
+  expect(isReviewStale(approved, "oldsha")).toBe(false);
+  expect(isReviewStale(approved, null)).toBe(false);
+  expect(
+    isReviewStale(review("a", "APPROVED", "2026-01-01T00:00:00Z", 2), "x")
+  ).toBe(false);
 });
 
 test("requesting changes overrides an earlier approval", () => {

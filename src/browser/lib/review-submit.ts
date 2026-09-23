@@ -129,7 +129,12 @@ export function prepareGroupComments(
           ? `#L${comment.start_line}-L${comment.line}`
           : `#L${comment.line}`;
       const parts = [
-        buildOutOfDiffMarker(comment.line, comment.start_line, comment.side),
+        buildOutOfDiffMarker(
+          comment.line,
+          comment.start_line,
+          comment.side,
+          permalink?.sha
+        ),
         comment.body,
       ];
       if (permalink) {
