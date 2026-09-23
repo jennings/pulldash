@@ -3302,8 +3302,6 @@ function ReviewBox({
   const cachedKey = review.id ? `review-${review.id}` : null;
   const cachedReactions = cachedKey ? parentReactions[cachedKey] : undefined;
   const [reactions, setReactions] = useState<Reaction[]>(cachedReactions ?? []);
-  const headSha = usePRReviewSelector((s) => s.pr.head?.sha);
-  const stale = isReviewStale(review, headSha);
 
   // Fetch reactions via GraphQL if not cached by the parent batch
   useEffect(() => {
@@ -3409,7 +3407,7 @@ function ReviewBox({
             iconColor
           )}
         >
-          <ReviewStateIcon state={review.state} stale={stale} />
+          <ReviewStateIcon state={review.state} />
         </div>
         <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
           <UserHoverCard login={review.user.login}>
