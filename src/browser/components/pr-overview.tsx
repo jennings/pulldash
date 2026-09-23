@@ -1229,7 +1229,8 @@ export const PROverview = memo(function PROverview() {
         addReviewer(reviewer.login, reviewer.avatar_url, "PENDING");
       }
     }
-    // Then pending team review requests
+    // Then requested teams (GitHub dismisses a team request when one of
+    // its members submits a review; the list recomputes from fresh PR data).
     if (pr.requested_teams) {
       for (const team of pr.requested_teams) {
         addReviewer(team.slug, "", "PENDING", true);

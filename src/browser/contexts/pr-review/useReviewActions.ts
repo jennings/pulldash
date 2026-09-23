@@ -616,17 +616,21 @@ export function useReviewActions() {
       // activity is ours and must not notify.
       markSelfActivity(`${owner}/${repo}#${pr.number}`);
 
-      // Refresh comments, reviews, timeline, and review threads
-      const [newComments, reviews, timeline, threadsResult] = await Promise.all(
-        [
+      // Refresh comments, reviews, timeline, review threads, and the PR
+      // itself. The PR refetch recomputes the reviewer list live: GitHub
+      // dismisses user and team review requests when their target submits
+      // a review, and those lists come from the PR object.
+      const [newComments, reviews, timeline, threadsResult, newPr] =
+        await Promise.all([
           github.getPRComments(owner, repo, pr.number),
           github.getPRReviews(owner, repo, pr.number),
           github.getPRTimeline(owner, repo, pr.number),
           github
             .getReviewThreads(owner, repo, pr.number)
             .catch(() => ({ threads: [] as ReviewThread[] })),
-        ]
-      );
+          github.getPR(owner, repo, pr.number).catch(() => null),
+        ]);
+      if (newPr) store.setPr(newPr);
 
       // File-level comments can lag behind the submit as well. Merge ours in
       // when the refetch missed them so the diff shows them immediately.
