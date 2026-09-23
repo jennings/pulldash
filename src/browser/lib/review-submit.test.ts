@@ -133,11 +133,33 @@ describe("prepareGroupComments", () => {
     );
     expect(prepared[0].payload.line).toBe(4);
     expect(prepared[0].payload.body).toContain(
-      "originally on line 40, which is outside the diff"
+      "originally on line 40 of `src/first.ts`"
     );
     // Multi-line ranges that cannot stay intact collapse to a single line.
     expect(prepared[1].payload.start_line).toBeUndefined();
-    expect(prepared[1].payload.body).toContain("originally on line 40");
+    expect(prepared[1].payload.body).toContain("originally on lines 38-40");
+  });
+
+  test("moved-comment note links the original lines at the target commit", () => {
+    const prepared = prepareGroupComments(
+      [
+        makeComment({ id: "1", path: "src/first.ts", line: 40 }),
+        makeComment({
+          id: "2",
+          path: "src/first.ts",
+          line: 40,
+          start_line: 38,
+        }),
+      ],
+      files,
+      { owner: "o", repo: "r", sha: "abc123" }
+    );
+    expect(prepared[0].payload.body).toContain(
+      "[line 40 of `src/first.ts`](https://github.com/o/r/blob/abc123/src/first.ts#L40)"
+    );
+    expect(prepared[1].payload.body).toContain(
+      "[lines 38-40 of `src/first.ts`](https://github.com/o/r/blob/abc123/src/first.ts#L38-L40)"
+    );
   });
 
   test("leaves comments for files missing from the diff unsnapped", () => {

@@ -67,14 +67,24 @@ export function groupPendingCommentsByTarget(
   );
 }
 
+/** Repo context for building permalinks in moved-comment notes. */
+export interface PermalinkContext {
+  owner: string;
+  repo: string;
+  sha: string;
+}
+
 /** Prepare REST payloads for one commit group. :commit metadata comments
  *  redirect to the first file of the group's diff; comments on lines outside
  *  the diff snap to the nearest line GitHub will accept. GitHub validates
  *  every comment of a review against the cumulative diff at the review's
- *  commit and rejects the whole review otherwise, so lines must be pre-snapped. */
+ *  commit and rejects the whole review otherwise, so lines must be pre-snapped.
+ *  (GitHub's web UI anchors out-of-diff comments exactly because it uses an
+ *  internal endpoint; the public API always rejects them with 422.) */
 export function prepareGroupComments(
   comments: PendingCommentInput[],
-  files: PullRequestFile[]
+  files: PullRequestFile[],
+  permalink?: PermalinkContext
 ): PreparedComment[] {
   if (comments.some((c) => c.path === ":commit") && files.length === 0) {
     throw new Error(
@@ -106,6 +116,23 @@ export function prepareGroupComments(
       },
       file?.patch
     );
+    const movedNote = ((): string | null => {
+      if (!anchor.adjusted) return null;
+      const range =
+        comment.start_line !== undefined && comment.start_line !== comment.line
+          ? `lines ${comment.start_line}-${comment.line}`
+          : `line ${comment.line}`;
+      if (permalink) {
+        const anchorPart =
+          comment.start_line !== undefined &&
+          comment.start_line !== comment.line
+            ? `#L${comment.start_line}-L${comment.line}`
+            : `#L${comment.line}`;
+        const href = `https://github.com/${permalink.owner}/${permalink.repo}/blob/${permalink.sha}/${comment.path}${anchorPart}`;
+        return `_This comment was originally on [${range} of \`${comment.path}\`](${href}), which is outside the diff — GitHub's API can only anchor review comments to diff lines, so it was moved to the nearest one._`;
+      }
+      return `_This comment was originally on ${range} of \`${comment.path}\`, which is outside the diff — GitHub's API can only anchor review comments to diff lines, so it was moved to the nearest one._`;
+    })();
     return {
       comment,
       payload: {
@@ -114,9 +141,7 @@ export function prepareGroupComments(
         start_line: anchor.start_line,
         start_side: anchor.start_line === undefined ? undefined : comment.side,
         side: comment.side,
-        body: anchor.adjusted
-          ? `_This comment was originally on line ${comment.line}, which is outside the diff; it was moved to the nearest diff line when submitting._\n\n${comment.body}`
-          : comment.body,
+        body: movedNote ? `${movedNote}\n\n${comment.body}` : comment.body,
       },
     };
   });

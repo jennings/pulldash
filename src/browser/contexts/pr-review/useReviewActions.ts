@@ -125,7 +125,11 @@ export function useReviewActions() {
       );
       const preparedGroups = groups.map(({ sha, comments }) => ({
         sha,
-        items: prepareGroupComments(comments, filesBySha.get(sha) ?? []),
+        items: prepareGroupComments(comments, filesBySha.get(sha) ?? [], {
+          owner,
+          repo,
+          sha,
+        }),
       }));
       const headItems = preparedGroups[0]?.items ?? [];
 
