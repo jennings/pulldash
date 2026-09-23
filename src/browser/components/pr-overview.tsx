@@ -57,6 +57,7 @@ import {
   usePRReviewSelector,
   usePRReviewStore,
   type OverviewTab,
+  type PRReviewStore,
 } from "../contexts/pr-review";
 import { getTimeAgo, formatDateTime } from "../lib/dates";
 import { parseDiffCached, type ParsedDiff } from "../lib/diff";
@@ -1178,6 +1179,7 @@ export const PROverview = memo(function PROverview() {
       state: Review["state"] | "PENDING";
       isTeam?: boolean;
       stale?: boolean;
+      commitId?: string;
     }> = [];
 
     const byUser = getLatestReviewByUser(reviews);
@@ -1191,11 +1193,12 @@ export const PROverview = memo(function PROverview() {
       avatar_url: string,
       state: Review["state"] | "PENDING",
       isTeam?: boolean,
-      stale?: boolean
+      stale?: boolean,
+      commitId?: string
     ) => {
       if (seen.has(login)) return;
       seen.add(login);
-      result.push({ login, avatar_url, state, isTeam, stale });
+      result.push({ login, avatar_url, state, isTeam, stale, commitId });
     };
 
     // Priority order function
@@ -1220,7 +1223,8 @@ export const PROverview = memo(function PROverview() {
           r.user.avatar_url,
           r.state,
           undefined,
-          isReviewStale(r, headSha)
+          isReviewStale(r, headSha),
+          r.commit_id ?? undefined
         );
       }
     } // Then pending reviewers who haven't submitted any review
@@ -2479,6 +2483,15 @@ export const PROverview = memo(function PROverview() {
                             state={reviewer.state}
                             showTooltip
                             stale={reviewer.stale}
+                            onStaleClick={
+                              reviewer.stale && reviewer.commitId
+                                ? () =>
+                                    showChangesSinceReview(
+                                      store,
+                                      reviewer.commitId!
+                                    )
+                                : undefined
+                            }
                           />
                         </>
                       )}
@@ -3507,15 +3520,32 @@ function ReviewBox({
 // Review State Icon
 // ============================================================================
 
+/** Navigate the diff to the interdiff between the review's commit and the
+ *  current head, so the reviewer sees the changes since their review. */
+async function showChangesSinceReview(
+  store: PRReviewStore,
+  reviewCommitSha: string
+): Promise<void> {
+  await store.setCompareToSha(reviewCommitSha);
+  await store.setSelectedHeadSha(null);
+  const { files } = store.getSnapshot();
+  if (files.length > 0) {
+    store.selectFile(files[0].filename);
+  }
+}
+
 function ReviewStateIcon({
   state,
   showTooltip = false,
   stale = false,
+  onStaleClick,
 }: {
   state: string;
   showTooltip?: boolean;
   /** Gitea-style hourglass: new changes were pushed since this review. */
   stale?: boolean;
+  /** Clicking the hourglass shows the diff since the reviewed commit. */
+  onStaleClick?: () => void;
 }) {
   const getIconAndTooltip = () => {
     switch (state) {
@@ -3558,11 +3588,28 @@ function ReviewStateIcon({
     <span className="inline-flex items-center gap-1">
       <Tooltip>
         <TooltipTrigger asChild>
-          <span className="inline-flex cursor-default">
-            <Hourglass className="w-3.5 h-3.5 text-amber-500" />
-          </span>
+          {onStaleClick ? (
+            <button
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onStaleClick();
+              }}
+              className="inline-flex cursor-pointer hover:opacity-80 transition-opacity"
+            >
+              <Hourglass className="w-3.5 h-3.5 text-amber-500" />
+            </button>
+          ) : (
+            <span className="inline-flex cursor-default">
+              <Hourglass className="w-3.5 h-3.5 text-amber-500" />
+            </span>
+          )}
         </TooltipTrigger>
-        <TooltipContent>New changes since this review</TooltipContent>
+        <TooltipContent>
+          {onStaleClick
+            ? "New changes since this review — click to view"
+            : "New changes since this review"}
+        </TooltipContent>
       </Tooltip>
       {icon}
     </span>
@@ -4379,6 +4426,7 @@ function MergeSection({
   onApproveWorkflows?: () => void;
   canBypassBranchProtections?: boolean;
 }) {
+  const store = usePRReviewStore();
   const buttonRef = useRef<HTMLButtonElement>(null);
   const [dropdownPosition, setDropdownPosition] = useState({
     top: 0,
@@ -4582,6 +4630,12 @@ function MergeSection({
                       state={review.state}
                       showTooltip
                       stale={isReviewStale(review, headSha)}
+                      onStaleClick={
+                        isReviewStale(review, headSha) && review.commit_id
+                          ? () =>
+                              showChangesSinceReview(store, review.commit_id!)
+                          : undefined
+                      }
                     />
                   </div>
                 ))}
