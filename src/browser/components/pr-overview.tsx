@@ -1160,7 +1160,11 @@ export const PROverview = memo(function PROverview() {
   );
 
   const latestReviews = getLatestReviewsByUser(reviews);
-  const reviewerStates = [...getLatestReviewByUser(reviews).values()];
+  // The PR author's own review badges don't belong in reviewer lists.
+  const authorLogin = pr.user?.login;
+  const reviewerStates = [...getLatestReviewByUser(reviews).values()].filter(
+    (r) => r.user?.login !== authorLogin
+  );
   const canMergePR = canMerge(pr, checkStatus);
 
   // Combined list of all reviewers sorted by state priority:
@@ -1208,6 +1212,8 @@ export const PROverview = memo(function PROverview() {
       if (r.user) {
         // Skip re-requested reviewers — they'll show as PENDING instead
         if (requestedLogins.has(r.user.login)) continue;
+        // Skip the PR author — their self-reviews are not reviewer state
+        if (r.user.login === pr.user?.login) continue;
         addReviewer(
           r.user.login,
           r.user.avatar_url,
@@ -1231,7 +1237,13 @@ export const PROverview = memo(function PROverview() {
 
     result.sort((a, b) => priority(a.state) - priority(b.state));
     return result;
-  }, [reviews, pr.requested_reviewers, pr.requested_teams, pr.head?.sha]);
+  }, [
+    reviews,
+    pr.requested_reviewers,
+    pr.requested_teams,
+    pr.head?.sha,
+    pr.user,
+  ]);
 
   // Tab counts
   const checksCount = checks
