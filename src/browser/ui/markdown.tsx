@@ -27,6 +27,7 @@ import {
   type PRTitleInfo,
 } from "../contexts/github";
 import { UserHoverCard } from "./user-hover-card";
+import { IssueHoverCard } from "./issue-hover-card";
 import { useNavigate } from "react-router-dom";
 import {
   Loader2,
@@ -709,6 +710,27 @@ function renderNode(
       }
     }
 
+    // Hover card for anchors referencing a PR or issue (GitHub's issue-link
+    // references and markdown links to pull/issues URLs).
+    const anchorHref = node.tag === "a" ? safeAttributes.href : undefined;
+    const issueRef =
+      node.tag === "a" && typeof anchorHref === "string"
+        ? parseIssueLinkHref(anchorHref)
+        : null;
+    const withIssueHover = (element: React.ReactNode) =>
+      issueRef ? (
+        <IssueHoverCard
+          key={`hover-${key}`}
+          owner={issueRef.owner}
+          repo={issueRef.repo}
+          number={issueRef.number}
+        >
+          {element}
+        </IssueHoverCard>
+      ) : (
+        element
+      );
+
     // Rewrite GitHub PR links to navigate within the app
     if (node.tag === "a" && navigate) {
       const href = (safeAttributes.href as string) || "";
@@ -750,26 +772,36 @@ function renderNode(
           ? localHref.slice(window.location.pathname.length)
           : null;
         if (hashOnly) {
-          return createElement(
-            "a",
-            { key, ...safeAttributes, href: hashOnly },
-            displayChildren
+          return withIssueHover(
+            createElement(
+              "a",
+              { key, ...safeAttributes, href: hashOnly },
+              displayChildren
+            )
           );
         }
-        return createElement(
-          "a",
-          {
-            key,
-            ...safeAttributes,
-            href: localHref,
-            onClick: (e: React.MouseEvent) => {
-              e.preventDefault();
-              navigate(localHref);
+        return withIssueHover(
+          createElement(
+            "a",
+            {
+              key,
+              ...safeAttributes,
+              href: localHref,
+              onClick: (e: React.MouseEvent) => {
+                e.preventDefault();
+                navigate(localHref);
+              },
             },
-          },
-          displayChildren
+            displayChildren
+          )
         );
       }
+    }
+
+    if (node.tag === "a" && issueRef) {
+      return withIssueHover(
+        createElement(node.tag, { key, ...safeAttributes }, children)
+      );
     }
 
     return createElement(node.tag, { key, ...safeAttributes }, children);

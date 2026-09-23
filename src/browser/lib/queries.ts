@@ -822,6 +822,22 @@ export const queries = {
       meta: { persist: true },
     }),
 
+  /** Issue/PR overview for hover cards. The issues endpoint serves both
+   *  kinds; pull_request.merged_at distinguishes merged PRs. */
+  issueOverview: (owner: string, repo: string, number: number) =>
+    queryOptions({
+      queryKey: ["issue-overview", owner, repo, number],
+      queryFn: async ({ signal }) => {
+        const res = await getOctokit().request(
+          "GET /repos/{owner}/{repo}/issues/{issue_number}",
+          { owner, repo, issue_number: number, request: { signal } }
+        );
+        return res.data;
+      },
+      staleTime: 5 * 60_000,
+      meta: { persist: true },
+    }),
+
   commitFiles: (owner: string, repo: string, sha: string, prKey?: string) =>
     queryOptions({
       queryKey: ["commit-files", owner, repo, sha],

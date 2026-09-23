@@ -2904,6 +2904,12 @@ function createGitHubStore() {
     return queryClient.fetchQuery(queries.userByLogin(login));
   }
 
+  /** Issue/PR overview for hover cards (issues endpoint serves both kinds). */
+  function getIssueOverview(owner: string, repo: string, number: number) {
+    if (!octokit) throw new Error("Not initialized");
+    return queryClient.fetchQuery(queries.issueOverview(owner, repo, number));
+  }
+
   return {
     // State
     getState,
@@ -3007,6 +3013,7 @@ function createGitHubStore() {
     updateIssueComment,
     deleteIssueComment,
     getUserProfile,
+    getIssueOverview,
     invalidatePR,
   };
 }

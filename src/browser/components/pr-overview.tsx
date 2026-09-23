@@ -107,6 +107,7 @@ import {
   stripOutOfDiffBody,
   stripOutOfDiffPermalinkHtml,
 } from "../../shared/out-of-diff";
+import { IssueHoverCard } from "../ui/issue-hover-card";
 import { buildMetadataLines } from "../contexts/pr-review/useCurrentDiff";
 
 // ============================================================================
@@ -6481,6 +6482,24 @@ function TimelineItem({
         };
         const fullName = crossRef.source?.issue?.repository?.full_name;
         const issueNumber = crossRef.source?.issue?.number;
+        const [refOwner, refRepo] = (fullName ?? "/").split("/");
+        const refAnchor = (href: string, targetBlank: boolean) => (
+          <IssueHoverCard
+            owner={refOwner ?? ""}
+            repo={refRepo ?? ""}
+            number={issueNumber ?? 0}
+          >
+            <a
+              href={href}
+              {...(targetBlank
+                ? { target: "_blank", rel: "noopener noreferrer" }
+                : {})}
+              className="font-medium hover:text-blue-400 hover:underline"
+            >
+              {fullName}#{issueNumber}
+            </a>
+          </IssueHoverCard>
+        );
         return {
           icon: <Link className="w-4 h-4" />,
           text: (
@@ -6495,21 +6514,12 @@ function TimelineItem({
               mentioned this in{" "}
               {fullName && issueNumber ? (
                 crossRef.source?.issue?.pull_request ? (
-                  <a
-                    href={`/${fullName}/pull/${issueNumber}`}
-                    className="font-medium hover:text-blue-400 hover:underline"
-                  >
-                    {fullName}#{issueNumber}
-                  </a>
+                  refAnchor(`/${fullName}/pull/${issueNumber}`, false)
                 ) : (
-                  <a
-                    href={`https://github.com/${fullName}/issues/${issueNumber}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="font-medium hover:text-blue-400 hover:underline"
-                  >
-                    {fullName}#{issueNumber}
-                  </a>
+                  refAnchor(
+                    `https://github.com/${fullName}/issues/${issueNumber}`,
+                    true
+                  )
                 )
               ) : (
                 <span className="font-medium">
