@@ -10,12 +10,11 @@ import {
   createElement,
   type ReactNode,
 } from "react";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkGemoji from "remark-gemoji";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
-import rehypeHighlight from "rehype-highlight";
 import { refractor } from "refractor/all";
 import { hastToHtml } from "../../shared/diff-utils";
 import { cn } from "../cn";
@@ -424,6 +423,16 @@ function extractCodeText(nodes: HtmlNode[]): string {
   return result;
 }
 
+/** Highlight code with Prism (refractor), shared by GitHub's body_html and
+ *  the markdown renderer so both use the same token palette. */
+export function highlightToHtml(code: string, lang: string): string | null {
+  try {
+    return refractor.highlight(code, lang).children.map(hastToHtml).join("");
+  } catch {
+    return null;
+  }
+}
+
 /**
  * True when `position` sits inside a fenced code block that already has at
  * least one content line, so the editor only turns monospace for real blocks
@@ -691,11 +700,8 @@ function renderNode(
         if (preChild && preChild.children) {
           const codeText = extractCodeText(preChild.children);
           if (codeText) {
-            try {
-              const tree = refractor.highlight(codeText, lang);
-              const html = tree.children.map(hastToHtml).join("");
-              preChild.children = parseHtmlToNodes(html);
-            } catch {}
+            const html = highlightToHtml(codeText, lang);
+            if (html !== null) preChild.children = parseHtmlToNodes(html);
           }
         }
       }
@@ -711,9 +717,8 @@ function renderNode(
       if (lang && node.children) {
         const codeText = extractCodeText(node.children);
         if (codeText) {
-          try {
-            const tree = refractor.highlight(codeText, lang);
-            const html = tree.children.map(hastToHtml).join("");
+          const html = highlightToHtml(codeText, lang);
+          if (html !== null) {
             const highlightedNodes = parseHtmlToNodes(html);
             const children = renderNodes(
               highlightedNodes,
@@ -722,8 +727,6 @@ function renderNode(
               prTitles
             );
             return createElement("code", { key, ...safeAttributes }, children);
-          } catch {
-            // Fall through to default rendering
           }
         }
       }
@@ -893,6 +896,75 @@ export const Markdown = memo(function Markdown({
     return parts;
   }, [children]);
 
+  // Shared renderers for the plain and mention-aware renderers. Code blocks
+  // are highlighted with Prism so the preview matches the final result.
+  const markdownComponents = useMemo((): Components => {
+    return {
+      // Custom link handling - open external links in new tab
+      a: ({ href, children, node: _node, ...props }) => {
+        if (href && typeof children === "string" && children.trim() === href) {
+          const shortLabel = shortenCommitUrl(href);
+          if (shortLabel) children = shortLabel;
+        }
+        const localHref = href ? rewriteGitHubPRUrl(href) : null;
+        if (localHref) {
+          const hashOnly = localHref.startsWith(window.location.pathname)
+            ? localHref.slice(window.location.pathname.length)
+            : null;
+          if (hashOnly) {
+            return (
+              <a href={hashOnly} {...props}>
+                {children}
+              </a>
+            );
+          }
+          return (
+            <a
+              href={localHref}
+              onClick={(e) => {
+                e.preventDefault();
+                navigate(localHref);
+              }}
+              {...props}
+            >
+              {children}
+            </a>
+          );
+        }
+        const isExternal = href?.startsWith("http");
+        return (
+          <a
+            href={href}
+            target={isExternal ? "_blank" : undefined}
+            rel={isExternal ? "noopener noreferrer" : undefined}
+            {...props}
+          >
+            {children}
+          </a>
+        );
+      },
+      // Suppress React controlled-input warning for task list checkboxes
+      input: (props) => <input readOnly {...props} />,
+      code: ({ className, children, node: _node, ...props }) => {
+        const lang = /language-(\w+)/.exec(className ?? "")?.[1];
+        const html = lang ? highlightToHtml(String(children), lang) : null;
+        if (html === null) {
+          return (
+            <code className={className} {...props}>
+              {children}
+            </code>
+          );
+        }
+        return (
+          <code
+            className={className}
+            dangerouslySetInnerHTML={{ __html: html }}
+          />
+        );
+      },
+    };
+  }, [navigate]);
+
   // If pre-rendered HTML is provided (from GitHub's API with signed attachment URLs), use it
   if (html) {
     return (
@@ -925,64 +997,8 @@ export const Markdown = memo(function Markdown({
         >
           <ReactMarkdown
             remarkPlugins={[remarkGfm, remarkGemoji]}
-            rehypePlugins={[
-              rehypeRaw,
-              rehypeSanitize,
-              [rehypeHighlight, { detect: true, ignoreMissing: true }],
-            ]}
-            components={{
-              // Custom link handling - open external links in new tab
-              a: ({ href, children, node: _node, ...props }) => {
-                if (
-                  href &&
-                  typeof children === "string" &&
-                  children.trim() === href
-                ) {
-                  const shortLabel = shortenCommitUrl(href);
-                  if (shortLabel) children = shortLabel;
-                }
-                const localHref = href ? rewriteGitHubPRUrl(href) : null;
-                if (localHref) {
-                  const hashOnly = localHref.startsWith(
-                    window.location.pathname
-                  )
-                    ? localHref.slice(window.location.pathname.length)
-                    : null;
-                  if (hashOnly) {
-                    return (
-                      <a href={hashOnly} {...props}>
-                        {children}
-                      </a>
-                    );
-                  }
-                  return (
-                    <a
-                      href={localHref}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        navigate(localHref);
-                      }}
-                      {...props}
-                    >
-                      {children}
-                    </a>
-                  );
-                }
-                const isExternal = href?.startsWith("http");
-                return (
-                  <a
-                    href={href}
-                    target={isExternal ? "_blank" : undefined}
-                    rel={isExternal ? "noopener noreferrer" : undefined}
-                    {...props}
-                  >
-                    {children}
-                  </a>
-                );
-              },
-              // Suppress React controlled-input warning for task list checkboxes
-              input: (props) => <input readOnly {...props} />,
-            }}
+            rehypePlugins={[rehypeRaw, rehypeSanitize]}
+            components={markdownComponents}
           >
             {children}
           </ReactMarkdown>
@@ -1002,51 +1018,9 @@ export const Markdown = memo(function Markdown({
       >
         <ReactMarkdown
           remarkPlugins={[remarkGfm, remarkGemoji]}
-          rehypePlugins={[
-            rehypeRaw,
-            rehypeSanitize,
-            [rehypeHighlight, { detect: true, ignoreMissing: true }],
-          ]}
+          rehypePlugins={[rehypeRaw, rehypeSanitize]}
           components={{
-            // Custom link handling - open external links in new tab
-            a: ({ href, children, node: _node, ...props }) => {
-              if (
-                href &&
-                typeof children === "string" &&
-                children.trim() === href
-              ) {
-                const shortLabel = shortenCommitUrl(href);
-                if (shortLabel) children = shortLabel;
-              }
-              const localHref = href ? rewriteGitHubPRUrl(href) : null;
-              if (localHref) {
-                return (
-                  <a
-                    href={localHref}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      navigate(localHref);
-                    }}
-                    {...props}
-                  >
-                    {children}
-                  </a>
-                );
-              }
-              const isExternal = href?.startsWith("http");
-              return (
-                <a
-                  href={href}
-                  target={isExternal ? "_blank" : undefined}
-                  rel={isExternal ? "noopener noreferrer" : undefined}
-                  {...props}
-                >
-                  {children}
-                </a>
-              );
-            },
-            // Suppress React controlled-input warning for task list checkboxes
-            input: (props) => <input readOnly {...props} />,
+            ...markdownComponents,
             // Process text nodes to find and wrap @mentions
             p: ({ children, ...props }) => {
               return <p {...props}>{processChildren(children)}</p>;

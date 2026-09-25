@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test";
 import {
   extractIssueLinkRefs,
+  highlightToHtml,
   isPositionInCodeFence,
   shortenCommitUrl,
   buildMentionSuggestions,
@@ -139,4 +140,15 @@ test("isPositionInCodeFence ignores inline code", () => {
   const value = "some `code` here";
   expect(isPositionInCodeFence(value, value.indexOf("code"))).toBe(false);
   expect(isPositionInCodeFence(value, value.length + 5)).toBe(false);
+});
+
+test("highlightToHtml emits Prism token spans", () => {
+  const html = highlightToHtml("const x = 1;", "js");
+  expect(html).not.toBeNull();
+  expect(html).toContain('class="token keyword"');
+  expect(html).toContain('class="token number"');
+});
+
+test("highlightToHtml returns null for unknown languages", () => {
+  expect(highlightToHtml("const x = 1;", "notalang")).toBeNull();
 });

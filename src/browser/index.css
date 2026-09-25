@@ -524,8 +524,7 @@
 }
 
 .markdown-body pre code,
-.markdown-body pre code[class*="language-"],
-.markdown-body pre code.hljs {
+.markdown-body pre code[class*="language-"] {
   display: block;
   padding: 0;
   margin: 0;
@@ -649,78 +648,6 @@
 
 .markdown-body em {
   font-style: italic;
-}
-
-/* Syntax highlighting - GitHub dark theme */
-.markdown-body .hljs {
-  color: #c9d1d9;
-  background: transparent;
-}
-
-.markdown-body .hljs-comment,
-.markdown-body .hljs-quote {
-  color: #8b949e;
-  font-style: italic;
-}
-
-.markdown-body .hljs-keyword,
-.markdown-body .hljs-selector-tag,
-.markdown-body .hljs-addition {
-  color: #ff7b72;
-}
-
-.markdown-body .hljs-number,
-.markdown-body .hljs-string,
-.markdown-body .hljs-meta .hljs-meta-string,
-.markdown-body .hljs-literal,
-.markdown-body .hljs-doctag,
-.markdown-body .hljs-regexp {
-  color: #a5d6ff;
-}
-
-.markdown-body .hljs-title,
-.markdown-body .hljs-section,
-.markdown-body .hljs-name,
-.markdown-body .hljs-selector-id,
-.markdown-body .hljs-selector-class {
-  color: #d2a8ff;
-}
-
-.markdown-body .hljs-attribute,
-.markdown-body .hljs-attr,
-.markdown-body .hljs-variable,
-.markdown-body .hljs-template-variable,
-.markdown-body .hljs-class .hljs-title,
-.markdown-body .hljs-type {
-  color: #79c0ff;
-}
-
-.markdown-body .hljs-symbol,
-.markdown-body .hljs-bullet,
-.markdown-body .hljs-subst,
-.markdown-body .hljs-meta,
-.markdown-body .hljs-meta .hljs-keyword,
-.markdown-body .hljs-selector-attr,
-.markdown-body .hljs-selector-pseudo,
-.markdown-body .hljs-link {
-  color: #ffa657;
-}
-
-.markdown-body .hljs-built_in,
-.markdown-body .hljs-deletion {
-  color: #ffa198;
-}
-
-.markdown-body .hljs-formula {
-  background-color: oklch(0.25 0 0);
-}
-
-.markdown-body .hljs-emphasis {
-  font-style: italic;
-}
-
-.markdown-body .hljs-strong {
-  font-weight: bold;
 }
 
 /* GitHub syntax highlighting (pl-* classes from body_html), matching Prism dark theme */
