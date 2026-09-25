@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test";
 import {
   extractIssueLinkRefs,
+  isPositionInCodeFence,
   shortenCommitUrl,
   buildMentionSuggestions,
   type MentionUser,
@@ -96,4 +97,46 @@ test("mention suggestions fall back to avatar from login", () => {
   expect(out[0].avatar_url).toBe(
     "https://avatars.githubusercontent.com/glehmann"
   );
+});
+
+test("isPositionInCodeFence only turns on below the opening fence", () => {
+  const value = ["before", "```js", "const x = 1;", "```", "after"].join("\n");
+  expect(isPositionInCodeFence(value, 0)).toBe(false);
+  // On the opening fence line itself
+  expect(isPositionInCodeFence(value, value.indexOf("```js") + 5)).toBe(false);
+  // First content line and after
+  expect(isPositionInCodeFence(value, value.indexOf("const"))).toBe(true);
+  // Start of the closing fence line is still inside the block
+  expect(isPositionInCodeFence(value, value.lastIndexOf("```") + 1)).toBe(true);
+  // After the closing fence
+  expect(isPositionInCodeFence(value, value.indexOf("after"))).toBe(false);
+});
+
+test("isPositionInCodeFence supports tilde fences", () => {
+  const value = ["~~~", "code", "~~~", "prose"].join("\n");
+  expect(isPositionInCodeFence(value, value.indexOf("code"))).toBe(true);
+  expect(isPositionInCodeFence(value, value.indexOf("prose"))).toBe(false);
+});
+
+test("isPositionInCodeFence treats an unclosed fence as code", () => {
+  const value = ["```", "a", "b"].join("\n");
+  expect(isPositionInCodeFence(value, 2)).toBe(false);
+  expect(isPositionInCodeFence(value, value.indexOf("a"))).toBe(true);
+  expect(isPositionInCodeFence(value, value.indexOf("b"))).toBe(true);
+});
+
+test("isPositionInCodeFence ignores non-matching closing fences", () => {
+  const longer = ["````", "a", "```", "still code"].join("\n");
+  expect(isPositionInCodeFence(longer, longer.indexOf("still"))).toBe(true);
+
+  const differentChar = ["```", "a", "~~~", "still code"].join("\n");
+  expect(
+    isPositionInCodeFence(differentChar, differentChar.indexOf("still"))
+  ).toBe(true);
+});
+
+test("isPositionInCodeFence ignores inline code", () => {
+  const value = "some `code` here";
+  expect(isPositionInCodeFence(value, value.indexOf("code"))).toBe(false);
+  expect(isPositionInCodeFence(value, value.length + 5)).toBe(false);
 });

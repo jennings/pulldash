@@ -424,6 +424,39 @@ function extractCodeText(nodes: HtmlNode[]): string {
   return result;
 }
 
+/**
+ * True when `position` sits inside a fenced code block that already has at
+ * least one content line, so the editor only turns monospace for real blocks
+ * (not while the opening fence or its language is still being typed).
+ */
+export function isPositionInCodeFence(
+  value: string,
+  position: number
+): boolean {
+  const lines = value.slice(0, position).split("\n");
+  let fence: { char: string; len: number } | null = null;
+  let openLine = -1;
+
+  for (let index = 0; index < lines.length; index++) {
+    const match = lines[index].match(/^\s*(`{3,}|~{3,})/);
+    if (!match) continue;
+    const marker = match[1];
+
+    if (!fence) {
+      fence = { char: marker[0], len: marker.length };
+      openLine = index;
+    } else if (
+      marker[0] === fence.char &&
+      marker.length >= fence.len &&
+      lines[index].slice(match[0].length).trim() === ""
+    ) {
+      fence = null;
+    }
+  }
+
+  return fence !== null && lines.length - 1 > openLine;
+}
+
 const TABLE_ELEMENTS = new Set([
   "table",
   "thead",
@@ -1246,6 +1279,7 @@ export const MarkdownEditor = memo(function MarkdownEditor({
   extraToolbarActions?: React.ReactNode;
 }) {
   const [activeTab, setActiveTab] = useState<"write" | "preview">("write");
+  const [inCodeFence, setInCodeFence] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const anchorRef = useRef<HTMLSpanElement>(null);
 
@@ -1332,7 +1366,7 @@ export const MarkdownEditor = memo(function MarkdownEditor({
     textarea.style.height = "auto";
     // Set height to scrollHeight to fit content
     textarea.style.height = `${textarea.scrollHeight}px`;
-  }, [value]);
+  }, [value, inCodeFence]);
 
   // Detect manual resize via mouseup on textarea
   useEffect(() => {
@@ -1488,11 +1522,39 @@ export const MarkdownEditor = memo(function MarkdownEditor({
     setAnchorPosition({ top, left });
   }, [value]);
 
+  // Keep the textarea monospace only while the caret is inside a multi-line
+  // fenced code block. A plain textarea can't style ranges, so the whole
+  // textarea switches font based on the caret.
+  const updateCodeFenceState = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    setInCodeFence(
+      isPositionInCodeFence(textarea.value, textarea.selectionStart)
+    );
+  }, []);
+
+  useEffect(() => {
+    const handleSelectionChange = () => {
+      if (document.activeElement !== textareaRef.current) return;
+      updateCodeFenceState();
+    };
+    document.addEventListener("selectionchange", handleSelectionChange);
+    return () =>
+      document.removeEventListener("selectionchange", handleSelectionChange);
+  }, [updateCodeFenceState]);
+
+  // Recompute when the textarea remounts (Write tab) or the value changes
+  // externally (e.g. cleared after submit).
+  useEffect(() => {
+    if (activeTab === "write") updateCodeFenceState();
+  }, [activeTab, value, updateCodeFenceState]);
+
   // Detect @ mentions while typing
   const handleInput = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       const newValue = e.target.value;
       onChange(newValue);
+      updateCodeFenceState();
 
       const cursorPos = e.target.selectionStart;
       const textBeforeCursor = newValue.substring(0, cursorPos);
@@ -1509,7 +1571,7 @@ export const MarkdownEditor = memo(function MarkdownEditor({
         setMentionQuery(null);
       }
     },
-    [onChange, updateAnchorPosition]
+    [onChange, updateAnchorPosition, updateCodeFenceState]
   );
 
   const insertMention = useCallback(
@@ -1941,6 +2003,9 @@ export const MarkdownEditor = memo(function MarkdownEditor({
               style={{
                 minHeight,
                 maxHeight,
+                fontFamily: inCodeFence
+                  ? "var(--font-mono)"
+                  : "var(--font-sans)",
                 // Use field-sizing for browsers that support it (Chrome 123+, Safari 26.2+)
                 // Falls back to JS auto-resize for others
                 fieldSizing: "content",
