@@ -127,6 +127,7 @@ import {
 import { RadioGroup, RadioGroupItem } from "../ui/radio-group";
 import { Keycap, KeycapGroup } from "../ui/keycap";
 import { Markdown, MarkdownEditor } from "../ui/markdown";
+import { UserHoverCard } from "../ui/user-hover-card";
 import { CommandPalette, useCommandPalette } from "./command-palette";
 import {
   ConversationsSidebar,
@@ -4762,16 +4763,22 @@ const CommentThread = memo(function CommentThread({
           )}
           <div className="flex items-center">
             {threadAvatars.map((user, i) => (
-              <img
+              <UserHoverCard
                 key={user.login}
-                src={user.avatar_url}
-                alt={user.login}
-                className="w-4 h-4 rounded-full ring-1 ring-background relative"
-                style={{
-                  marginLeft: i > 0 ? "-4px" : "0",
-                  zIndex: threadAvatars.length - i,
-                }}
-              />
+                login={user.login}
+                side="right"
+                align={i === 0 ? "start" : "center"}
+              >
+                <img
+                  src={user.avatar_url}
+                  alt={user.login}
+                  className="w-4 h-4 rounded-full ring-1 ring-background relative cursor-pointer"
+                  style={{
+                    marginLeft: i > 0 ? "-4px" : "0",
+                    zIndex: threadAvatars.length - i,
+                  }}
+                />
+              </UserHoverCard>
             ))}
           </div>
           <span className="text-xs text-muted-foreground">
@@ -5062,15 +5069,21 @@ const CommentItem = memo(function CommentItem({
       )}
     >
       <div className="flex items-start gap-3">
-        <img
-          src={comment.user.avatar_url}
-          alt={comment.user.login}
-          className="w-6 h-6 rounded-full shrink-0"
-          loading="lazy"
-        />
+        <UserHoverCard login={comment.user.login} side="right">
+          <img
+            src={comment.user.avatar_url}
+            alt={comment.user.login}
+            className="w-6 h-6 rounded-full shrink-0 cursor-pointer"
+            loading="lazy"
+          />
+        </UserHoverCard>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 text-sm">
-            <span className="font-medium">{comment.user.login}</span>
+            <UserHoverCard login={comment.user.login} side="right">
+              <span className="font-medium cursor-pointer hover:underline">
+                {comment.user.login}
+              </span>
+            </UserHoverCard>
             <a
               href={comment.html_url}
               target="_blank"
