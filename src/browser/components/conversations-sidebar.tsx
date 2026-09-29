@@ -6,7 +6,7 @@ import {
   usePRReviewStore,
   equivalentShortShas,
 } from "../contexts/pr-review";
-import { getTimeAgo } from "../lib/dates";
+import { TimeAgo } from "../ui/time-ago";
 import { discussionUrl } from "../lib/pr-url";
 import type { LocalPendingComment } from "../contexts/pr-review";
 import type { ReviewThread } from "../contexts/github";
@@ -356,7 +356,7 @@ export const ConversationsSidebar = memo(function ConversationsSidebar() {
                           onClick={(e) => e.stopPropagation()}
                           className="text-xs text-muted-foreground hover:text-foreground hover:underline"
                         >
-                          {getTimeAgo(displayDate)}
+                          <TimeAgo date={displayDate} />
                         </a>
                       </div>
                     </div>

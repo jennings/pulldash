@@ -12,8 +12,21 @@ const DATE_TIME_FORMAT = new Intl.DateTimeFormat("en-GB", {
   minute: "2-digit",
 });
 
+const DATE_TIME_SECONDS_FORMAT = new Intl.DateTimeFormat("en-GB", {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+});
+
 export function formatDate(date: Date): string {
   return DATE_FORMAT.format(date);
+}
+
+export function formatDateTimeSeconds(date: Date): string {
+  return DATE_TIME_SECONDS_FORMAT.format(date);
 }
 
 export function formatDateTime(date: Date): string {

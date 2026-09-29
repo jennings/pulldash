@@ -99,6 +99,7 @@ import {
   type DiffViewMode,
 } from "../contexts/pr-review";
 import { getTimeAgo } from "../lib/dates";
+import { TimeAgo } from "../ui/time-ago";
 import {
   stripCommitMetadataPrefix,
   isMetadataComment,
@@ -4990,10 +4991,6 @@ const CommentItem = memo(function CommentItem({
     },
     [github, owner, repo, comment.id]
   );
-  const timeAgo = useMemo(
-    () => getTimeAgo(new Date(comment.created_at)),
-    [comment.created_at]
-  );
   // Editing strips the hidden review-group marker for display; the save
   // re-attaches it (via withReviewGroupMarker in the store action).
   // Out-of-diff comments additionally hide their position marker and blob
@@ -5090,7 +5087,7 @@ const CommentItem = memo(function CommentItem({
               rel="noopener noreferrer"
               className="text-muted-foreground text-xs hover:text-foreground hover:underline"
             >
-              {timeAgo}
+              <TimeAgo date={new Date(comment.created_at)} />
             </a>
           </div>
 

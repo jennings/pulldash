@@ -59,7 +59,7 @@ import {
   type OverviewTab,
   type PRReviewStore,
 } from "../contexts/pr-review";
-import { getTimeAgo, formatDateTime } from "../lib/dates";
+import { TimeAgo } from "../ui/time-ago";
 import { parseDiffCached, type ParsedDiff } from "../lib/diff";
 import { discussionUrl } from "../lib/pr-url";
 import {
@@ -3163,15 +3163,15 @@ function CommentBox({
               rel="noopener noreferrer"
               className="hover:underline"
             >
-              {getTimeAgo(new Date(createdAt))}
+              <TimeAgo date={new Date(createdAt)} />
             </a>
           ) : (
-            getTimeAgo(new Date(createdAt))
+            <TimeAgo date={new Date(createdAt)} />
           )}
         </span>
         {updatedAt && updatedAt !== createdAt && (
           <span className="text-muted-foreground">
-            · edited {getTimeAgo(new Date(updatedAt))}
+            · edited <TimeAgo date={new Date(updatedAt)} />
           </span>
         )}
         {isAuthor && (
@@ -3431,14 +3431,10 @@ function ReviewBox({
             </span>
           </UserHoverCard>
           <span>{stateText}</span>
-          <span
-            title={
-              review.submitted_at
-                ? formatDateTime(new Date(review.submitted_at))
-                : undefined
-            }
-          >
-            {review.submitted_at && getTimeAgo(new Date(review.submitted_at))}
+          <span>
+            {review.submitted_at && (
+              <TimeAgo date={new Date(review.submitted_at)} />
+            )}
           </span>
         </div>
       </div>
@@ -4087,12 +4083,12 @@ function ReviewThreadBox({
                   rel="noopener noreferrer"
                   className="text-muted-foreground hover:underline"
                 >
-                  {getTimeAgo(new Date(comment.createdAt))}
+                  <TimeAgo date={new Date(comment.createdAt)} />
                 </a>
                 {comment.updatedAt &&
                   comment.updatedAt !== comment.createdAt && (
                     <span className="text-muted-foreground">
-                      · edited {getTimeAgo(new Date(comment.updatedAt))}
+                      · edited <TimeAgo date={new Date(comment.updatedAt)} />
                     </span>
                   )}
               </div>
@@ -5151,8 +5147,9 @@ function CommitsTab({
               )}
               <p className="text-xs text-muted-foreground">
                 {commit.commit.author?.name} committed{" "}
-                {commit.commit.author?.date &&
-                  getTimeAgo(new Date(commit.commit.author.date))}
+                {commit.commit.author?.date && (
+                  <TimeAgo date={new Date(commit.commit.author.date)} />
+                )}
               </p>
             </div>
             <div className="flex items-center gap-2 mt-0.5">
@@ -5336,7 +5333,7 @@ function ChecksTab({
       <div className="flex items-center justify-end gap-2">
         {lastUpdated && (
           <span className="text-[10px] text-muted-foreground">
-            Updated {getTimeAgo(lastUpdated)}
+            Updated <TimeAgo date={lastUpdated} />
           </span>
         )}
         <button
@@ -5641,7 +5638,7 @@ function CommitGroup({
               </span>
             )}{" "}
             added {commits.length} commits{" "}
-            {getTimeAgo(new Date(lastCommit.author.date))}
+            <TimeAgo date={new Date(lastCommit.author.date)} />
           </span>
         </div>
       )}
@@ -5685,7 +5682,7 @@ function CommitGroup({
               {commit.sha.slice(0, 7)}
             </a>
             <span className="shrink-0">
-              {getTimeAgo(new Date(commit.author.date))}
+              <TimeAgo date={new Date(commit.author.date)} />
             </span>
           </div>
         </div>
@@ -6628,11 +6625,7 @@ function TimelineItem({
       </div>
       <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
         {eventInfo.text}
-        {displayDate && (
-          <span title={formatDateTime(new Date(displayDate))}>
-            {getTimeAgo(new Date(displayDate))}
-          </span>
-        )}
+        {displayDate && <TimeAgo date={new Date(displayDate)} />}
       </div>
     </div>
   );
