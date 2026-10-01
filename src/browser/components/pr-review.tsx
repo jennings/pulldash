@@ -117,6 +117,7 @@ import {
 } from "../../shared/out-of-diff";
 import { resolveCommentLine } from "../lib/comment-anchor";
 import { groupCommentsByLineSide } from "../lib/reviews";
+import { isForeignUiEvent } from "../lib/foreign-ui";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -482,6 +483,12 @@ function PRReviewLayout() {
   // Clear comment/line focus when clicking outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
+      // A click in an extension's injected UI (Grammarly renders its suggestion
+      // popup in a shadow root beside the app) is not a navigation intent, so
+      // it must not drop the reader's comment or line focus. Retargeting hides
+      // that ancestry from `closest`, so the allowlist below cannot match it.
+      if (isForeignUiEvent(e)) return;
+
       const target = e.target as HTMLElement;
 
       // Check if click is inside interactive elements that should NOT clear focus
@@ -5540,7 +5547,26 @@ const SubmitReviewDropdown = memo(function SubmitReviewDropdown() {
           <ChevronsUpDown className="w-3.5 h-3.5 opacity-70" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-[450px]">
+      <DropdownMenuContent
+        align="end"
+        className="w-[450px]"
+        // This menu is non-modal, so it is the one surface where an extension's
+        // event reaches the document and reads as an outside click. Dismissal
+        // then happens twice over — once for the pointerdown, once for the
+        // focus the suggestion takes — so both paths need ignoring. The
+        // original event is used because its composed path still sees into the
+        // shadow root, which the retargeted custom event does not.
+        onPointerDownOutside={(event) => {
+          if (isForeignUiEvent(event.detail.originalEvent)) {
+            event.preventDefault();
+          }
+        }}
+        onFocusOutside={(event) => {
+          if (isForeignUiEvent(event.detail.originalEvent)) {
+            event.preventDefault();
+          }
+        }}
+      >
         <DropdownMenuLabel className="font-semibold">
           Finish your review
         </DropdownMenuLabel>

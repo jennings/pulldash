@@ -12,6 +12,7 @@ import { Button } from "../ui/button";
 import { MarkdownEditor } from "../ui/markdown";
 import { usePRReviewStore, usePRReviewSelector } from "../contexts/pr-review";
 import { cn } from "../cn";
+import { isForeignUiEvent } from "../lib/foreign-ui";
 
 interface PREditDialogProps {
   open: boolean;
@@ -38,6 +39,9 @@ export const PREditDialog = memo(function PREditDialog({
   useEffect(() => {
     if (!branchOpen) return;
     const handler = (e: MouseEvent) => {
+      // An extension's UI is not a navigation intent either, and it lives
+      // outside this element, so `contains` would read it as an outside click.
+      if (isForeignUiEvent(e)) return;
       if (branchRef.current && !branchRef.current.contains(e.target as Node)) {
         setBranchOpen(false);
         setBranchSearch("");
