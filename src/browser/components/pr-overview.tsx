@@ -18,6 +18,7 @@ import {
   MinusCircle,
   AlertCircle,
   ChevronDown,
+  ArrowDownToLine,
   Clock,
   GitCommit,
   Copy,
@@ -246,7 +247,17 @@ export const PROverview = memo(function PROverview() {
   const [refreshingChecks, setRefreshingChecks] = useState(false);
   const overviewRef = useRef<HTMLDivElement>(null);
 
-  // Scroll to top/bottom via gg/ge keyboard shortcuts
+  const scrollTimelineToEnd = useCallback(() => {
+    const el = overviewRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, []);
+
+  // True once the timeline is scrolled to its end, which hides the jump button.
+  const atEndRef = useRef(true);
+  const [atTimelineEnd, setAtTimelineEnd] = useState(true);
+
+  // Scroll to top/bottom via gg/ge keyboard shortcuts, and keep the jump button
+  // in sync with the container's scroll position.
   useEffect(() => {
     const el = overviewRef.current;
     if (!el) return;
@@ -254,15 +265,26 @@ export const PROverview = memo(function PROverview() {
       el.scrollTop = 0;
     };
     const onBottom = () => {
-      el.scrollTop = el.scrollHeight;
+      scrollTimelineToEnd();
     };
+    // Setting state on every scroll event would re-render this component each
+    // frame, so only report an actual change.
+    const onScroll = () => {
+      const atEnd = el.scrollTop + el.clientHeight >= el.scrollHeight - 40;
+      if (atEnd === atEndRef.current) return;
+      atEndRef.current = atEnd;
+      setAtTimelineEnd(atEnd);
+    };
+    onScroll();
     window.addEventListener("pr-review:scroll-to-top", onTop);
     window.addEventListener("pr-review:scroll-to-bottom", onBottom);
+    el.addEventListener("scroll", onScroll, { passive: true });
     return () => {
       window.removeEventListener("pr-review:scroll-to-top", onTop);
       window.removeEventListener("pr-review:scroll-to-bottom", onBottom);
+      el.removeEventListener("scroll", onScroll);
     };
-  }, [loading]);
+  }, [loading, scrollTimelineToEnd]);
 
   // Overview keyboard navigation state
   const [focusedOverviewItemId, setFocusedOverviewItemId] = useState<
@@ -2391,6 +2413,26 @@ export const PROverview = memo(function PROverview() {
             )}
 
             {activeTab === "stack" && <StackTab />}
+
+            {/* Jump to the end, the button form of `g` then `e`. Sticky inside
+                the column so it tracks the column's right edge at any window
+                width, then carried past it by the negative margin: it clears
+                the column entirely and lands on the gutter and the sidebar's
+                left edge. Always mounted and faded out at the end rather than
+                unmounted, so the timeline's scroll height never changes under
+                the reader. */}
+            <button
+              onClick={scrollTimelineToEnd}
+              title="Jump to the end"
+              aria-label="Jump to the end of the timeline"
+              className={cn(
+                "sticky bottom-4 ml-auto block w-fit flex items-center justify-center w-9 h-9 rounded-full bg-muted border border-border shadow-lg text-foreground hover:bg-accent transition-opacity",
+                "md:mr-[-50px]",
+                atTimelineEnd && "opacity-0 pointer-events-none"
+              )}
+            >
+              <ArrowDownToLine className="w-4 h-4" />
+            </button>
           </div>
 
           {/* Right Column - Sidebar */}
