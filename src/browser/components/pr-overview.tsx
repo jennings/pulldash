@@ -66,6 +66,7 @@ import {
   getLatestReviewsByUser,
   getLatestReviewByUser,
   isReviewStale,
+  showsStaleHourglass,
 } from "../lib/reviews";
 import type { ReviewComment } from "@/api/types";
 import type { components } from "@octokit/openapi-types";
@@ -1214,14 +1215,14 @@ export const PROverview = memo(function PROverview() {
     // Collect all reviews first (changes requested, approved, commented)
     for (const r of byUser.values()) {
       if (r.user) {
-        // Skip re-requested reviewers — they'll show as PENDING instead
-        if (requestedLogins.has(r.user.login)) continue;
         // Skip the PR author — their self-reviews are not reviewer state
         if (r.user.login === pr.user?.login) continue;
         addReviewer(
           r.user.login,
           r.user.avatar_url,
-          r.state,
+          // A re-requested reviewer flips to PENDING, but they still have a
+          // reviewed commit that newer pushes could have invalidated.
+          requestedLogins.has(r.user.login) ? "PENDING" : r.state,
           undefined,
           isReviewStale(r, headSha),
           r.commit_id ?? undefined
@@ -2453,6 +2454,18 @@ export const PROverview = memo(function PROverview() {
                               <X className="w-3 h-3" />
                             </button>
                           )}
+                          <StaleHourglass
+                            stale={reviewer.stale}
+                            onStaleClick={
+                              reviewer.stale && reviewer.commitId
+                                ? () =>
+                                    showChangesSinceReview(
+                                      store,
+                                      reviewer.commitId!
+                                    )
+                                : undefined
+                            }
+                          />
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <span className="cursor-default">
@@ -3530,6 +3543,47 @@ async function showChangesSinceReview(
   }
 }
 
+/** The Gitea-style stale hourglass: new commits landed since a review. Clicking
+ *  it jumps the diff to the reviewed commit. Rendered on its own so rows that
+ *  are not a `ReviewStateIcon` (re-requested reviewers, showing a pending
+ *  clock) can carry it too. */
+function StaleHourglass({
+  stale,
+  onStaleClick,
+}: {
+  stale?: boolean;
+  onStaleClick?: () => void;
+}) {
+  if (!stale) return null;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        {onStaleClick ? (
+          <button
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onStaleClick();
+            }}
+            className="inline-flex cursor-pointer hover:opacity-80 transition-opacity"
+          >
+            <Hourglass className="w-3.5 h-3.5 text-amber-500" />
+          </button>
+        ) : (
+          <span className="inline-flex cursor-default">
+            <Hourglass className="w-3.5 h-3.5 text-amber-500" />
+          </span>
+        )}
+      </TooltipTrigger>
+      <TooltipContent>
+        {onStaleClick
+          ? "New changes since this review — click to view"
+          : "New changes since this review"}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 function ReviewStateIcon({
   state,
   showTooltip = false,
@@ -3575,38 +3629,11 @@ function ReviewStateIcon({
 
   const { icon, tooltip } = getIconAndTooltip();
 
-  // Only decisions can be stale — comment and pending badges have nothing
-  // to re-review.
-  const showStale =
-    stale && (state === "APPROVED" || state === "CHANGES_REQUESTED");
+  const showStale = stale && showsStaleHourglass(state);
 
   const content = showStale ? (
     <span className="inline-flex items-center gap-1">
-      <Tooltip>
-        <TooltipTrigger asChild>
-          {onStaleClick ? (
-            <button
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                onStaleClick();
-              }}
-              className="inline-flex cursor-pointer hover:opacity-80 transition-opacity"
-            >
-              <Hourglass className="w-3.5 h-3.5 text-amber-500" />
-            </button>
-          ) : (
-            <span className="inline-flex cursor-default">
-              <Hourglass className="w-3.5 h-3.5 text-amber-500" />
-            </span>
-          )}
-        </TooltipTrigger>
-        <TooltipContent>
-          {onStaleClick
-            ? "New changes since this review — click to view"
-            : "New changes since this review"}
-        </TooltipContent>
-      </Tooltip>
+      <StaleHourglass stale onStaleClick={onStaleClick} />
       {icon}
     </span>
   ) : (

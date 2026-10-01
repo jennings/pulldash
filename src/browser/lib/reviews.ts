@@ -40,6 +40,20 @@ export function isReviewStale(
 }
 
 /**
+ * Which review states can carry the stale hourglass. A comment-only review is
+ * stale too: leaving inline comments is a review of a specific commit, so new
+ * pushes leave it partly unreviewed. PENDING has no review yet and DISMISSED was
+ * thrown away — neither is anything to re-read.
+ */
+export function showsStaleHourglass(state: string): boolean {
+  return (
+    state === "APPROVED" ||
+    state === "CHANGES_REQUESTED" ||
+    state === "COMMENTED"
+  );
+}
+
+/**
  * Latest opinionated (APPROVED/CHANGES_REQUESTED) review per user — GitHub's
  * `latestOpinionatedReviews`: a later COMMENTED review does not mask the
  * decision, and a DISMISSED one revokes it. Drives approval counts and merge

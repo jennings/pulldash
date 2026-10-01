@@ -3,6 +3,7 @@ import {
   getLatestReviewByUser,
   getLatestReviewsByUser,
   isReviewStale,
+  showsStaleHourglass,
   groupCommentsByLineSide,
   resolveCommentPosition,
 } from "./reviews";
@@ -77,6 +78,19 @@ test("reviews submitted on an older head are stale", () => {
   expect(
     isReviewStale(review("a", "APPROVED", "2026-01-01T00:00:00Z", 2), "x")
   ).toBe(false);
+});
+
+// xcp-ng-build-env#78: glehmann left nine COMMENTED reviews and no decision, so
+// the hourglass was the only way back to the diff as it stood on Sept 19.
+test("comment-only reviews can go stale", () => {
+  const commented = {
+    ...review("glehmann", "COMMENTED", "2026-09-19T08:42:28Z", 1),
+    commit_id: "oldsha",
+  };
+  expect(isReviewStale(commented, "newsha")).toBe(true);
+  expect(showsStaleHourglass(commented.state)).toBe(true);
+  expect(showsStaleHourglass("PENDING")).toBe(false);
+  expect(showsStaleHourglass("DISMISSED")).toBe(false);
 });
 
 test("requesting changes overrides an earlier approval", () => {
