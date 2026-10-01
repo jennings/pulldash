@@ -68,6 +68,12 @@ import {
   isReviewStale,
   showsStaleHourglass,
 } from "../lib/reviews";
+import {
+  parseCoAuthors,
+  formatCoAuthorNames,
+  commitParties,
+} from "../lib/commits";
+import type { CommitParty } from "../lib/commits";
 import type { ReviewComment } from "@/api/types";
 import type { components } from "@octokit/openapi-types";
 import { useQuery } from "@tanstack/react-query";
@@ -5119,17 +5125,81 @@ function CommitsTab({
           .trim();
         const hasBody = body.length > 0;
         const isExpanded = expandedShas.has(commit.sha);
+        const coAuthors = parseCoAuthors(commit.commit.message);
+        const { author, committer, sameParty } = commitParties(commit);
+
+        // Everyone the commit credits gets a face: the author, the committer
+        // when a rebase made them somebody else, then the co-authors. Mass
+        // imports credit dozens, so that tail is capped and the byline
+        // carries the full count.
+        const identifiedCoAuthors = coAuthors.flatMap((coAuthor) =>
+          coAuthor.login
+            ? [
+                {
+                  name: coAuthor.name,
+                  login: coAuthor.login,
+                  avatarUrl: `https://avatars.githubusercontent.com/${coAuthor.login}`,
+                  context: "Co-authored this commit",
+                },
+              ]
+            : []
+        );
+        const faces: Array<CommitParty & { context?: string }> = [
+          author,
+          sameParty ? null : committer,
+          ...identifiedCoAuthors.slice(0, 3),
+        ].filter((party): party is CommitParty => !!party?.avatarUrl);
+        const hiddenCoAuthorCount =
+          identifiedCoAuthors.length - Math.min(3, identifiedCoAuthors.length);
 
         return (
           <BlockLink.Root
             key={commit.sha}
             className="flex items-start gap-3 p-3 hover:bg-card/30 cursor-pointer"
           >
-            <img
-              src={commit.author?.avatar_url || commit.committer?.avatar_url}
-              alt={commit.commit.author?.name}
-              className="w-6 h-6 rounded-full mt-0.5"
-            />
+            <div className="flex items-start shrink-0 mt-0.5">
+              {faces.map((party, i) => {
+                const avatar = (
+                  <img
+                    key={party.login ?? party.name}
+                    src={party.avatarUrl}
+                    alt={party.name}
+                    title={party.name}
+                    // A co-author login is guessed from the noreply address and
+                    // need not exist — GitHub's own bot commits, for one.
+                    onError={(e) => {
+                      e.currentTarget.style.visibility = "hidden";
+                    }}
+                    // Overlap by two thirds so each face keeps a sliver
+                    // visible; earlier avatars sit on top of later ones.
+                    style={{
+                      marginLeft: i > 0 ? "-16px" : 0,
+                      zIndex: faces.length - i,
+                    }}
+                    className="w-6 h-6 rounded-full ring-1 ring-background relative"
+                  />
+                );
+                return party.login ? (
+                  <UserHoverCard
+                    key={party.login}
+                    login={party.login}
+                    context={party.context}
+                  >
+                    {avatar}
+                  </UserHoverCard>
+                ) : (
+                  avatar
+                );
+              })}
+              {hiddenCoAuthorCount > 0 && (
+                <span
+                  className="w-6 h-6 rounded-full ring-1 ring-background ml-1.5 flex items-center justify-center text-[10px] text-muted-foreground bg-muted"
+                  title={`${hiddenCoAuthorCount} more co-authors`}
+                >
+                  +{hiddenCoAuthorCount}
+                </span>
+              )}
+            </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-baseline min-w-0">
                 <BlockLink.Link asChild>
@@ -5173,10 +5243,19 @@ function CommitsTab({
                 </p>
               )}
               <p className="text-xs text-muted-foreground">
-                {commit.commit.author?.name} committed{" "}
+                {sameParty ? (
+                  <>{author.name} committed </>
+                ) : (
+                  <>
+                    authored by {author.name} and committed by{" "}
+                    {committer.name}{" "}
+                  </>
+                )}
                 {commit.commit.author?.date && (
                   <TimeAgo date={new Date(commit.commit.author.date)} />
                 )}
+                {coAuthors.length > 0 &&
+                  ` with ${formatCoAuthorNames(coAuthors)}`}
               </p>
             </div>
             <div className="flex items-center gap-2 mt-0.5">
