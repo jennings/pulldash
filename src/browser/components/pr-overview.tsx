@@ -246,6 +246,7 @@ export const PROverview = memo(function PROverview() {
   const [assigningSelf, setAssigningSelf] = useState(false);
   const [refreshingChecks, setRefreshingChecks] = useState(false);
   const overviewRef = useRef<HTMLDivElement>(null);
+  const overviewContentRef = useRef<HTMLDivElement>(null);
 
   const scrollTimelineToEnd = useCallback(() => {
     const el = overviewRef.current;
@@ -276,6 +277,13 @@ export const PROverview = memo(function PROverview() {
       setAtTimelineEnd(atEnd);
     };
     onScroll();
+    // Comment bodies are rendered off-thread, so the timeline keeps growing
+    // after mount. Growing alone fires no scroll event, which would leave the
+    // button hidden until the reader happened to scroll.
+    const resizeObserver = new ResizeObserver(onScroll);
+    if (overviewContentRef.current) {
+      resizeObserver.observe(overviewContentRef.current);
+    }
     window.addEventListener("pr-review:scroll-to-top", onTop);
     window.addEventListener("pr-review:scroll-to-bottom", onBottom);
     el.addEventListener("scroll", onScroll, { passive: true });
@@ -283,6 +291,7 @@ export const PROverview = memo(function PROverview() {
       window.removeEventListener("pr-review:scroll-to-top", onTop);
       window.removeEventListener("pr-review:scroll-to-bottom", onBottom);
       el.removeEventListener("scroll", onScroll);
+      resizeObserver.disconnect();
     };
   }, [loading, scrollTimelineToEnd]);
 
@@ -1534,7 +1543,10 @@ export const PROverview = memo(function PROverview() {
       </div>
 
       {/* Main Content */}
-      <div className="max-w-[1280px] mx-auto px-3 sm:px-6 py-4 sm:py-6">
+      <div
+        ref={overviewContentRef}
+        className="max-w-[1280px] mx-auto px-3 sm:px-6 py-4 sm:py-6"
+      >
         <div className="flex flex-col md:flex-row gap-4 md:gap-6">
           {/* Left Column - Main Content */}
           <div className="flex-1 min-w-0 space-y-4 order-2 md:order-1">
