@@ -5527,6 +5527,8 @@ const SubmitReviewDropdown = memo(function SubmitReviewDropdown() {
       <DropdownMenuTrigger asChild>
         <button
           className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded-md bg-green-600 text-white hover:bg-green-700 transition-colors"
+          aria-label="Submit review"
+          title="Submit review"
           onPointerDown={(e) => {
             if (e.altKey) {
               e.preventDefault();
@@ -5535,7 +5537,11 @@ const SubmitReviewDropdown = memo(function SubmitReviewDropdown() {
             }
           }}
         >
-          <span>Submit review</span>
+          {/* The label costs ~90px, which on a phone left the PR title two
+              characters wide. The shortcut hint below carries the meaning
+              there, and the accessible name now comes from aria-label rather
+              than this text. */}
+          <span className="hidden sm:inline">Submit review</span>
           {pendingCount > 0 && (
             <span className="px-1 py-0.5 text-[10px] bg-green-500/50 rounded">
               {pendingCount}
