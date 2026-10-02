@@ -60,6 +60,38 @@ async function build() {
     resolve(process.cwd(), "dist", "browser", "sw.js")
   );
 
+  // Give the service worker the real hashed asset names. Without this it had no
+  // way to precache anything and offline simply did not work.
+  const swPath = resolve(process.cwd(), "dist", "browser", "sw.js");
+  // Bun reports output paths absolute, and relative to the outdir at other
+  // times, so anchor on the outdir segment rather than slicing a prefix.
+  const outMarker = "dist/browser/";
+  const sitePath = (path: string) => {
+    const p = path.replaceAll("\\", "/");
+    const at = p.lastIndexOf(outMarker);
+    return at >= 0 ? p.slice(at + outMarker.length) : p.replace(/^\/+/, "");
+  };
+  const precache = [
+    "/",
+    "/spa-redirect.js",
+    // Built below, and not content-hashed, so it is named here.
+    "/lib/diff-worker.js",
+    ...mainResult.outputs
+      .map((o) => `/${sitePath(o.path)}`)
+      .filter((p) => /\.(js|css|svg|woff2?)$/.test(p)),
+  ];
+  const sw = await Bun.file(swPath).text();
+  const injected = sw.replace(
+    'self.__PULLDASH_PRECACHE__ ?? ["/"]',
+    JSON.stringify([...new Set(precache)])
+  );
+  if (injected === sw) {
+    console.error(
+      "sw.js: precache placeholder not found — offline support will be empty"
+    );
+  }
+  await Bun.write(swPath, injected);
+
   await cp(
     resolve(process.cwd(), "src", "browser", "spa-redirect.js"),
     resolve(process.cwd(), "dist", "browser", "spa-redirect.js")
