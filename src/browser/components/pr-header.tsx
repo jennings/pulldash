@@ -80,7 +80,7 @@ export const PRHeader = memo(function PRHeader({
 
   return (
     <>
-      <header className="border-b border-border px-2 sm:px-4 py-2 flex items-center gap-2 sm:gap-3 shrink-0 bg-card/30">
+      <header className="border-b border-border px-2 sm:px-4 py-2 flex flex-wrap items-center gap-2 sm:gap-3 shrink-0 bg-card/30">
         {/* Mobile menu button */}
         {onToggleSidebar && (
           <button
@@ -104,12 +104,14 @@ export const PRHeader = memo(function PRHeader({
           <span className="hidden xs:inline">{stateLabel}</span>
         </span>
 
-        {/* Repo Link - hidden on smallest screens */}
+        {/* Repo Link - capped on phones so a long owner/repo cannot push the
+            submit button onto its own row, which the header would then wrap to
+            and cost the vertical space this is meant to save. */}
         <a
           href={`https://github.com/${owner}/${repo}`}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-xs text-muted-foreground hover:text-blue-400 transition-colors font-mono shrink-0 hidden sm:inline"
+          className="text-xs text-muted-foreground hover:text-blue-400 transition-colors font-mono min-w-0 max-w-[9rem] truncate sm:max-w-none sm:shrink-0"
         >
           {owner}/{repo}
         </a>
@@ -123,9 +125,20 @@ export const PRHeader = memo(function PRHeader({
           headRef={pr.head.ref}
         />
 
-        {/* Title with author and branches inline */}
-        <h1 className="text-sm font-medium truncate flex-1 min-w-0 flex items-center gap-2">
-          <span className="truncate">
+        {/* Title with author and branches inline. Below lg the heading is a
+            block rather than a flex row, so the title flows as ordinary text:
+            its first line uses the full width and the icons land after the last
+            one, instead of the icons reserving their width across every line.
+            They are the whole reason the title was unreadable - all shrink-0, so
+            as flex siblings they left it a third of a phone's width and the text
+            absorbed the entire deficit. At lg the row comes back, which is also
+            where the file panel appears and there is finally room for it.
+
+            The icons need explicit margins below lg because a block container
+            has no `gap`, and JSX drops the whitespace between them. At lg the
+            h1's own gap-2 takes over, hence max-lg on each. */}
+        <h1 className="text-sm font-medium order-last w-full lg:order-none lg:w-auto lg:flex-1 min-w-0 block lg:flex lg:items-center lg:gap-2">
+          <span className="break-words lg:block lg:truncate" title={pr.title}>
             <span>{pr.title}</span>
             <span className="text-muted-foreground ml-1.5">#{pr.number}</span>
           </span>
@@ -134,7 +147,7 @@ export const PRHeader = memo(function PRHeader({
             href={`https://github.com/${owner}/${repo}/pull/${pr.number}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-muted-foreground hover:text-blue-400 transition-colors shrink-0"
+            className="text-muted-foreground hover:text-blue-400 transition-colors shrink-0 inline-block align-middle max-lg:ml-2"
             title="View on GitHub"
           >
             <ExternalLink className="w-4 h-4" />
@@ -147,11 +160,12 @@ export const PRHeader = memo(function PRHeader({
             title={pr.title}
             authorLogin={pr.user?.login}
             iconClassName="w-4 h-4"
+            className="align-middle max-lg:ml-2"
           />
           {canEdit && (
             <button
               onClick={() => setEditDialogOpen(true)}
-              className="p-1 rounded text-muted-foreground hover:text-blue-400 hover:bg-blue-500/20 transition-colors shrink-0"
+              className="p-1 rounded text-muted-foreground hover:text-blue-400 hover:bg-blue-500/20 transition-colors shrink-0 align-middle max-lg:ml-2"
               title="Edit pull request"
             >
               <Pencil className="w-4 h-4" />
@@ -159,7 +173,7 @@ export const PRHeader = memo(function PRHeader({
           )}
           {/* Author */}
           <UserHoverCard login={pr.user.login}>
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer hover:text-foreground transition-colors shrink-0">
+            <div className="inline-flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer hover:text-foreground transition-colors shrink-0 align-middle max-lg:ml-2">
               <img
                 src={pr.user.avatar_url}
                 alt={pr.user.login}
