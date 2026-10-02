@@ -10,6 +10,7 @@ import { AppShell } from "./components/app-shell";
 import { WelcomeDialog } from "./components/welcome-dialog";
 import { ShortcutsDialog } from "./components/shortcuts-dialog";
 import { GlobalProgress } from "./components/global-progress";
+import { ErrorBoundary } from "./ui/error-boundary";
 import { initTheme } from "./theme";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
@@ -35,38 +36,40 @@ createRoot(document.getElementById("app")!).render(
       },
     }}
   >
-    <GlobalProgress />
-    <ThemeProvider>
-      <AuthProvider>
-        <GitHubProvider>
-          <BrowserRouter>
-            <TabProvider>
-              <CommandPaletteProvider>
-                <TooltipProvider delayDuration={300}>
-                  <Routes>
-                    {/* Home */}
-                    <Route path="/" element={<AppShell />} />
-                    {/* PR review - URL like /:owner/:repo/pull/:number/[commits|checks|changes] */}
-                    <Route
-                      path="/:owner/:repo/pull/:number"
-                      element={<AppShell />}
-                    />
-                    <Route
-                      path="/:owner/:repo/pull/:number/:tab"
-                      element={<AppShell />}
-                    />
-                  </Routes>
-                  {/* Auth dialog - shown when not authenticated */}
-                  <WelcomeDialog />
-                  {/* Keyboard shortcuts reference - opened with `?` */}
-                  <ShortcutsDialog />
-                </TooltipProvider>
-              </CommandPaletteProvider>
-            </TabProvider>
-          </BrowserRouter>
-        </GitHubProvider>
-      </AuthProvider>
-    </ThemeProvider>
+    <ErrorBoundary>
+      <GlobalProgress />
+      <ThemeProvider>
+        <AuthProvider>
+          <GitHubProvider>
+            <BrowserRouter>
+              <TabProvider>
+                <CommandPaletteProvider>
+                  <TooltipProvider delayDuration={300}>
+                    <Routes>
+                      {/* Home */}
+                      <Route path="/" element={<AppShell />} />
+                      {/* PR review - URL like /:owner/:repo/pull/:number/[commits|checks|changes] */}
+                      <Route
+                        path="/:owner/:repo/pull/:number"
+                        element={<AppShell />}
+                      />
+                      <Route
+                        path="/:owner/:repo/pull/:number/:tab"
+                        element={<AppShell />}
+                      />
+                    </Routes>
+                    {/* Auth dialog - shown when not authenticated */}
+                    <WelcomeDialog />
+                    {/* Keyboard shortcuts reference - opened with `?` */}
+                    <ShortcutsDialog />
+                  </TooltipProvider>
+                </CommandPaletteProvider>
+              </TabProvider>
+            </BrowserRouter>
+          </GitHubProvider>
+        </AuthProvider>
+      </ThemeProvider>
+    </ErrorBoundary>
     {__DEV__ && <ReactQueryDevtools initialIsOpen={false} />}
   </PersistQueryClientProvider>
 );

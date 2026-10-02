@@ -93,6 +93,7 @@ import {
 } from "../lib/notifications";
 import { useAuth } from "../contexts/auth";
 import { getTimeAgo } from "../lib/dates";
+import { randomId } from "../lib/ids";
 
 // ============================================================================
 // Types
@@ -209,7 +210,7 @@ function saveStateFilter(state: StateFilter): void {
 }
 
 function newGroupId(): string {
-  return crypto.randomUUID();
+  return randomId();
 }
 
 // Read the legacy single-config shape and apply its historical migrations.
