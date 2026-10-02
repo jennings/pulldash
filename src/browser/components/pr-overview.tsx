@@ -2432,13 +2432,19 @@ export const PROverview = memo(function PROverview() {
                 the column entirely and lands on the gutter and the sidebar's
                 left edge. Always mounted and faded out at the end rather than
                 unmounted, so the timeline's scroll height never changes under
-                the reader. */}
+                the reader.
+
+                z-20 is load-bearing: every comment, review and thread card is
+                `relative z-10`, and sticky defaults to z-index 0, so without
+                this the cards paint straight over the button wherever they line
+                up with it. Still below the z-[100] pickers, so an open dropdown
+                is never covered. */}
             <button
               onClick={scrollTimelineToEnd}
               title="Jump to the end"
               aria-label="Jump to the end of the timeline"
               className={cn(
-                "sticky bottom-4 ml-auto block w-fit flex items-center justify-center w-9 h-9 rounded-full bg-muted border border-border shadow-lg text-foreground hover:bg-accent transition-opacity",
+                "sticky bottom-4 ml-auto block w-fit flex items-center justify-center w-9 h-9 z-20 rounded-full bg-muted border border-border shadow-lg text-foreground hover:bg-accent transition-opacity",
                 "md:mr-[-50px]",
                 atTimelineEnd && "opacity-0 pointer-events-none"
               )}
