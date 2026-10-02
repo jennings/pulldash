@@ -59,6 +59,8 @@ interface AuthState {
   isRateLimited: boolean;
   authConfig: AuthConfig | null;
   authFlow: AuthFlow | null;
+  /** Why the browser redirect flow could not start, if it could not. */
+  webAuthError: string | null;
 }
 
 interface AuthContextValue extends AuthState {
@@ -326,6 +328,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isRateLimited: false,
       authConfig: null,
       authFlow: storedFlow,
+      webAuthError: null,
     };
   });
 
@@ -603,23 +606,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const config = state.authConfig;
     if (!config) return;
 
-    const codeVerifier = generateCodeVerifier();
-    const codeChallenge = await generateCodeChallenge(codeVerifier);
-    try {
-      sessionStorage.setItem(CODE_VERIFIER_KEY, codeVerifier);
-    } catch {
-      // sessionStorage may not be available
+    setState((prev) => ({ ...prev, webAuthError: null }));
+
+    // PKCE needs SHA-256 from WebCrypto, which browsers expose only in a secure
+    // context. On a plain-HTTP origin - a LAN address on a phone, say - this
+    // threw a TypeError inside the promise, and because the caller had no catch
+    // the button simply did nothing.
+    if (!crypto.subtle) {
+      setState((prev) => ({
+        ...prev,
+        webAuthError:
+          "Signing in through the browser needs an HTTPS connection. Use the device code option below instead.",
+      }));
+      return;
     }
 
-    const redirectUri = `${window.location.origin}/api/auth/callback`;
-    const params = new URLSearchParams({
-      client_id: config.clientId,
-      redirect_uri: redirectUri,
-      scope: "repo read:user",
-      code_challenge_method: "S256",
-      code_challenge: codeChallenge,
-    });
-    window.location.href = `https://github.com/login/oauth/authorize?${params}`;
+    try {
+      const codeVerifier = generateCodeVerifier();
+      const codeChallenge = await generateCodeChallenge(codeVerifier);
+      try {
+        sessionStorage.setItem(CODE_VERIFIER_KEY, codeVerifier);
+      } catch {
+        // sessionStorage may not be available
+      }
+
+      const redirectUri = `${window.location.origin}/api/auth/callback`;
+      const params = new URLSearchParams({
+        client_id: config.clientId,
+        redirect_uri: redirectUri,
+        scope: "repo read:user",
+        code_challenge_method: "S256",
+        code_challenge: codeChallenge,
+      });
+      window.location.href = `https://github.com/login/oauth/authorize?${params}`;
+    } catch (e) {
+      setState((prev) => ({
+        ...prev,
+        webAuthError:
+          e instanceof Error ? e.message : "Could not start the sign-in flow.",
+      }));
+    }
   }, [state.authConfig]);
 
   const exchangeCode = useCallback(

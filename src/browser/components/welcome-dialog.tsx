@@ -1002,6 +1002,7 @@ export function WelcomeDialog() {
     cancelDeviceAuth,
     startWebAuth,
     authConfig,
+    webAuthError,
   } = useAuth();
 
   const [copied, setCopied] = useState(false);
@@ -1189,6 +1190,13 @@ export function WelcomeDialog() {
                   )}
                 </Button>
               ) : null}
+
+              {webAuthError && (
+                <p className="text-xs text-amber-500 flex items-start gap-1.5">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-px" />
+                  {webAuthError}
+                </p>
+              )}
 
               <PATAuthSection
                 defaultVisible={
