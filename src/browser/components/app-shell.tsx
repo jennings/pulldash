@@ -604,7 +604,7 @@ export function AppShell() {
   }, [isAuthenticated, resetTabs]);
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden bg-background">
+    <div className="app-viewport flex flex-col overflow-hidden bg-background">
       {/* Native-style Tab Bar */}
       <div className="h-9 bg-muted flex items-center shrink-0 border-b border-border/50">
         {/* Logo with tooltip */}

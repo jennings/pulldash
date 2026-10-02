@@ -299,6 +299,17 @@
   display: none;
 }
 
+/* App root height. On a phone browser 100vh is the height with the URL bar
+   hidden, so the app is taller than the visible area and - because the root
+   clips - its last rows cannot be reached at all. 100dvh tracks the visible
+   area instead. The 100vh line is the fallback for browsers without dvh: on the
+   root a dropped height declaration would collapse the whole layout, so the
+   declaration order is load-bearing and must not be swapped for a utility. */
+.app-viewport {
+  height: 100vh;
+  height: 100dvh;
+}
+
 /* CSS-based diff line selection - avoids per-row React re-renders */
 /* Unified view selection */
 .diff-line-row[data-selected="true"] {
