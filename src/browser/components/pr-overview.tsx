@@ -2356,12 +2356,14 @@ export const PROverview = memo(function PROverview() {
                 {/* Add a comment - only show when user can write (comments allowed even without push) */}
                 {canWrite ? (
                   <div id="conversation-comment-box" className="flex gap-3">
-                    {/* Avatar */}
+                    {/* Avatar - hidden on narrow screens, where it and the gap
+                        cost 52px of a 390px viewport that the editor is better
+                        off with. */}
                     {currentUser && (
                       <img
                         src={`https://avatars.githubusercontent.com/${currentUser}`}
                         alt={currentUser}
-                        className="w-10 h-10 rounded-full shrink-0"
+                        className="hidden sm:block w-10 h-10 rounded-full shrink-0"
                       />
                     )}
                     <div className="flex-1 flex flex-col gap-2">
