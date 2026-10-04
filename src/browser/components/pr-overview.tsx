@@ -2455,8 +2455,24 @@ export const PROverview = memo(function PROverview() {
             </button>
           </div>
 
-          {/* Right Column - Sidebar */}
-          <div className="w-full md:w-[296px] shrink-0 space-y-4 order-1 md:order-2">
+          {/* Right Column - Sidebar. Sticky from md up, which is where the
+              layout becomes two columns, so the reviewer list stays put while
+              the timeline scrolls.
+
+              self-start is load-bearing: the row above has no items-* class, so
+              align-items is stretch and this column would otherwise be as tall
+              as the timeline, leaving a sticky box nowhere to move. It has to be
+              md-prefixed because below md the row is flex-col, where the cross
+              axis is horizontal and self-start would collapse the column to
+              its content width.
+
+              z-10 keeps the pickers working. They are fixed divs rendered inside
+              this column and escape it only via z-[100]/z-[101]; sticky creates
+              a stacking context, which would scope those to z-auto and let the
+              full-screen scrim paint under the timeline's own z-10 cards.
+              Matching them at z-10 wins on tree order, and the jump button's
+              z-20 stays above. */}
+          <div className="w-full md:w-[296px] shrink-0 space-y-4 order-1 md:order-2 md:sticky md:top-0 md:self-start md:z-10">
             {/* Reviewers */}
             <SidebarSection
               title="Reviewers"
