@@ -2,6 +2,7 @@
 
 declare const __REPO_URL__: string;
 declare const __DEV__: boolean;
+declare const __DIFF_WORKER_URL__: string;
 
 declare module "*.svg" {
   const content: string;

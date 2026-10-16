@@ -84,7 +84,21 @@ describe("pool initialization", () => {
   test("workers are created on first use", async () => {
     const pool = new DiffWorkerPool();
     await pool.parseDiff("", "test.ts");
-    expect(FakeWorker.instances.length).toBeGreaterThan(0);
+    expect(FakeWorker.instances).toHaveLength(1);
+  });
+
+  test("concurrent work grows the pool only up to the core-aware cap", async () => {
+    const pool = new DiffWorkerPool();
+    await pool.parseDiffBatch(
+      Array.from({ length: 12 }, (_, i) => ({ patch: "", filename: `${i}.ts` }))
+    );
+    expect(FakeWorker.instances).toHaveLength(
+      Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 2) - 1))
+    );
+    expect(
+      FakeWorker.instances.flatMap((worker) => worker.messages)
+    ).toHaveLength(12);
+    pool.terminate();
   });
 
   test("second call does not create additional workers (already initialized)", async () => {

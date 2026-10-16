@@ -12,6 +12,12 @@ const define = {
 };
 
 async function build() {
+  const workerResult = await buildWorker();
+  if (!workerResult.success) {
+    console.error("Worker build failed:", workerResult.logs);
+    return false;
+  }
+  const workerUrl = `/lib/${workerResult.outputs[0]!.path.split("/").at(-1)}`;
   // Build main app
   const mainResult = await Bun.build({
     entrypoints: ["./src/browser/index.html"],
@@ -19,7 +25,7 @@ async function build() {
     plugins: [tailwind],
     target: "browser",
     format: "esm",
-    define,
+    define: { ...define, __DIFF_WORKER_URL__: JSON.stringify(workerUrl) },
   });
 
   if (!mainResult.success) {
@@ -74,8 +80,7 @@ async function build() {
   const precache = [
     "/",
     "/spa-redirect.js",
-    // Built below, and not content-hashed, so it is named here.
-    "/lib/diff-worker.js",
+    workerUrl,
     ...mainResult.outputs
       .map((o) => `/${sitePath(o.path)}`)
       .filter((p) => /\.(js|css|svg|woff2?)$/.test(p)),
@@ -102,10 +107,17 @@ async function build() {
     { recursive: true }
   );
 
-  // Build worker separately with document shim for Prism/refractor
-  const workerResult = await Bun.build({
+  const allOutputs = [...mainResult.outputs, ...workerResult.outputs];
+  console.log(`Bundled ${allOutputs.length} files`);
+  for (const output of allOutputs) console.log(`  ${output.path}`);
+  return true;
+}
+
+function buildWorker() {
+  return Bun.build({
     entrypoints: ["./src/browser/lib/diff-worker.ts"],
     outdir: "./dist/browser/lib",
+    naming: "[name]-[hash].[ext]",
     target: "browser",
     format: "esm",
     define,
@@ -138,22 +150,6 @@ if (typeof document === 'undefined') {
 }
 `,
   });
-
-  if (!workerResult.success) {
-    console.error("Worker build failed:");
-    for (const log of workerResult.logs) {
-      console.error(log);
-    }
-    return false;
-  }
-
-  const allOutputs = [...mainResult.outputs, ...workerResult.outputs];
-
-  console.log(`Bundled ${allOutputs.length} files`);
-  for (const output of allOutputs) {
-    console.log(`  ${output.path}`);
-  }
-  return true;
 }
 
 await build();

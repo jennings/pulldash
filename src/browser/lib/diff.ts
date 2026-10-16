@@ -26,8 +26,10 @@ export type {
 // Worker Pool
 // ============================================================================
 
-// Use all available cores, minimum 4, no upper cap
-const POOL_SIZE = Math.max(navigator.hardwareConcurrency || 4, 4);
+const POOL_SIZE = Math.max(
+  1,
+  Math.min(4, (navigator.hardwareConcurrency || 2) - 1)
+);
 
 interface PendingRequest {
   worker: Worker;
@@ -40,42 +42,42 @@ export class DiffWorkerPool {
   private pendingRequests = new Map<string, PendingRequest>();
   private nextId = 0;
   private nextWorkerIndex = 0;
-  private initialized = false;
+  private loads = new Map<Worker, number>();
 
-  private ensureInitialized() {
-    if (this.initialized) return;
-    this.initialized = true;
-
-    for (let i = 0; i < POOL_SIZE; i++) {
-      const worker = new Worker(`/lib/diff-worker.js?v=${Date.now()}`, {
+  private createWorker() {
+    const worker = new Worker(
+      typeof __DIFF_WORKER_URL__ === "undefined"
+        ? "/lib/diff-worker.js"
+        : __DIFF_WORKER_URL__,
+      {
         type: "module",
-      });
+      }
+    );
 
-      worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
-        const response = event.data;
-        const pending = this.pendingRequests.get(response.id);
-        if (!pending) return;
+    worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
+      const response = event.data;
+      const pending = this.pendingRequests.get(response.id);
+      if (!pending) return;
 
-        this.pendingRequests.delete(response.id);
+      this.pendingRequests.delete(response.id);
+      this.loads.set(worker, (this.loads.get(worker) ?? 1) - 1);
 
-        if (response.type === "error") {
-          pending.reject(new Error(response.error));
-        } else {
-          pending.resolve(response.result);
-        }
-      };
+      if (response.type === "error") {
+        pending.reject(new Error(response.error));
+      } else {
+        pending.resolve(response.result);
+      }
+    };
 
-      worker.onerror = (error) => {
-        this.failWorker(
-          worker,
-          new Error(error.message || "Diff worker failed")
-        );
-      };
-      worker.onmessageerror = () =>
-        this.failWorker(worker, new Error("Invalid diff worker response"));
+    worker.onerror = (error) => {
+      this.failWorker(worker, new Error(error.message || "Diff worker failed"));
+    };
+    worker.onmessageerror = () =>
+      this.failWorker(worker, new Error("Invalid diff worker response"));
 
-      this.workers.push(worker);
-    }
+    this.workers.push(worker);
+    this.loads.set(worker, 0);
+    return worker;
   }
 
   private failWorker(worker: Worker, error: Error) {
@@ -86,11 +88,13 @@ export class DiffWorkerPool {
     }
     worker.terminate();
     this.workers = this.workers.filter((candidate) => candidate !== worker);
-    if (this.workers.length === 0) this.initialized = false;
+    this.loads.delete(worker);
   }
 
   private getNextWorker(): Worker {
-    this.ensureInitialized();
+    const idle = this.workers.find((worker) => this.loads.get(worker) === 0);
+    if (idle) return idle;
+    if (this.workers.length < POOL_SIZE) return this.createWorker();
     const worker = this.workers[this.nextWorkerIndex % this.workers.length];
     this.nextWorkerIndex = (this.nextWorkerIndex + 1) % this.workers.length;
     return worker;
@@ -112,6 +116,7 @@ export class DiffWorkerPool {
 
     return new Promise((resolve, reject) => {
       this.pendingRequests.set(id, { worker, resolve, reject });
+      this.loads.set(worker, (this.loads.get(worker) ?? 0) + 1);
 
       worker.postMessage({
         type: "parse-diff",
@@ -137,6 +142,7 @@ export class DiffWorkerPool {
 
     return new Promise((resolve, reject) => {
       this.pendingRequests.set(id, { worker, resolve, reject });
+      this.loads.set(worker, (this.loads.get(worker) ?? 0) + 1);
 
       worker.postMessage({
         type: "highlight-lines",
@@ -160,6 +166,7 @@ export class DiffWorkerPool {
 
     return new Promise((resolve, reject) => {
       this.pendingRequests.set(id, { worker, resolve, reject });
+      this.loads.set(worker, (this.loads.get(worker) ?? 0) + 1);
 
       worker.postMessage({
         type: "interdiff",
@@ -200,7 +207,7 @@ export class DiffWorkerPool {
       pending.reject(new Error("Diff worker pool terminated"));
     }
     this.pendingRequests.clear();
-    this.initialized = false;
+    this.loads.clear();
     this.nextWorkerIndex = 0;
   }
 }
