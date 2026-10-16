@@ -106,10 +106,8 @@ import {
 } from "../../shared/commit-metadata";
 import {
   parseReviewGroupMarker,
-  reviewGroups,
   stripReviewGroupMarker,
   withReviewGroupMarker,
-  type MarkedReview,
 } from "../../shared/review-group";
 import {
   parseOutOfDiffMarker,
@@ -118,6 +116,7 @@ import {
 } from "../../shared/out-of-diff";
 import { IssueHoverCard } from "../ui/issue-hover-card";
 import { buildMetadataLines } from "../contexts/pr-review/useCurrentDiff";
+import { buildOverviewTimeline } from "../lib/overview-timeline";
 
 // ============================================================================
 // Types
@@ -129,37 +128,6 @@ type CombinedStatus = GitHubCombinedStatus;
 type IssueComment = GitHubIssueComment;
 
 type TabType = OverviewTab;
-
-/** Multi-commit submissions mark each group's first thread comment with a
- *  hidden group marker so the overview can fold the batch into one review
- *  card. Returns member->primary and primary->member review ids. */
-function reviewGroupMaps(
-  reviews: Review[],
-  threadsByReviewId: Map<number, ReviewThread[]>
-): {
-  memberToPrimary: Map<number, number>;
-  primaryToMembers: Map<number, number[]>;
-} {
-  const marked: MarkedReview[] = [];
-  for (const review of reviews) {
-    for (const thread of threadsByReviewId.get(review.id) ?? []) {
-      const info = parseReviewGroupMarker(thread.comments.nodes[0]?.body ?? "");
-      if (!info) continue;
-      marked.push({ reviewId: review.id, info });
-      break;
-    }
-  }
-  const { memberToPrimary, primaryToMembers } = reviewGroups(marked);
-  return {
-    memberToPrimary,
-    primaryToMembers: new Map(
-      [...primaryToMembers].map(([primaryId, members]) => [
-        primaryId,
-        members.map((m) => m.reviewId),
-      ])
-    ),
-  };
-}
 
 // ============================================================================
 // Main Component
@@ -1258,89 +1226,27 @@ export const PROverview = memo(function PROverview() {
     return Array.from(users.values());
   }, [pr.user, reviews, conversation]);
 
-  // Build list of navigable items for keyboard navigation
-  const navigableItems = useMemo(() => {
-    const items: string[] = [];
-
-    // PR description is always first
-    items.push("pr-description");
-
-    // Build items from timeline (matching the render order)
-    const threadsByReviewId = new Map<number, ReviewThread[]>();
-    const orphanedThreads: ReviewThread[] = [];
-    reviewThreads.forEach((thread) => {
-      const reviewId = thread.pullRequestReview?.databaseId;
-      if (reviewId) {
-        const existing = threadsByReviewId.get(reviewId) || [];
-        existing.push(thread);
-        threadsByReviewId.set(reviewId, existing);
-      } else {
-        orphanedThreads.push(thread);
-      }
-    });
-
-    const commentsById = new Map(conversation.map((c) => [c.id, c]));
-    const reviewsById = new Map(reviews.map((r) => [r.id, r]));
-    const { memberToPrimary, primaryToMembers } = reviewGroupMaps(
+  const { entries: timelineEntries, navigationIds: navigableItems } = useMemo(
+    () =>
+      buildOverviewTimeline({
+        pr,
+        timeline,
+        conversation,
+        reviews,
+        reviewThreads,
+        pushVersions,
+        commitsByVersion,
+      }),
+    [
+      pr,
+      timeline,
+      conversation,
       reviews,
-      threadsByReviewId
-    );
-    const usedReviewIds = new Set<number>();
-
-    timeline.forEach((event) => {
-      // Skip commits for navigation
-      if ("sha" in event && "author" in event) return;
-      if (!("event" in event)) return;
-      const eventType = event.event;
-
-      if (eventType === "closed" && pr.merged) return;
-
-      if (eventType === "commented" && "id" in event) {
-        const comment = commentsById.get(event.id as unknown as number);
-        if (comment) {
-          items.push(`issuecomment-${comment.id}`);
-        }
-        return;
-      }
-
-      if (eventType === "reviewed" && "id" in event) {
-        const review = reviewsById.get(event.id as unknown as number);
-        if (review) {
-          // Folded group member: navigate to the primary card instead.
-          if ((memberToPrimary.get(review.id) ?? review.id) !== review.id) {
-            return;
-          }
-          const threads = (
-            primaryToMembers.get(review.id) ?? [review.id]
-          ).flatMap((id) => threadsByReviewId.get(id) ?? []);
-          const hasThreads = threads.length > 0;
-          if (
-            review.body ||
-            review.state === "APPROVED" ||
-            review.state === "CHANGES_REQUESTED" ||
-            hasThreads
-          ) {
-            items.push(`pullrequestreview-${review.id}`);
-            usedReviewIds.add(review.id);
-            // Add threads under this review
-            threads.forEach((t) => {
-              items.push(`reviewthread-${t.id}`);
-            });
-          }
-        }
-        return;
-      }
-    });
-
-    // Add orphaned threads
-    orphanedThreads.forEach((thread) => {
-      if (thread.comments.nodes[0]) {
-        items.push(`reviewthread-${thread.id}`);
-      }
-    });
-
-    return items;
-  }, [timeline, conversation, reviews, reviewThreads, pr.merged]);
+      reviewThreads,
+      pushVersions,
+      commitsByVersion,
+    ]
+  );
 
   // Keyboard navigation for overview
   useEffect(() => {
@@ -1504,520 +1410,183 @@ export const PROverview = memo(function PROverview() {
                   {/* Vertical timeline line - z-0 so content appears above it */}
                   <div className="absolute left-4 top-0 bottom-0 w-0.5 bg-muted-foreground/30 -translate-x-1/2 z-0" />
 
-                  {(() => {
-                    // Build unified timeline using GitHub's timeline order as source of truth
-                    // Commits are grouped together like GitHub does
-                    type CommittedEvent = Extract<
-                      TimelineEvent,
-                      { sha: string; author: { date: string } }
-                    >;
-                    type TimelineEntry =
-                      | { type: "comment"; data: IssueComment }
-                      | {
-                          type: "review";
-                          data: Review;
-                          threads: ReviewThread[];
-                        }
-                      | { type: "event"; data: TimelineEvent }
-                      | { type: "thread"; data: ReviewThread }
-                      | { type: "commits"; data: CommittedEvent[] }
-                      | {
-                          type: "version_event";
-                          event: TimelineEvent;
-                          commits: PRCommit[];
-                        };
-
-                    /** Extract a reliable timestamp from a TimelineEntry, or
-                     *  null if none is available. Uses GitHub API timestamps
-                     *  (created_at / submitted_at / createdAt) rather than
-                     *  commit author dates, which are unreliable after rebase. */
-                    function entryTimestamp(e: TimelineEntry): number | null {
-                      if (e.type === "review") {
-                        const t = e.data.submitted_at;
-                        return t ? new Date(t).getTime() : null;
-                      }
-                      if (e.type === "version_event") {
-                        const t = (e.event as { created_at?: string })
-                          .created_at;
-                        return t ? new Date(t).getTime() : null;
-                      }
-                      if (e.type === "comment" || e.type === "event") {
-                        const t = (e.data as { created_at?: string })
-                          .created_at;
-                        return t ? new Date(t).getTime() : null;
-                      }
-                      if (e.type === "thread") {
-                        const t = e.data.comments.nodes[0]?.createdAt;
-                        return t ? new Date(t).getTime() : null;
-                      }
-                      return null;
+                  {timelineEntries.map((entry, index) => {
+                    if (entry.type === "comment") {
+                      const comment = entry.data;
+                      const commentId = `issuecomment-${comment.id}`;
+                      return (
+                        <CommentBox
+                          key={`comment-${comment.id}`}
+                          id={commentId}
+                          user={comment.user}
+                          createdAt={comment.created_at}
+                          updatedAt={comment.updated_at}
+                          commentUrl={comment.html_url}
+                          onGitHubUrl={comment.html_url}
+                          body={comment.body ?? null}
+                          bodyHtml={comment.body_html}
+                          isAuthor={comment.user?.login === currentUser}
+                          reactions={reactions[`comment-${comment.id}`]}
+                          onAddReaction={
+                            canWrite
+                              ? (content) =>
+                                  handleAddCommentReaction(comment.id, content)
+                              : undefined
+                          }
+                          onRemoveReaction={
+                            canWrite
+                              ? (reactionId) =>
+                                  handleRemoveCommentReaction(
+                                    comment.id,
+                                    reactionId
+                                  )
+                              : undefined
+                          }
+                          currentUser={currentUser}
+                          isFocused={focusedOverviewItemId === commentId}
+                          onQuote={
+                            canWrite
+                              ? handleQuoteConversationComment
+                              : undefined
+                          }
+                          onEdit={
+                            canWrite && comment.user?.login === currentUser
+                              ? (body) => handleEditComment(comment.id, body)
+                              : undefined
+                          }
+                          onDelete={
+                            canWrite && comment.user?.login === currentUser
+                              ? () => handleDeleteComment(comment.id)
+                              : undefined
+                          }
+                        />
+                      );
                     }
-
-                    const entries: TimelineEntry[] = [];
-
-                    // Build lookup maps for enriched data
-                    const threadsByReviewId = new Map<number, ReviewThread[]>();
-                    const orphanedThreads: ReviewThread[] = [];
-                    reviewThreads.forEach((thread) => {
-                      const reviewId = thread.pullRequestReview?.databaseId;
-                      if (reviewId) {
-                        const existing = threadsByReviewId.get(reviewId) || [];
-                        existing.push(thread);
-                        threadsByReviewId.set(reviewId, existing);
-                      } else {
-                        orphanedThreads.push(thread);
-                      }
-                    });
-
-                    const commentsById = new Map(
-                      conversation.map((c) => [c.id, c])
-                    );
-                    const reviewsById = new Map(reviews.map((r) => [r.id, r]));
-                    const { memberToPrimary, primaryToMembers } =
-                      reviewGroupMaps(reviews, threadsByReviewId);
-                    const usedReviewIds = new Set<number>();
-
-                    // Add PR creation as the first timeline event (version v1)
-                    if (pushVersions?.[0]?.version === 1) {
-                      const v1Commits =
-                        commitsByVersion?.find((v) => v.version === 1)
-                          ?.commits ?? [];
-                      entries.push({
-                        type: "version_event",
-                        event: {
-                          id: -1,
-                          event: "opened",
-                          actor: pr.user,
-                          created_at: pr.created_at,
-                          commit_id: pushVersions[0]?.sha,
-                        } as TimelineEvent,
-                        commits: v1Commits,
-                      });
-                    }
-
-                    // Collect consecutive commits and associate them with
-                    // the next version transition event (force-push or push)
-                    let pendingCommits: CommittedEvent[] = [];
-                    let lastFlushedCommits: CommittedEvent[] = [];
-                    const flushCommits = () => {
-                      lastFlushedCommits = pendingCommits;
-                      pendingCommits = [];
-                    };
-
-                    // Process timeline in GitHub's order
-                    timeline.forEach((event) => {
-                      // timeline-committed-event (has sha + author)
-                      if ("sha" in event && "author" in event) {
-                        pendingCommits.push(event);
-                        return;
-                      }
-
-                      // Flush any pending commits before adding other events
-                      flushCommits();
-
-                      if (!("event" in event)) return;
-                      const eventType = event.event;
-
-                      // Skip closed event when PR was merged (redundant with merge)
-                      if (eventType === "closed" && pr.merged) return;
-
-                      // Handle "commented" - look up enriched comment data
-                      if (eventType === "commented" && "id" in event) {
-                        const comment = commentsById.get(
-                          event.id as unknown as number
-                        );
-                        if (comment) {
-                          entries.push({ type: "comment", data: comment });
-                        }
-                        return;
-                      }
-
-                      // Handle "reviewed" - look up enriched review data with threads
-                      if (eventType === "reviewed" && "id" in event) {
-                        const review = reviewsById.get(
-                          event.id as unknown as number
-                        );
-                        if (review) {
-                          // Folded group member: its threads render under
-                          // the primary review's card.
-                          if (
-                            (memberToPrimary.get(review.id) ?? review.id) !==
-                            review.id
-                          ) {
-                            return;
-                          }
-                          const threads = (
-                            primaryToMembers.get(review.id) ?? [review.id]
-                          ).flatMap((id) => threadsByReviewId.get(id) ?? []);
-                          const hasThreads = threads.length > 0;
-                          // Show APPROVED/CHANGES_REQUESTED always, COMMENTED only if they have a body OR threads
-                          if (
-                            review.body?.trim() ||
-                            review.state === "APPROVED" ||
-                            review.state === "CHANGES_REQUESTED" ||
-                            hasThreads
-                          ) {
-                            entries.push({
-                              type: "review",
-                              data: review,
-                              threads,
-                            });
-                            usedReviewIds.add(review.id);
-                          }
-                        }
-                        return;
-                      }
-
-                      // Skip line-commented (shown inline in reviews)
-                      if (eventType === "line-commented") return;
-
-                      // All other events — associate full commit list with
-                      // force-push events (force pushes rewrite history so
-                      // SHA-based diff against the previous version is misleading)
-                      if (eventType === "head_ref_force_pushed") {
-                        const fpEvent = event as { commit_id?: string };
-                        const toVer = fpEvent.commit_id
-                          ? pushVersions?.find(
-                              (v) => v.sha === fpEvent.commit_id
-                            )
-                          : undefined;
-                        const fullCommits: PRCommit[] | undefined =
-                          toVer &&
-                          commitsByVersion?.find(
-                            (v) => v.version === toVer.version
-                          )?.commits;
-                        entries.push({
-                          type: "version_event",
-                          event: event as TimelineEvent,
-                          commits: fullCommits ?? [],
-                        });
-                      } else {
-                        entries.push({ type: "event", data: event });
-                      }
-                    });
-
-                    // Flush any remaining commits
-                    flushCommits();
-
-                    // Add synthetic version transition events for normal pushes
-                    // that don't have a corresponding head_ref_force_pushed event.
-                    // Show the new (added) commits for each version transition.
-                    // Insert them by matching their commit SHAs against the
-                    // consecutive CommitGroup entries already in the timeline,
-                    // so synthetic entries land at the correct position relative
-                    // to GitHub's own event ordering.
-                    if (pushVersions && pushVersions.length > 1) {
-                      const forcePushedShas = new Set<string>();
-                      for (const event of timeline) {
-                        if (
-                          "event" in event &&
-                          event.event === "head_ref_force_pushed"
-                        ) {
-                          const fp = event as { commit_id?: string };
-                          if (fp.commit_id) {
-                            forcePushedShas.add(fp.commit_id);
-                          }
-                        }
-                      }
-
-                      for (let i = 1; i < pushVersions.length; i++) {
-                        const toVersion = pushVersions[i];
-                        const fromVersion = pushVersions[i - 1];
-                        if (
-                          toVersion &&
-                          fromVersion &&
-                          !forcePushedShas.has(toVersion.sha)
-                        ) {
-                          // Compute the new commits in this version by diffing
-                          // the version's commit list against the previous version
-                          const currCommits =
-                            commitsByVersion?.find(
-                              (v) => v.version === toVersion.version
-                            )?.commits ?? [];
-                          const prevCommits =
-                            commitsByVersion?.find(
-                              (v) => v.version === fromVersion.version
-                            )?.commits ?? [];
-                          const prevShas = new Set(
-                            prevCommits.map((c) => c.sha)
-                          );
-                          const newCommits = currCommits.filter(
-                            (c) => !prevShas.has(c.sha)
-                          );
-
-                          // GitHub has no timeline event for normal pushes, so
-                          // the synthetic one is attributed to whoever authored
-                          // the newest commit — the PR author can differ (e.g.
-                          // a maintainer pushing to a dependabot PR).
-                          const pusher =
-                            newCommits[newCommits.length - 1]?.author ??
-                            pr.user;
-
-                          const synEntry: TimelineEntry = {
-                            type: "version_event",
-                            event: {
-                              id: -i,
-                              event: "head_ref_normal_pushed",
-                              actor: pusher,
-                              created_at: toVersion.pushedAt,
-                              commit_id: toVersion.sha,
-                              from_sha: fromVersion.sha,
-                              from_version: fromVersion.version,
-                              to_version: toVersion.version,
-                            } as TimelineEvent & {
-                              from_sha?: string;
-                              from_version?: number;
-                              to_version?: number;
-                            },
-                            commits: newCommits,
-                          };
-
-                          // Find the matching version_event by SHA, then walk
-                          // forward. Insert before the next version_event, or
-                          // before the first entry whose created_at timestamp
-                          // is after toVersion.pushedAt. This puts the
-                          // synthetic entry after all entries that belong to
-                          // the current version while preserving SHA anchoring
-                          // for version boundaries.
-                          const fromVersionSha = fromVersion.sha;
-                          const pushTime = new Date(
-                            toVersion.pushedAt
-                          ).getTime();
-                          const matchIdx = entries.findIndex(
-                            (e) =>
-                              e.type === "version_event" &&
-                              "commit_id" in e.event &&
-                              (e.event as { commit_id?: string }).commit_id ===
-                                fromVersionSha
-                          );
-                          let insertIdx = entries.length;
-                          if (matchIdx !== -1) {
-                            for (
-                              let j = matchIdx + 1;
-                              j < entries.length;
-                              j++
-                            ) {
-                              const e = entries[j];
-                              // Version boundary — insert before it
-                              if (e.type === "version_event") {
-                                insertIdx = j;
-                                break;
-                              }
-                              // Entry with a timestamp after the push — insert before it
-                              const t = entryTimestamp(e);
-                              if (t && t > pushTime) {
-                                insertIdx = j;
-                                break;
-                              }
-                            }
-                          }
-                          entries.splice(insertIdx, 0, synEntry);
-                        }
-                      }
-                    }
-
-                    // Add any orphaned threads that weren't part of a review
-                    orphanedThreads.forEach((thread) => {
-                      if (thread.comments.nodes[0]) {
-                        entries.push({ type: "thread", data: thread });
-                      }
-                    });
-
-                    return entries.map((entry, index) => {
-                      if (entry.type === "comment") {
-                        const comment = entry.data;
-                        const commentId = `issuecomment-${comment.id}`;
-                        return (
-                          <CommentBox
-                            key={`comment-${comment.id}`}
-                            id={commentId}
-                            user={comment.user}
-                            createdAt={comment.created_at}
-                            updatedAt={comment.updated_at}
-                            commentUrl={comment.html_url}
-                            onGitHubUrl={comment.html_url}
-                            body={comment.body ?? null}
-                            bodyHtml={comment.body_html}
-                            isAuthor={comment.user?.login === currentUser}
-                            reactions={reactions[`comment-${comment.id}`]}
-                            onAddReaction={
-                              canWrite
-                                ? (content) =>
-                                    handleAddCommentReaction(
-                                      comment.id,
-                                      content
-                                    )
-                                : undefined
-                            }
-                            onRemoveReaction={
-                              canWrite
-                                ? (reactionId) =>
-                                    handleRemoveCommentReaction(
-                                      comment.id,
-                                      reactionId
-                                    )
-                                : undefined
-                            }
-                            currentUser={currentUser}
-                            isFocused={focusedOverviewItemId === commentId}
+                    if (entry.type === "review") {
+                      return (
+                        <div
+                          key={`review-${entry.data.id}`}
+                          className="space-y-3"
+                        >
+                          <ReviewBox
+                            review={entry.data}
+                            parentReactions={seededReactions}
+                            setParentReactions={setReactions}
                             onQuote={
-                              canWrite
-                                ? handleQuoteConversationComment
-                                : undefined
-                            }
-                            onEdit={
-                              canWrite && comment.user?.login === currentUser
-                                ? (body) => handleEditComment(comment.id, body)
-                                : undefined
-                            }
-                            onDelete={
-                              canWrite && comment.user?.login === currentUser
-                                ? () => handleDeleteComment(comment.id)
-                                : undefined
+                              canWrite ? handleQuoteReviewComment : undefined
                             }
                           />
-                        );
-                      }
-                      if (entry.type === "review") {
-                        return (
-                          <div
-                            key={`review-${entry.data.id}`}
-                            className="space-y-3"
-                          >
-                            <ReviewBox
-                              review={entry.data}
-                              parentReactions={seededReactions}
-                              setParentReactions={setReactions}
-                              onQuote={
-                                canWrite ? handleQuoteReviewComment : undefined
-                              }
-                            />
-                            {/* Render associated threads under the review */}
-                            {entry.threads.map((thread) => {
-                              const threadId = `reviewthread-${thread.id}`;
-                              return (
-                                <ReviewThreadBox
-                                  key={`thread-${thread.id}`}
-                                  thread={thread}
-                                  owner={owner}
-                                  repo={repo}
-                                  prNumber={pr.number}
-                                  onReply={handleReplyToThread}
-                                  onResolve={handleResolveThread}
-                                  onUnresolve={handleUnresolveThread}
-                                  canWrite={canWrite}
-                                  canResolveThread={canResolveThread}
-                                  currentUser={currentUser}
-                                  onAddReaction={handleAddReviewCommentReaction}
-                                  onRemoveReaction={
-                                    handleRemoveReviewCommentReaction
-                                  }
-                                  reactions={Object.fromEntries(
-                                    thread.comments.nodes.map((c) => [
-                                      c.databaseId,
-                                      reactions[
-                                        `review-comment-${c.databaseId}`
-                                      ] || [],
-                                    ])
-                                  )}
-                                  isFocused={focusedOverviewItemId === threadId}
-                                  autoFocusReply={
-                                    replyingToOverviewItem === threadId
-                                  }
-                                  onEditComment={handleEditReviewComment}
-                                  onDeleteComment={handleDeleteReviewComment}
-                                />
-                              );
-                            })}
-                          </div>
-                        );
-                      }
-                      if (entry.type === "event") {
-                        return (
+                          {/* Render associated threads under the review */}
+                          {entry.threads.map((thread) => {
+                            const threadId = `reviewthread-${thread.id}`;
+                            return (
+                              <ReviewThreadBox
+                                key={`thread-${thread.id}`}
+                                thread={thread}
+                                owner={owner}
+                                repo={repo}
+                                prNumber={pr.number}
+                                onReply={handleReplyToThread}
+                                onResolve={handleResolveThread}
+                                onUnresolve={handleUnresolveThread}
+                                canWrite={canWrite}
+                                canResolveThread={canResolveThread}
+                                currentUser={currentUser}
+                                onAddReaction={handleAddReviewCommentReaction}
+                                onRemoveReaction={
+                                  handleRemoveReviewCommentReaction
+                                }
+                                reactions={Object.fromEntries(
+                                  thread.comments.nodes.map((c) => [
+                                    c.databaseId,
+                                    reactions[
+                                      `review-comment-${c.databaseId}`
+                                    ] || [],
+                                  ])
+                                )}
+                                isFocused={focusedOverviewItemId === threadId}
+                                autoFocusReply={
+                                  replyingToOverviewItem === threadId
+                                }
+                                onEditComment={handleEditReviewComment}
+                                onDeleteComment={handleDeleteReviewComment}
+                              />
+                            );
+                          })}
+                        </div>
+                      );
+                    }
+                    if (entry.type === "event") {
+                      return (
+                        <TimelineItem
+                          key={`event-${index}`}
+                          event={entry.data}
+                          pr={pr}
+                          pushVersions={pushVersions}
+                          versionDiffCounts={versionDiffCounts}
+                          versionRebaseInfo={versionRebaseInfo}
+                          onNavigateChecks={handleNavigateChecks}
+                        />
+                      );
+                    }
+                    if (entry.type === "version_event") {
+                      const versionSha = (entry.event as { commit_id?: string })
+                        .commit_id;
+                      return (
+                        <div key={`version-${index}`}>
                           <TimelineItem
-                            key={`event-${index}`}
-                            event={entry.data}
+                            event={entry.event}
                             pr={pr}
                             pushVersions={pushVersions}
                             versionDiffCounts={versionDiffCounts}
                             versionRebaseInfo={versionRebaseInfo}
                             onNavigateChecks={handleNavigateChecks}
                           />
-                        );
-                      }
-                      if (entry.type === "version_event") {
-                        const versionSha = (
-                          entry.event as { commit_id?: string }
-                        ).commit_id;
-                        return (
-                          <div key={`version-${index}`}>
-                            <TimelineItem
-                              event={entry.event}
-                              pr={pr}
-                              pushVersions={pushVersions}
-                              versionDiffCounts={versionDiffCounts}
-                              versionRebaseInfo={versionRebaseInfo}
-                              onNavigateChecks={handleNavigateChecks}
+                          {entry.commits.length > 0 && (
+                            <CommitList
+                              commits={entry.commits}
+                              owner={owner}
+                              repo={repo}
+                              onNavigate={handleNavigateCommit}
+                              versionSha={versionSha}
                             />
-                            {entry.commits.length > 0 && (
-                              <CommitList
-                                commits={entry.commits}
-                                owner={owner}
-                                repo={repo}
-                                onNavigate={handleNavigateCommit}
-                                versionSha={versionSha}
-                              />
-                            )}
-                          </div>
-                        );
-                      }
-                      if (entry.type === "commits") {
-                        return (
-                          <CommitGroup
-                            key={`commits-${index}`}
-                            commits={entry.data}
-                            prCommits={commits}
-                            owner={owner}
-                            repo={repo}
-                            onNavigate={handleNavigateCommit}
-                          />
-                        );
-                      }
-                      if (entry.type === "thread") {
-                        // Orphaned thread (no associated review)
-                        const threadId = `reviewthread-${entry.data.id}`;
-                        return (
-                          <ReviewThreadBox
-                            key={`thread-${entry.data.id}`}
-                            thread={entry.data}
-                            owner={owner}
-                            repo={repo}
-                            prNumber={pr.number}
-                            onReply={handleReplyToThread}
-                            onResolve={handleResolveThread}
-                            onUnresolve={handleUnresolveThread}
-                            canWrite={canWrite}
-                            canResolveThread={canResolveThread}
-                            currentUser={currentUser}
-                            onAddReaction={handleAddReviewCommentReaction}
-                            onRemoveReaction={handleRemoveReviewCommentReaction}
-                            reactions={Object.fromEntries(
-                              entry.data.comments.nodes.map((c) => [
-                                c.databaseId,
-                                reactions[`review-comment-${c.databaseId}`] ||
-                                  [],
-                              ])
-                            )}
-                            isFocused={focusedOverviewItemId === threadId}
-                            autoFocusReply={replyingToOverviewItem === threadId}
-                            onEditComment={handleEditReviewComment}
-                            onDeleteComment={handleDeleteReviewComment}
-                          />
-                        );
-                      }
-                      return null;
-                    });
-                  })()}
+                          )}
+                        </div>
+                      );
+                    }
+                    if (entry.type === "thread") {
+                      // Orphaned thread (no associated review)
+                      const threadId = `reviewthread-${entry.data.id}`;
+                      return (
+                        <ReviewThreadBox
+                          key={`thread-${entry.data.id}`}
+                          thread={entry.data}
+                          owner={owner}
+                          repo={repo}
+                          prNumber={pr.number}
+                          onReply={handleReplyToThread}
+                          onResolve={handleResolveThread}
+                          onUnresolve={handleUnresolveThread}
+                          canWrite={canWrite}
+                          canResolveThread={canResolveThread}
+                          currentUser={currentUser}
+                          onAddReaction={handleAddReviewCommentReaction}
+                          onRemoveReaction={handleRemoveReviewCommentReaction}
+                          reactions={Object.fromEntries(
+                            entry.data.comments.nodes.map((c) => [
+                              c.databaseId,
+                              reactions[`review-comment-${c.databaseId}`] || [],
+                            ])
+                          )}
+                          isFocused={focusedOverviewItemId === threadId}
+                          autoFocusReply={replyingToOverviewItem === threadId}
+                          onEditComment={handleEditReviewComment}
+                          onDeleteComment={handleDeleteReviewComment}
+                        />
+                      );
+                    }
+                    return null;
+                  })}
                 </div>
 
                 {/* Archived repo notice */}
