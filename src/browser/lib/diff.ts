@@ -30,6 +30,7 @@ export type {
 const POOL_SIZE = Math.max(navigator.hardwareConcurrency || 4, 4);
 
 interface PendingRequest {
+  worker: Worker;
   resolve: (value: any) => void;
   reject: (error: Error) => void;
 }
@@ -65,17 +66,33 @@ export class DiffWorkerPool {
       };
 
       worker.onerror = (error) => {
-        console.error("Diff worker error:", error);
+        this.failWorker(
+          worker,
+          new Error(error.message || "Diff worker failed")
+        );
       };
+      worker.onmessageerror = () =>
+        this.failWorker(worker, new Error("Invalid diff worker response"));
 
       this.workers.push(worker);
     }
   }
 
+  private failWorker(worker: Worker, error: Error) {
+    for (const [id, pending] of this.pendingRequests) {
+      if (pending.worker !== worker) continue;
+      this.pendingRequests.delete(id);
+      pending.reject(error);
+    }
+    worker.terminate();
+    this.workers = this.workers.filter((candidate) => candidate !== worker);
+    if (this.workers.length === 0) this.initialized = false;
+  }
+
   private getNextWorker(): Worker {
     this.ensureInitialized();
-    const worker = this.workers[this.nextWorkerIndex];
-    this.nextWorkerIndex = (this.nextWorkerIndex + 1) % POOL_SIZE;
+    const worker = this.workers[this.nextWorkerIndex % this.workers.length];
+    this.nextWorkerIndex = (this.nextWorkerIndex + 1) % this.workers.length;
     return worker;
   }
 
@@ -94,7 +111,7 @@ export class DiffWorkerPool {
     const worker = this.getNextWorker();
 
     return new Promise((resolve, reject) => {
-      this.pendingRequests.set(id, { resolve, reject });
+      this.pendingRequests.set(id, { worker, resolve, reject });
 
       worker.postMessage({
         type: "parse-diff",
@@ -119,7 +136,7 @@ export class DiffWorkerPool {
     const worker = this.getNextWorker();
 
     return new Promise((resolve, reject) => {
-      this.pendingRequests.set(id, { resolve, reject });
+      this.pendingRequests.set(id, { worker, resolve, reject });
 
       worker.postMessage({
         type: "highlight-lines",
@@ -142,7 +159,7 @@ export class DiffWorkerPool {
     const worker = this.getNextWorker();
 
     return new Promise((resolve, reject) => {
-      this.pendingRequests.set(id, { resolve, reject });
+      this.pendingRequests.set(id, { worker, resolve, reject });
 
       worker.postMessage({
         type: "interdiff",
@@ -179,8 +196,12 @@ export class DiffWorkerPool {
       worker.terminate();
     }
     this.workers = [];
+    for (const pending of this.pendingRequests.values()) {
+      pending.reject(new Error("Diff worker pool terminated"));
+    }
     this.pendingRequests.clear();
     this.initialized = false;
+    this.nextWorkerIndex = 0;
   }
 }
 

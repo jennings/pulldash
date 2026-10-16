@@ -172,6 +172,48 @@ describe("request dispatch", () => {
 // ============================================================================
 
 describe("error propagation", () => {
+  test("native worker failure rejects its request and retires the worker", async () => {
+    class PendingWorker extends FakeWorker {
+      postMessage(data: any) {
+        this.messages.push(data);
+      }
+    }
+    (globalThis as any).Worker = PendingWorker;
+    const pool = new DiffWorkerPool();
+    const request = pool.parseDiff("", "test.ts");
+    const failed = FakeWorker.instances.find(
+      (worker) => worker.messages.length
+    )!;
+    failed.onerror?.({ message: "worker crashed" });
+    await expect(request).rejects.toThrow("worker crashed");
+    expect(FakeWorker.instances).not.toContain(failed);
+    pool.terminate();
+  });
+
+  test("terminate rejects all outstanding work and allows reuse", async () => {
+    class PendingWorker extends FakeWorker {
+      postMessage(data: any) {
+        this.messages.push(data);
+      }
+    }
+    (globalThis as any).Worker = PendingWorker;
+    const pool = new DiffWorkerPool();
+    const requests = [
+      pool.parseDiff("", "a.ts"),
+      pool.highlightLines("", "b.ts", 1, 1, 1),
+    ];
+    const settled = Promise.allSettled(requests);
+    pool.terminate();
+    for (const result of await settled) {
+      expect(result.status).toBe("rejected");
+      if (result.status === "rejected")
+        expect(result.reason.message).toContain("terminated");
+    }
+    (globalThis as any).Worker = FakeWorker;
+    expect(await pool.parseDiff("", "c.ts")).toEqual({ hunks: [] });
+    pool.terminate();
+  });
+
   test("parseDiff rejects when worker posts error response", async () => {
     class ErrorWorker extends FakeWorker {
       postMessage(data: any) {
