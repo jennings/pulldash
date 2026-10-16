@@ -2868,7 +2868,8 @@ const DiffViewer = memo(function DiffViewer({
   const selectionAnchor = usePRReviewSelector((s) => s.selectionAnchor);
   const selectionAnchorSide = usePRReviewSelector((s) => s.selectionAnchorSide);
 
-  // Combined scroll + selection effect using RAF to prevent jitter
+  // Update newly mounted rows as the virtual viewport changes.
+  const virtualItems = virtualizer.getVirtualItems();
   const containerRef = useRef<HTMLDivElement>(null);
   const rafIdRef = useRef<number | null>(null);
 
@@ -2905,29 +2906,17 @@ const DiffViewer = memo(function DiffViewer({
           }
 
           // Mark selected rows
-          for (let lineNum = selStart; lineNum <= selEnd; lineNum++) {
-            const row = container.querySelector(
-              `[data-line-num="${lineNum}"][data-line-side="${focusedLineSide}"]`
-            );
-            if (row) {
+          for (const row of container.querySelectorAll<HTMLElement>(
+            `[data-line-num][data-line-side="${focusedLineSide}"]`
+          )) {
+            const lineNum = Number(row.dataset.lineNum);
+            if (lineNum >= selStart && lineNum <= selEnd) {
               row.setAttribute("data-selected", "true");
               if (lineNum === selStart)
                 row.setAttribute("data-sel-first", "true");
               if (lineNum === selEnd) row.setAttribute("data-sel-last", "true");
             }
           }
-        }
-      }
-
-      // 2. Scroll to focused line (after selection update). Only for
-      // keyboard/programmatic focus — re-centering on mouse clicks breaks
-      // double-click word selection.
-      if (focusedLine && !isDraggingState && focusSource !== "mouse") {
-        const rowIndex = getRowIndexForLine(focusedLine, focusedLineSide);
-        if (rowIndex !== undefined) {
-          virtualizer.scrollToIndex(rowIndex, {
-            align: "center",
-          });
         }
       }
     });
@@ -2940,9 +2929,23 @@ const DiffViewer = memo(function DiffViewer({
   }, [
     focusedLine,
     focusedLineSide,
-    focusSource,
     selectionAnchor,
     selectionAnchorSide,
+    virtualItems,
+  ]);
+
+  // Viewport updates must not re-center a selection while the user scrolls.
+  useEffect(() => {
+    if (focusedLine && !isDraggingState && focusSource !== "mouse") {
+      const rowIndex = getRowIndexForLine(focusedLine, focusedLineSide);
+      if (rowIndex !== undefined) {
+        virtualizer.scrollToIndex(rowIndex, { align: "center" });
+      }
+    }
+  }, [
+    focusedLine,
+    focusedLineSide,
+    focusSource,
     isDraggingState,
     getRowIndexForLine,
     virtualizer,
@@ -3352,7 +3355,7 @@ const DiffViewer = memo(function DiffViewer({
                   height: `${virtualizer.getTotalSize()}px`,
                 }}
               >
-                {virtualizer.getVirtualItems().map((virtualRow) => {
+                {virtualItems.map((virtualRow) => {
                   const row = virtualRows[virtualRow.index];
                   if (!row) return null;
 
