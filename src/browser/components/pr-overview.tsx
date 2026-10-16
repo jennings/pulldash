@@ -1364,33 +1364,13 @@ export const PROverview = memo(function PROverview() {
                       const comment = entry.data;
                       const commentId = `issuecomment-${comment.id}`;
                       return (
-                        <CommentBox
+                        <ConversationComment
                           key={`comment-${comment.id}`}
-                          id={commentId}
-                          user={comment.user}
-                          createdAt={comment.created_at}
-                          updatedAt={comment.updated_at}
-                          commentUrl={comment.html_url}
-                          onGitHubUrl={comment.html_url}
-                          body={comment.body ?? null}
-                          bodyHtml={comment.body_html}
-                          isAuthor={comment.user?.login === currentUser}
+                          comment={comment}
+                          canWrite={canWrite}
                           reactions={reactions[`comment-${comment.id}`]}
-                          onAddReaction={
-                            canWrite
-                              ? (content) =>
-                                  handleAddCommentReaction(comment.id, content)
-                              : undefined
-                          }
-                          onRemoveReaction={
-                            canWrite
-                              ? (reactionId) =>
-                                  handleRemoveCommentReaction(
-                                    comment.id,
-                                    reactionId
-                                  )
-                              : undefined
-                          }
+                          onAddReaction={handleAddCommentReaction}
+                          onRemoveReaction={handleRemoveCommentReaction}
                           currentUser={currentUser}
                           isFocused={focusedOverviewItemId === commentId}
                           onQuote={
@@ -1398,16 +1378,8 @@ export const PROverview = memo(function PROverview() {
                               ? handleQuoteConversationComment
                               : undefined
                           }
-                          onEdit={
-                            canWrite && comment.user?.login === currentUser
-                              ? (body) => handleEditComment(comment.id, body)
-                              : undefined
-                          }
-                          onDelete={
-                            canWrite && comment.user?.login === currentUser
-                              ? () => handleDeleteComment(comment.id)
-                              : undefined
-                          }
+                          onEdit={handleEditComment}
+                          onDelete={handleDeleteComment}
                         />
                       );
                     }
@@ -1445,14 +1417,7 @@ export const PROverview = memo(function PROverview() {
                                 onRemoveReaction={
                                   handleRemoveReviewCommentReaction
                                 }
-                                reactions={Object.fromEntries(
-                                  thread.comments.nodes.map((c) => [
-                                    c.databaseId,
-                                    reactions[
-                                      `review-comment-${c.databaseId}`
-                                    ] || [],
-                                  ])
-                                )}
+                                reactions={reactions}
                                 isFocused={focusedOverviewItemId === threadId}
                                 autoFocusReply={
                                   replyingToOverviewItem === threadId
@@ -1521,12 +1486,7 @@ export const PROverview = memo(function PROverview() {
                           currentUser={currentUser}
                           onAddReaction={handleAddReviewCommentReaction}
                           onRemoveReaction={handleRemoveReviewCommentReaction}
-                          reactions={Object.fromEntries(
-                            entry.data.comments.nodes.map((c) => [
-                              c.databaseId,
-                              reactions[`review-comment-${c.databaseId}`] || [],
-                            ])
-                          )}
+                          reactions={reactions}
                           isFocused={focusedOverviewItemId === threadId}
                           autoFocusReply={replyingToOverviewItem === threadId}
                           onEditComment={handleEditReviewComment}
@@ -2540,7 +2500,60 @@ function LabelsSection({
 // Comment Box Component
 // ============================================================================
 
-function CommentBox({
+const ConversationComment = memo(function ConversationComment({
+  comment,
+  canWrite,
+  currentUser,
+  reactions,
+  isFocused,
+  onQuote,
+  onAddReaction,
+  onRemoveReaction,
+  onEdit,
+  onDelete,
+}: {
+  comment: IssueComment;
+  canWrite: boolean;
+  currentUser: string | null;
+  reactions?: Reaction[];
+  isFocused: boolean;
+  onQuote?: (body: string) => void;
+  onAddReaction: (id: number, content: ReactionContent) => void;
+  onRemoveReaction: (id: number, reactionId: number) => void;
+  onEdit: (id: number, body: string) => Promise<void>;
+  onDelete: (id: number) => Promise<void>;
+}) {
+  const isAuthor = comment.user?.login === currentUser;
+  return (
+    <CommentBox
+      id={`issuecomment-${comment.id}`}
+      user={comment.user}
+      createdAt={comment.created_at}
+      updatedAt={comment.updated_at}
+      commentUrl={comment.html_url}
+      onGitHubUrl={comment.html_url}
+      body={comment.body ?? null}
+      bodyHtml={comment.body_html}
+      isAuthor={isAuthor}
+      reactions={reactions}
+      currentUser={currentUser}
+      isFocused={isFocused}
+      onQuote={onQuote}
+      onAddReaction={
+        canWrite ? (content) => onAddReaction(comment.id, content) : undefined
+      }
+      onRemoveReaction={
+        canWrite ? (id) => onRemoveReaction(comment.id, id) : undefined
+      }
+      onEdit={
+        canWrite && isAuthor ? (body) => onEdit(comment.id, body) : undefined
+      }
+      onDelete={canWrite && isAuthor ? () => onDelete(comment.id) : undefined}
+    />
+  );
+});
+
+const CommentBox = memo(function CommentBox({
   id,
   user,
   createdAt,
@@ -2774,13 +2787,13 @@ function CommentBox({
       ) : null}
     </div>
   );
-}
+});
 
 // ============================================================================
 // Review Box Component
 // ============================================================================
 
-function ReviewBox({
+const ReviewBox = memo(function ReviewBox({
   review,
   parentReactions,
   setParentReactions,
@@ -2998,7 +3011,7 @@ function ReviewBox({
       )}
     </div>
   );
-}
+});
 
 // ============================================================================
 // Review State Icon
@@ -3133,7 +3146,7 @@ function ReviewStateIcon({
 // Review Thread Box Component (for inline code comments)
 // ============================================================================
 
-function ReviewThreadBox({
+const ReviewThreadBox = memo(function ReviewThreadBox({
   thread,
   owner,
   repo,
@@ -3169,7 +3182,7 @@ function ReviewThreadBox({
   currentUser?: string | null;
   onAddReaction?: (commentId: number, content: ReactionContent) => void;
   onRemoveReaction?: (commentId: number, reactionId: number) => void;
-  reactions?: Record<number, Reaction[]>;
+  reactions?: Record<string, Reaction[]>;
   isFocused?: boolean;
   autoFocusReply?: boolean;
   onEditComment?: (commentId: number, body: string) => Promise<void>;
@@ -3179,6 +3192,7 @@ function ReviewThreadBox({
   const [resolving, setResolving] = useState(false);
   const [showReplyBox, setShowReplyBox] = useState(false);
   const [showResolved, setShowResolved] = useState(false);
+  const expanded = !thread.isResolved || showResolved;
   const [parsedDiff, setParsedDiff] = useState<ParsedDiff | null>(null);
   const [editingCommentId, setEditingCommentId] = useState<number | null>(null);
   const [editText, setEditText] = useState("");
@@ -3208,7 +3222,7 @@ function ReviewThreadBox({
   }, [outOfDiff, firstComment?.body]);
   const [outOfDiffContent, setOutOfDiffContent] = useState<string | null>(null);
   useEffect(() => {
-    if (!outOfDiff || !outOfDiffSha || !filePath) {
+    if (!expanded || !outOfDiff || !outOfDiffSha || !filePath) {
       setOutOfDiffContent(null);
       return;
     }
@@ -3234,9 +3248,9 @@ function ReviewThreadBox({
     return () => {
       cancelled = true;
     };
-  }, [outOfDiff, outOfDiffSha, filePath, github, store]);
+  }, [expanded, outOfDiff, outOfDiffSha, filePath, github, store]);
   const outOfDiffHunk = useMemo(() => {
-    if (!outOfDiff || !outOfDiffContent) return null;
+    if (!expanded || !outOfDiff || !outOfDiffContent) return null;
     const lines = outOfDiffContent.split("\n");
     const contextStart = Math.max(1, outOfDiff.startLine ?? outOfDiff.line);
     const contextEnd = Math.min(lines.length, outOfDiff.line);
@@ -3247,9 +3261,9 @@ function ReviewThreadBox({
       `@@ -${contextStart},${count} +${contextStart},${count} @@`,
       ...lines.slice(contextStart - 1, contextEnd).map((l) => ` ${l}`),
     ].join("\n");
-  }, [outOfDiff, outOfDiffContent]);
+  }, [expanded, outOfDiff, outOfDiffContent]);
   const metadataContext = useMemo(() => {
-    if (!isMetadataComment) return null;
+    if (!expanded || !isMetadataComment) return null;
     const info = parseCommitMetadataMarker(firstComment?.body ?? "");
     if (!info) return null;
     const state = store.getSnapshot();
@@ -3264,10 +3278,11 @@ function ReviewThreadBox({
     const start = Math.max(0, commentIdx - 4);
     const end = Math.min(lines.length - 1, commentIdx);
     return lines.slice(start, end + 1);
-  }, [isMetadataComment, firstComment?.body, store]);
+  }, [expanded, isMetadataComment, firstComment?.body, store]);
   // Auto-focus reply box when triggered via keyboard
   useEffect(() => {
     if (autoFocusReply && canWrite) {
+      setShowResolved(true);
       setShowReplyBox(true);
     }
   }, [autoFocusReply, canWrite]);
@@ -3276,13 +3291,21 @@ function ReviewThreadBox({
   // Note: The worker already adds git diff headers, so we pass diffHunk directly
   useEffect(() => {
     const text = outOfDiffHunk ?? diffHunk;
-    if (!text || !filePath) {
+    if (!expanded || isMetadataComment || !text || !filePath) {
       setParsedDiff(null);
       return;
     }
 
-    parseDiffCached(text, filePath).then(setParsedDiff).catch(console.error);
-  }, [diffHunk, outOfDiffHunk, filePath]);
+    let cancelled = false;
+    parseDiffCached(text, filePath)
+      .then((parsed) => {
+        if (!cancelled) setParsedDiff(parsed);
+      })
+      .catch(console.error);
+    return () => {
+      cancelled = true;
+    };
+  }, [expanded, isMetadataComment, diffHunk, outOfDiffHunk, filePath]);
 
   // Get diff lines from parsed diff (first hunk), filtered to show only relevant lines
   // GitHub's UI shows ~10 lines of context around the comment, not the entire diff hunk
@@ -3334,7 +3357,10 @@ function ReviewThreadBox({
   // If resolved and not expanded, show collapsed view
   if (thread.isResolved && !showResolved) {
     return (
-      <div className="relative z-10 ml-8 rounded-lg border border-border bg-card overflow-hidden">
+      <div
+        id={`reviewthread-${thread.id}`}
+        className="relative z-10 ml-8 rounded-lg border border-border bg-card overflow-hidden"
+      >
         <button
           onClick={() => setShowResolved(true)}
           className="w-full flex items-center justify-between px-4 py-3 text-sm hover:bg-muted/50 transition-colors"
@@ -3630,7 +3656,9 @@ function ReviewThreadBox({
               {/* Emoji reactions + actions */}
               <div className="mt-3 flex items-center gap-1">
                 <EmojiReactions
-                  reactions={reactions?.[comment.databaseId] || []}
+                  reactions={
+                    reactions?.[`review-comment-${comment.databaseId}`] || []
+                  }
                   onAddReaction={
                     canWrite && onAddReaction
                       ? (content) => onAddReaction(comment.databaseId, content)
@@ -3799,11 +3827,7 @@ function ReviewThreadBox({
       )}
     </div>
   );
-}
-
-// ============================================================================
-// Merge Section Component
-// ============================================================================
+});
 
 function ThreadReplyComposer({
   quote,
@@ -3883,6 +3907,10 @@ function ThreadReplyComposer({
     </div>
   );
 }
+
+// ============================================================================
+// Merge Section Component
+// ============================================================================
 
 function MergeSection({
   pr,
@@ -5376,7 +5404,7 @@ function CommitRow({
   );
 }
 
-function CommitList({
+const CommitList = memo(function CommitList({
   commits,
   owner,
   repo,
@@ -5433,7 +5461,7 @@ function CommitList({
       )}
     </div>
   );
-}
+});
 
 function ChecksIcon({
   sha,
@@ -5489,7 +5517,7 @@ interface TimelineItemProps {
   onNavigateChecks?: (sha: string) => void;
 }
 
-function TimelineItem({
+const TimelineItem = memo(function TimelineItem({
   event,
   pr,
   pushVersions,
@@ -6264,7 +6292,7 @@ function TimelineItem({
       </div>
     </div>
   );
-}
+});
 
 // ============================================================================
 // Skeleton Components
