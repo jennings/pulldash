@@ -1124,17 +1124,20 @@ export interface MentionSuggestion {
   team?: boolean;
 }
 
+const EMPTY_MENTIONS: never[] = [];
+
 /**
  * Tiered mention candidates matching GitHub's popup order: PR participants,
  * then repo users, then org teams. GitHub-wide search results are merged on
  * top by the editor.
  */
 export function buildMentionSuggestions(
-  query: string,
-  participants: MentionUser[],
-  collaborators: MentionUser[],
-  teams: MentionTeam[]
+  query: string | null,
+  participants: MentionUser[] = EMPTY_MENTIONS,
+  collaborators: MentionUser[] = EMPTY_MENTIONS,
+  teams: MentionTeam[] = EMPTY_MENTIONS
 ): MentionSuggestion[] {
+  if (query === null) return EMPTY_MENTIONS;
   const q = query.toLowerCase();
   const seen = new Set<string>();
   const out: MentionSuggestion[] = [];
@@ -1162,7 +1165,7 @@ export function buildMentionSuggestions(
     if (u.login.toLowerCase().includes(q))
       addUser(u.login, u.avatar_url, u.type);
   for (const t of teams) if (t.slug.toLowerCase().includes(q)) addTeam(t.slug);
-  return out;
+  return out.length ? out : EMPTY_MENTIONS;
 }
 
 interface MentionSuggestionsContextValue {
@@ -1268,7 +1271,8 @@ export const MarkdownEditor = memo(function MarkdownEditor({
   // Mention autocomplete state
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionStart, setMentionStart] = useState<number>(0);
-  const [mentionUsers, setMentionUsers] = useState<MentionSuggestion[]>([]);
+  const [mentionUsers, setMentionUsers] =
+    useState<MentionSuggestion[]>(EMPTY_MENTIONS);
   const [mentionLoading, setMentionLoading] = useState(false);
   const [selectedMentionIndex, setSelectedMentionIndex] = useState(0);
   const [anchorPosition, setAnchorPosition] = useState({ top: 0, left: 0 });
@@ -1278,22 +1282,22 @@ export const MarkdownEditor = memo(function MarkdownEditor({
 
   // Get contextual suggestions from context (if available)
   const mentionContext = useMentionSuggestions();
-  const suggestedUsers = mentionContext?.suggestedUsers ?? [];
+  const suggestedUsers = mentionContext?.suggestedUsers ?? EMPTY_MENTIONS;
   const owner = mentionContext?.owner;
   const repo = mentionContext?.repo;
 
   // Repo users and org teams for the second and third tiers of the popup.
   // Queries are shared (same key) across every open editor, so no duplicate
   // fetches; personal repos return no teams/members.
-  const { data: collaborators = [] } = useQuery({
+  const { data: collaborators = EMPTY_MENTIONS } = useQuery({
     ...queries.collaborators(owner ?? "", repo ?? ""),
     enabled: ready && !!owner && !!repo,
   });
-  const { data: orgMembers = [] } = useQuery({
+  const { data: orgMembers = EMPTY_MENTIONS } = useQuery({
     ...queries.orgMembers(owner ?? ""),
     enabled: ready && !!owner,
   });
-  const { data: orgTeams = [] } = useQuery({
+  const { data: orgTeams = EMPTY_MENTIONS } = useQuery({
     ...queries.orgTeams(owner ?? ""),
     enabled: ready && !!owner,
   });
@@ -1385,8 +1389,9 @@ export const MarkdownEditor = memo(function MarkdownEditor({
 
   // Search for users when mention query changes
   useEffect(() => {
+    setMentionLoading(false);
     if (mentionQuery === null || !ready) {
-      setMentionUsers([]);
+      setMentionUsers(EMPTY_MENTIONS);
       return;
     }
 
@@ -1415,6 +1420,7 @@ export const MarkdownEditor = memo(function MarkdownEditor({
       return;
     }
 
+    let cancelled = false;
     const timeout = setTimeout(async () => {
       setMentionLoading(true);
       try {
@@ -1432,17 +1438,21 @@ export const MarkdownEditor = memo(function MarkdownEditor({
           ...searchResults.filter((u) => !seen.has(u.login.toLowerCase())),
         ].slice(0, 8);
 
+        if (cancelled) return;
         setMentionUsers(merged);
         setSelectedMentionIndex(0);
       } catch (e) {
         console.error("Failed to search users:", e);
         // Keep showing local candidates on error
       } finally {
-        setMentionLoading(false);
+        if (!cancelled) setMentionLoading(false);
       }
     }, 150);
 
-    return () => clearTimeout(timeout);
+    return () => {
+      cancelled = true;
+      clearTimeout(timeout);
+    };
   }, [mentionQuery, ready, github, suggestedUsers, repoUsers, teams]);
 
   const handleTabChange = useCallback((tab: "write" | "preview") => {

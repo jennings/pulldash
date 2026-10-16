@@ -65,6 +65,15 @@ test("returns null for non-commit urls", () => {
 const u = (login: string): MentionUser => ({ login, avatar_url: "" });
 const team = (slug: string): MentionTeam => ({ slug });
 
+test("inactive and unavailable mention suggestions share a stable empty result", () => {
+  const empty = buildMentionSuggestions(null);
+  expect(buildMentionSuggestions(null, [u("author")])).toBe(empty);
+  expect(buildMentionSuggestions("")).toBe(empty);
+  expect(buildMentionSuggestions("missing", [u("author")])).toBe(empty);
+  expect(buildMentionSuggestions("author", [u("author")])).toHaveLength(1);
+  expect(empty).toEqual([]);
+});
+
 test("mention suggestions rank participants, repo users, then teams", () => {
   const out = buildMentionSuggestions(
     "",
