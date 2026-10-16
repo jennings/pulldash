@@ -2,13 +2,17 @@ import tailwind from "bun-plugin-tailwind";
 import { watch } from "fs";
 import { cp } from "fs/promises";
 import { resolve } from "path";
+import { browserBuildMode, verifyProductionBundle } from "./browser-build-mode";
 
 const isWatch = process.argv.includes("--watch");
+const mode = browserBuildMode(
+  isWatch || process.argv.includes("--development")
+);
 
 const REPO_URL = process.env.REPO_URL ?? "https://github.com/jennings/pulldash";
 const define = {
   __REPO_URL__: JSON.stringify(REPO_URL),
-  __DEV__: JSON.stringify(isWatch),
+  ...mode.define,
 };
 
 async function build() {
@@ -26,6 +30,7 @@ async function build() {
     target: "browser",
     format: "esm",
     splitting: true,
+    minify: mode.minify,
     define: { ...define, __DIFF_WORKER_URL__: JSON.stringify(workerUrl) },
   });
 
@@ -35,6 +40,10 @@ async function build() {
       console.error(log);
     }
     return false;
+  }
+
+  if (mode.minify) {
+    await verifyProductionBundle(mainResult.outputs);
   }
 
   // Make paths absolute to root in index.html and inject spa redirect script
@@ -122,6 +131,7 @@ function buildWorker() {
     naming: "[name]-[hash].[ext]",
     target: "browser",
     format: "esm",
+    minify: mode.minify,
     define,
     banner: `// Worker shim for libraries that check for document (Prism/refractor)
 if (typeof document === 'undefined') {
@@ -154,7 +164,7 @@ if (typeof document === 'undefined') {
   });
 }
 
-await build();
+if (!(await build()) && !isWatch) process.exitCode = 1;
 
 if (isWatch) {
   console.log("\nWatching for changes...");
