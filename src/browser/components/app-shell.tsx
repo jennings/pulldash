@@ -1,6 +1,7 @@
 import {
   lazy,
   Suspense,
+  Activity,
   useCallback,
   useEffect,
   useRef,
@@ -33,10 +34,7 @@ import { notifyPRRefresh } from "../lib/pr-refresh-bus";
 import {
   getEnabled as notifsEnabled,
   sendNotification,
-  getNotifiedAt,
-  setNotifiedAt,
-  consumeSelfActivity,
-  observeMergedState,
+  NotificationBatch,
 } from "../lib/notifications";
 import { Home } from "./home";
 const PRReviewContent = lazy(() =>
@@ -78,24 +76,23 @@ interface FilterGroupsStorage {
   selectedGroupId: string;
 }
 
-function isRepoInHomeFilters(
-  owner: string,
-  repo: string,
-  prState?: string
-): boolean {
+function getHomeFilterMatcher() {
+  let enabledRepos: RepoFilter[] = [];
+  let stateFilter = "open";
   try {
     const stored = localStorage.getItem(FILTER_GROUPS_KEY);
-    if (!stored) return false;
-    const parsed = JSON.parse(stored) as FilterGroupsStorage;
-    const group = parsed.groups.find((g) => g.id === parsed.selectedGroupId);
-    if (!group) return false;
-
-    const enabledRepos = group.repos.filter((r) => r.enabled !== false);
+    const parsed = JSON.parse(stored ?? "null") as FilterGroupsStorage | null;
+    const group = parsed?.groups.find((g) => g.id === parsed.selectedGroupId);
+    enabledRepos = group?.repos.filter((r) => r.enabled !== false) ?? [];
+    stateFilter = localStorage.getItem(STATE_FILTER_KEY) ?? "open";
+  } catch {
+    // ignore
+  }
+  return (owner: string, repo: string, prState?: string): boolean => {
     if (enabledRepos.length === 0) return false;
 
     // Check state filter — only when we know the PR's state
     if (prState) {
-      const stateFilter = localStorage.getItem(STATE_FILTER_KEY) ?? "open";
       if (stateFilter === "open" && prState !== "open") return false;
       if (stateFilter === "closed" && prState !== "closed") return false;
     }
@@ -109,9 +106,7 @@ function isRepoInHomeFilters(
     }
 
     return false;
-  } catch {
-    return false;
-  }
+  };
 }
 
 // ============================================================================
@@ -382,6 +377,8 @@ export function AppShell() {
 
   const checkPRs = useCallback(async () => {
     if (!notifsEnabled()) return;
+    const notifications = new NotificationBatch();
+    let refreshHome = false;
     try {
       const prTabs = tabs.filter(
         (t): t is Tab & { owner: string; repo: string; number: number } =>
@@ -415,6 +412,7 @@ export function AppShell() {
         prTabs.map((t) => `${t.owner}/${t.repo}#${t.number}`)
       );
       const notifiedThisCycle = new Set<string>();
+      const isRepoInHomeFilters = getHomeFilterMatcher();
 
       const notifyMerged = (
         owner: string,
@@ -438,22 +436,25 @@ export function AppShell() {
         // Track merged state first: a fresh unmerged→merged transition
         // notifies even when the PR is already read and takes precedence
         // over the generic activity notification.
-        const mergeTransition = observeMergedState(prId, enrichment.merged);
+        const mergeTransition = notifications.observeMergedState(
+          prId,
+          enrichment.merged
+        );
         // Process each new activity value exactly once (getNotifiedAt tracks
         // the last processed updatedAt): refresh cached data, badge the tab,
         // and update the viewed one in place.
         if (
           !notifiedThisCycle.has(prId) &&
           (mergeTransition ||
-            enrichment.updatedAt > (getNotifiedAt(prId) ?? ""))
+            enrichment.updatedAt > (notifications.getNotifiedAt(prId) ?? ""))
         ) {
           notifiedThisCycle.add(prId);
-          setNotifiedAt(prId, enrichment.updatedAt);
+          notifications.setNotifiedAt(prId, enrichment.updatedAt);
           // Activity caused by pulldash itself (the marker is set by every
           // mutation) must not notify. Notifications for the viewer's own
           // PRs are suppressed too: pushing to your own PR is your own
           // activity, and GitHub keeps the thread unread for it.
-          const selfMutated = consumeSelfActivity(prId);
+          const selfMutated = notifications.consumeSelfActivity(prId);
           const ownPr =
             !!currentUserLogin && enrichment.authorLogin === currentUserLogin;
           // Drop cached PR data so the refetches hit the network.
@@ -479,7 +480,6 @@ export function AppShell() {
           // after visiting it on github.com) and only unread activity
           // notifies.
           if (
-            notifsEnabled() &&
             !selfMutated &&
             !ownPr &&
             (mergeTransition || !enrichment.isReadByViewer)
@@ -501,7 +501,7 @@ export function AppShell() {
               );
             }
             if (isRepoInHomeFilters(tab.owner, tab.repo)) {
-              queryClient.invalidateQueries({ queryKey: ["pr-list"] });
+              refreshHome = true;
             }
           }
         }
@@ -519,15 +519,18 @@ export function AppShell() {
 
         const enrichment = enrichmentMap.get(prKey);
         if (!enrichment) continue;
-        const mergeTransition = observeMergedState(prId, enrichment.merged);
+        const mergeTransition = notifications.observeMergedState(
+          prId,
+          enrichment.merged
+        );
         if (
           !notifiedThisCycle.has(prId) &&
           (mergeTransition ||
-            (enrichment.updatedAt > (getNotifiedAt(prId) ?? "") &&
+            (enrichment.updatedAt > (notifications.getNotifiedAt(prId) ?? "") &&
               !enrichment.isReadByViewer))
         ) {
           notifiedThisCycle.add(prId);
-          const selfMutated = consumeSelfActivity(prId);
+          const selfMutated = notifications.consumeSelfActivity(prId);
           const ownPr =
             !!currentUserLogin && enrichment.authorLogin === currentUserLogin;
           const prUrl = `/${owner}/${repo}/pull/${number}`;
@@ -543,13 +546,13 @@ export function AppShell() {
               );
             }
           }
-          setNotifiedAt(prId, enrichment.updatedAt);
+          notifications.setNotifiedAt(prId, enrichment.updatedAt);
           // Drop cached PR data so a reopened tab refetches.
           queryClient.invalidateQueries({
             queryKey: ["pull-request", owner, repo, number],
           });
           if (isRepoInHomeFilters(owner, repo, pr.state)) {
-            queryClient.invalidateQueries({ queryKey: ["pr-list"] });
+            refreshHome = true;
           }
         }
       }
@@ -557,6 +560,9 @@ export function AppShell() {
       // Swallow transient network errors, but log them: a silently dead poll
       // is indistinguishable from "no new activity".
       console.warn("PR activity poll failed", e);
+    } finally {
+      notifications.flush();
+      if (refreshHome) queryClient.invalidateQueries({ queryKey: ["pr-list"] });
     }
   }, [
     tabs,
@@ -733,15 +739,12 @@ export function AppShell() {
 
       {/* Content Area - Only render active tab to avoid parallel data fetching */}
       <div className="flex-1 overflow-hidden relative">
-        {/* Home is always mounted (lightweight) */}
-        <div
-          className={cn(
-            "absolute inset-0",
-            activeTabId !== "home" && "invisible pointer-events-none"
-          )}
-        >
-          <Home />
-        </div>
+        {/* Preserve Home's filters and scroll position, but suspend its effects while reviewing. */}
+        <Activity mode={activeTabId === "home" ? "visible" : "hidden"}>
+          <div className="absolute inset-0">
+            <Home active={activeTabId === "home"} />
+          </div>
+        </Activity>
 
         {/* PR Review - only render active tab */}
         {activeTab?.type === "pr-review" &&

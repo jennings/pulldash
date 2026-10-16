@@ -92,25 +92,13 @@ export function sendNotification(
 }
 
 export function getNotifiedAt(prId: string): string | null {
-  try {
-    const data = JSON.parse(localStorage.getItem(TIMESTAMPS_KEY) ?? "{}");
-    return data[prId] ?? null;
-  } catch {
-    return null;
-  }
+  return new NotificationBatch().getNotifiedAt(prId);
 }
 
 export function setNotifiedAt(prId: string, updatedAt: string): void {
-  try {
-    const data = JSON.parse(localStorage.getItem(TIMESTAMPS_KEY) ?? "{}");
-    data[prId] = updatedAt;
-    if (Object.keys(data).length > MAX_ENTRIES) {
-      prune(data);
-    }
-    localStorage.setItem(TIMESTAMPS_KEY, JSON.stringify(data));
-  } catch {
-    // ignore
-  }
+  const batch = new NotificationBatch();
+  batch.setNotifiedAt(prId, updatedAt);
+  batch.flush();
 }
 
 // Marks that pulldash itself just mutated this PR, so the poll can suppress
@@ -130,40 +118,81 @@ export function markSelfActivity(prId: string): void {
 // One-shot: returns (and clears) whether the next activity on this PR was
 // caused by pulldash itself.
 export function consumeSelfActivity(prId: string): boolean {
+  const batch = new NotificationBatch();
+  const consumed = batch.consumeSelfActivity(prId);
+  batch.flush();
+  return consumed;
+}
+
+function readRecord<T>(key: string): Record<string, T> {
   try {
-    const data = JSON.parse(localStorage.getItem(SELF_ACTIVITY_KEY) ?? "{}");
+    const value = JSON.parse(localStorage.getItem(key) ?? "{}");
+    if (value && typeof value === "object" && !Array.isArray(value))
+      return value;
+  } catch {
+    // Ignore unavailable or corrupt storage.
+  }
+  return {};
+}
+
+// A poll is synchronous after fetching enrichment. Keep its storage snapshot
+// local to that pass, so later polls and other windows see fresh values.
+export class NotificationBatch {
+  private records = new Map<string, Record<string, unknown>>();
+  private dirty = new Set<string>();
+
+  private read<T>(key: string): Record<string, T> {
+    if (!this.records.has(key)) this.records.set(key, readRecord(key));
+    return this.records.get(key)! as Record<string, T>;
+  }
+
+  getNotifiedAt(prId: string): string | null {
+    return this.read<string>(TIMESTAMPS_KEY)[prId] ?? null;
+  }
+
+  setNotifiedAt(prId: string, updatedAt: string): void {
+    const data = this.read<string>(TIMESTAMPS_KEY);
+    if (data[prId] === updatedAt) return;
+    data[prId] = updatedAt;
+    this.dirty.add(TIMESTAMPS_KEY);
+  }
+
+  consumeSelfActivity(prId: string): boolean {
+    const data = this.read<number>(SELF_ACTIVITY_KEY);
     if (!(prId in data)) return false;
     delete data[prId];
-    localStorage.setItem(SELF_ACTIVITY_KEY, JSON.stringify(data));
+    this.dirty.add(SELF_ACTIVITY_KEY);
     return true;
-  } catch {
-    return false;
   }
-}
 
-function getMergedSeen(prId: string): boolean | null {
-  try {
-    const data = JSON.parse(localStorage.getItem(MERGED_KEY) ?? "{}");
-    const entry = data[prId];
-    return entry ? entry.m === 1 : null;
-  } catch {
-    return null;
+  observeMergedState(prId: string, merged: boolean): boolean {
+    const data = this.read<{ m: number; t: number }>(MERGED_KEY);
+    const previous = data[prId];
+    if (previous?.m === Number(merged)) return false;
+    data[prId] = { m: Number(merged), t: Date.now() };
+    this.dirty.add(MERGED_KEY);
+    return previous?.m === 0 && merged;
   }
-}
 
-function setMergedSeen(prId: string, merged: boolean): void {
-  try {
-    const data = JSON.parse(localStorage.getItem(MERGED_KEY) ?? "{}");
-    data[prId] = { m: merged ? 1 : 0, t: Date.now() };
-    if (Object.keys(data).length > MAX_ENTRIES) {
-      const cutoff = Date.now() - MAX_AGE_MS;
-      for (const [id, entry] of Object.entries(data)) {
-        if ((entry as { t: number }).t < cutoff) delete data[id];
+  flush(): void {
+    for (const key of this.dirty) {
+      try {
+        const data = this.records.get(key)!;
+        if (Object.keys(data).length > MAX_ENTRIES) {
+          if (key === TIMESTAMPS_KEY) prune(data as Record<string, string>);
+          if (key === MERGED_KEY) {
+            const cutoff = Date.now() - MAX_AGE_MS;
+            for (const [id, entry] of Object.entries(data)) {
+              if ((entry as { t: number }).t < cutoff) delete data[id];
+            }
+          }
+        }
+        localStorage.setItem(key, JSON.stringify(data));
+      } catch {
+        // ignore
       }
     }
-    localStorage.setItem(MERGED_KEY, JSON.stringify(data));
-  } catch {
-    // ignore
+    this.dirty.clear();
   }
 }
 
@@ -171,7 +200,8 @@ function setMergedSeen(prId: string, merged: boolean): void {
 // from unmerged to merged. First-ever observation is never a transition, so
 // already-merged PRs stay silent on startup.
 export function observeMergedState(prId: string, merged: boolean): boolean {
-  const prev = getMergedSeen(prId);
-  setMergedSeen(prId, merged);
-  return prev === false && merged;
+  const batch = new NotificationBatch();
+  const transitioned = batch.observeMergedState(prId, merged);
+  batch.flush();
+  return transitioned;
 }

@@ -1,8 +1,10 @@
 import {
+  memo,
   useState,
   useEffect,
   useCallback,
   useMemo,
+  useRef,
   useSyncExternalStore,
 } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -87,10 +89,6 @@ import {
   type PRReminder,
 } from "../lib/reminders";
 import { ReminderMenu } from "./reminder-menu";
-import {
-  getEnabled as notifsEnabled,
-  subscribeEnabled as subscribeNotifsEnabled,
-} from "../lib/notifications";
 import { useAuth } from "../contexts/auth";
 import { getTimeAgo } from "../lib/dates";
 import { randomId } from "../lib/ids";
@@ -605,7 +603,7 @@ const STATE_OPTIONS = [
 // Main Component
 // ============================================================================
 
-export function Home() {
+export const Home = memo(function Home({ active }: { active: boolean }) {
   const openPRReviewTab = useOpenPRReviewTab();
   const { ready: githubReady, error: githubError } = useGitHubReady();
   const github = useGitHubStore();
@@ -828,15 +826,16 @@ export function Home() {
   );
 
   // Reset page when the visible filter set changes
+  const previousFilter = useRef({ repos: config.repos, stateFilter });
   useEffect(() => {
+    if (
+      previousFilter.current.repos === config.repos &&
+      previousFilter.current.stateFilter === stateFilter
+    )
+      return;
+    previousFilter.current = { repos: config.repos, stateFilter };
     setPage(1);
   }, [config.repos, stateFilter]);
-
-  const notificationsEnabled = useSyncExternalStore(
-    subscribeNotifsEnabled,
-    notifsEnabled,
-    notifsEnabled
-  );
 
   // PR list via React Query
   const {
@@ -846,9 +845,9 @@ export function Home() {
     dataUpdatedAt,
   } = useQuery({
     ...queries.prList(searchQueries, page, perPage),
-    enabled: githubReady,
-    refetchInterval: 60_000,
-    refetchIntervalInBackground: notificationsEnabled,
+    enabled: active && githubReady,
+    subscribed: active,
+    refetchInterval: active ? 60_000 : false,
   });
 
   const refreshPRList = useCallback(() => {
@@ -1994,7 +1993,7 @@ export function Home() {
       </div>
     </div>
   );
-}
+});
 
 // ============================================================================
 // PR List Item
