@@ -44,6 +44,7 @@ import {
   mapRangeToSegments,
   searchPatches,
   searchRows,
+  mergeSearchMatches,
 } from "../lib/diff-search";
 import { Skeleton } from "../ui/skeleton";
 import { PROverview } from "./pr-overview";
@@ -3063,41 +3064,18 @@ const DiffViewer = memo(function DiffViewer({
   // Other files: matches against their raw patches (already in memory).
   const patchMatches = useMemo(
     () =>
-      searchOpen && debouncedQuery ? searchPatches(files, debouncedQuery) : [],
-    [files, debouncedQuery, searchOpen]
+      searchOpen && debouncedQuery
+        ? searchPatches(files, debouncedQuery, {
+            excludeFilename: selectedFile ?? undefined,
+          })
+        : [],
+    [files, debouncedQuery, searchOpen, selectedFile]
   );
 
-  const searchMatches = useMemo(() => {
-    const out: Array<{
-      filename: string;
-      side: "old" | "new";
-      oldLine: number | null;
-      newLine: number | null;
-      start: number;
-      length: number;
-      rowIndex?: number;
-    }> = [];
-    for (const file of files) {
-      if (file.filename === selectedFile) {
-        for (const m of rowMatches) {
-          out.push({ filename: file.filename, ...m });
-        }
-      } else {
-        for (const m of patchMatches) {
-          if (m.filename !== file.filename) continue;
-          out.push({
-            filename: m.filename,
-            side: m.kind === "delete" ? "old" : "new",
-            oldLine: m.oldLine,
-            newLine: m.newLine,
-            start: m.start,
-            length: m.length,
-          });
-        }
-      }
-    }
-    return out;
-  }, [files, selectedFile, rowMatches, patchMatches]);
+  const searchMatches = useMemo(
+    () => mergeSearchMatches(files, selectedFile, rowMatches, patchMatches),
+    [files, selectedFile, rowMatches, patchMatches]
+  );
 
   const activeSearchIndex = searchMatches.length
     ? Math.min(activeMatchIndex, searchMatches.length - 1)

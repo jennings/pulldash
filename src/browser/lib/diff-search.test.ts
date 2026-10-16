@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test";
 import {
   mapRangeToSegments,
+  mergeSearchMatches,
   searchPatches,
   searchRows,
   walkPatchLines,
@@ -11,6 +12,39 @@ const PATCH = `@@ -1,3 +1,4 @@
 -removed line
 +added line
 `;
+
+test("search merge preserves file order and expansion-aware matches without searching the selected patch", () => {
+  const files = [
+    { filename: "b.ts", patch: PATCH },
+    { filename: "a.ts", patch: PATCH },
+  ];
+  const patches = searchPatches(files, "line", { excludeFilename: "b.ts" });
+  expect(patches.every((match) => match.filename === "a.ts")).toBe(true);
+  const row = {
+    rowIndex: 50,
+    side: "new" as const,
+    oldLine: 99,
+    newLine: 100,
+    start: 0,
+    length: 4,
+  };
+  const matches = mergeSearchMatches(files, "b.ts", [row], patches);
+  expect(matches[0]).toEqual({ filename: "b.ts", ...row });
+  expect(
+    matches
+      .slice(1)
+      .map((match) => [
+        match.filename,
+        match.side,
+        match.oldLine,
+        match.newLine,
+      ])
+  ).toEqual([
+    ["a.ts", "old", 2, null],
+    ["a.ts", "new", null, 2],
+  ]);
+  expect(mergeSearchMatches([], null, [], [])).toEqual([]);
+});
 
 test("walkPatchLines tracks line numbers from hunk headers", () => {
   expect(walkPatchLines(PATCH)).toEqual([

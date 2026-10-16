@@ -241,12 +241,12 @@ export function walkPatchLines(patch: string): PatchLineMatch[] {
 export function searchPatches(
   files: Array<{ filename: string; patch?: string }>,
   query: string,
-  opts?: { caseSensitive?: boolean }
+  opts?: { caseSensitive?: boolean; excludeFilename?: string }
 ): PatchMatch[] {
   const matches: PatchMatch[] = [];
   if (!query) return matches;
   for (const file of files) {
-    if (!file.patch) continue;
+    if (!file.patch || file.filename === opts?.excludeFilename) continue;
     for (const line of walkPatchLines(file.patch)) {
       for (const range of findRanges(line.text, query, opts?.caseSensitive)) {
         matches.push({
@@ -260,4 +260,30 @@ export function searchPatches(
     }
   }
   return matches;
+}
+
+export function mergeSearchMatches(
+  files: Array<{ filename: string }>,
+  selectedFile: string | null,
+  rowMatches: RowMatch[],
+  patchMatches: PatchMatch[]
+): Array<Omit<RowMatch, "rowIndex"> & { filename: string; rowIndex?: number }> {
+  const byFile = new Map<string, PatchMatch[]>();
+  for (const match of patchMatches) {
+    const matches = byFile.get(match.filename);
+    if (matches) matches.push(match);
+    else byFile.set(match.filename, [match]);
+  }
+  return files.flatMap((file) =>
+    file.filename === selectedFile
+      ? rowMatches.map((match) => ({ filename: file.filename, ...match }))
+      : (byFile.get(file.filename) ?? []).map((match) => ({
+          filename: match.filename,
+          side: match.kind === "delete" ? ("old" as const) : ("new" as const),
+          oldLine: match.oldLine,
+          newLine: match.newLine,
+          start: match.start,
+          length: match.length,
+        }))
+  );
 }
