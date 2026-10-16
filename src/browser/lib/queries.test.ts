@@ -1,7 +1,9 @@
 import { test, expect } from "bun:test";
+import "fake-indexeddb/auto";
 import { queries } from "./queries";
 import { setOctokit } from "./github-client";
 import type { Review } from "@/api/types";
+import { QueryClient } from "@tanstack/react-query";
 
 const review = (id: number): Review =>
   ({
@@ -9,6 +11,32 @@ const review = (id: number): Review =>
     user: { login: `user-${id}` },
     state: "APPROVED",
   }) as unknown as Review;
+
+test("comparison consumers share one response for files and commits", async () => {
+  let requests = 0;
+  setOctokit({
+    request: async () => {
+      requests++;
+      return {
+        data: { files: [{ filename: "a.ts" }], commits: [{ sha: "head" }] },
+      };
+    },
+  } as never);
+  const client = new QueryClient();
+  try {
+    const options = queries.comparison("comparison-test", "r", "base", "head");
+    const [a, b] = await Promise.all([
+      client.fetchQuery(options),
+      client.fetchQuery(options),
+    ]);
+    expect(a.files.map((file) => file.filename)).toEqual(["a.ts"]);
+    expect(b.commits.map((commit) => commit.sha)).toEqual(["head"]);
+    await client.fetchQuery(options);
+    expect(requests).toBe(1);
+  } finally {
+    client.clear();
+  }
+});
 
 test("pullRequestReviews paginates until a partial page", async () => {
   const page = (n: number) => Array.from({ length: n }, (_, i) => review(i));

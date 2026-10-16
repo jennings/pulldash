@@ -841,16 +841,18 @@ function createGitHubStore() {
     );
   }
 
-  function getMergeCommitFiles(
+  async function getMergeCommitFiles(
     owner: string,
     repo: string,
     mergeSha: string,
     parentSha: string,
     prKey?: string
   ): Promise<PullRequestFile[]> {
-    return queryClient.fetchQuery(
-      queries.mergeCommitFiles(owner, repo, mergeSha, parentSha, prKey)
-    );
+    return (
+      await queryClient.fetchQuery(
+        queries.comparison(owner, repo, parentSha, mergeSha, prKey)
+      )
+    ).files;
   }
 
   function getRawCompareDiff(
@@ -865,16 +867,18 @@ function createGitHubStore() {
     );
   }
 
-  function getPRFilesForRange(
+  async function getPRFilesForRange(
     owner: string,
     repo: string,
     baseSha: string,
     headSha: string,
     prKey?: string
   ): Promise<PullRequestFile[]> {
-    return queryClient.fetchQuery(
-      queries.prFilesForRange(owner, repo, baseSha, headSha, prKey)
-    );
+    return (
+      await queryClient.fetchQuery(
+        queries.comparison(owner, repo, baseSha, headSha, prKey)
+      )
+    ).files;
   }
 
   function getPRComments(
@@ -1444,9 +1448,9 @@ function createGitHubStore() {
     headSha: string,
     prKey?: string
   ): Promise<components["schemas"]["commit"][]> {
-    return queryClient.fetchQuery(
-      queries.commitsForHeadSha(owner, repo, baseSha, headSha, prKey)
-    );
+    return queryClient
+      .fetchQuery(queries.comparison(owner, repo, baseSha, headSha, prKey))
+      .then((comparison) => comparison.commits);
   }
 
   async function requestReviewers(
