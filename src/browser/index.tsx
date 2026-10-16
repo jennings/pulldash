@@ -4,7 +4,7 @@ import { AuthProvider } from "./contexts/auth";
 import { GitHubProvider } from "./contexts/github";
 import { TabProvider } from "./contexts/tabs";
 import { ThemeProvider } from "./contexts/theme";
-import { CommandPaletteProvider } from "./components/command-palette";
+import { CommandPaletteProvider } from "./contexts/command-palette";
 import { TooltipProvider } from "./ui/tooltip";
 import { AppShell } from "./components/app-shell";
 import { WelcomeDialog } from "./components/welcome-dialog";

@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useParams, useNavigate } from "react-router-dom";
 import { GithubIcon } from "../ui/github-icon";
@@ -32,7 +39,9 @@ import {
   observeMergedState,
 } from "../lib/notifications";
 import { Home } from "./home";
-import { PRReviewContent } from "./pr-review";
+const PRReviewContent = lazy(() =>
+  import("./pr-review").then((module) => ({ default: module.PRReviewContent }))
+);
 import { UserMenuButton } from "./welcome-dialog";
 import { useAuth } from "../contexts/auth";
 import {
@@ -740,17 +749,28 @@ export function AppShell() {
           activeTab.repo &&
           activeTab.number && (
             <div key={activeTab.id} className="absolute inset-0">
-              <PRReviewContent
-                owner={activeTab.owner}
-                repo={activeTab.repo}
-                number={activeTab.number}
-                tabId={activeTab.id}
-                cachedPr={
-                  activeTab.prTitle && activeTab.prAuthor
-                    ? { title: activeTab.prTitle, user: activeTab.prAuthor }
-                    : null
+              <Suspense
+                fallback={
+                  <div
+                    role="status"
+                    className="h-full flex items-center justify-center text-sm text-muted-foreground"
+                  >
+                    Loading pull request...
+                  </div>
                 }
-              />
+              >
+                <PRReviewContent
+                  owner={activeTab.owner}
+                  repo={activeTab.repo}
+                  number={activeTab.number}
+                  tabId={activeTab.id}
+                  cachedPr={
+                    activeTab.prTitle && activeTab.prAuthor
+                      ? { title: activeTab.prTitle, user: activeTab.prAuthor }
+                      : null
+                  }
+                />
+              </Suspense>
             </div>
           )}
       </div>

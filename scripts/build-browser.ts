@@ -25,6 +25,7 @@ async function build() {
     plugins: [tailwind],
     target: "browser",
     format: "esm",
+    splitting: true,
     define: { ...define, __DIFF_WORKER_URL__: JSON.stringify(workerUrl) },
   });
 
@@ -109,7 +110,8 @@ async function build() {
 
   const allOutputs = [...mainResult.outputs, ...workerResult.outputs];
   console.log(`Bundled ${allOutputs.length} files`);
-  for (const output of allOutputs) console.log(`  ${output.path}`);
+  for (const output of allOutputs)
+    console.log(`  ${output.path} (${(output.size / 1024).toFixed(1)} KiB)`);
   return true;
 }
 

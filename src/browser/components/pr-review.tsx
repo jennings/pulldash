@@ -131,7 +131,8 @@ import { RadioGroup, RadioGroupItem } from "../ui/radio-group";
 import { Keycap, KeycapGroup } from "../ui/keycap";
 import { Markdown, MarkdownEditor } from "../ui/markdown";
 import { UserHoverCard } from "../ui/user-hover-card";
-import { CommandPalette, useCommandPalette } from "./command-palette";
+import { CommandPalette } from "./command-palette";
+import { useCommandPalette } from "../contexts/command-palette";
 import {
   ConversationsSidebar,
   useConversationsSidebarCount,
