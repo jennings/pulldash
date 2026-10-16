@@ -1567,6 +1567,66 @@ test("setConversation replaces conversation array", () => {
 // Review Threads
 // ============================================================================
 
+test("comment edits, replies and deletion reconcile diff and thread views", () => {
+  const original = createMockComment(1, "src/index.ts", 10);
+  const store = createStore({ comments: [original] });
+  store.setReviewThreads([
+    {
+      id: "thread-1",
+      isResolved: false,
+      isOutdated: false,
+      resolvedBy: null,
+      pullRequestReview: null,
+      comments: {
+        nodes: [
+          {
+            id: "comment_1",
+            databaseId: 1,
+            body: original.body,
+            bodyHTML: "old HTML",
+            path: original.path,
+            line: 10,
+            originalLine: 10,
+            startLine: null,
+            diffHunk: "",
+            author: null,
+            createdAt: original.created_at,
+            updatedAt: original.updated_at,
+            replyTo: null,
+          },
+        ],
+      },
+    },
+  ]);
+  store.updateComment(1, {
+    ...original,
+    body: "edited",
+    body_html: "edited HTML",
+  });
+  expect(store.getSnapshot().comments[0]!.body).toBe("edited");
+  expect(
+    store.getSnapshot().reviewThreads[0]!.comments.nodes[0]!.bodyHTML
+  ).toBe("edited HTML");
+  const reply = {
+    ...createMockComment(2, original.path, 10),
+    in_reply_to_id: 1,
+  };
+  store.addReply(reply);
+  store.addReply(reply);
+  expect(store.getSnapshot().comments).toHaveLength(2);
+  expect(
+    store
+      .getSnapshot()
+      .reviewThreads[0]!.comments.nodes.map((c) => c.databaseId)
+  ).toEqual([1, 2]);
+  store.deleteComment(2);
+  expect(store.getSnapshot().comments).toHaveLength(1);
+  expect(store.getSnapshot().reviewThreads[0]!.comments.nodes).toHaveLength(1);
+  store.deleteComment(1);
+  expect(store.getSnapshot().comments).toEqual([]);
+  expect(store.getSnapshot().reviewThreads).toEqual([]);
+});
+
 test("setReviewThreads sets threads and rewrites metadata paths", () => {
   const store = createStore();
   const thread: ReviewThread = {

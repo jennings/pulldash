@@ -977,14 +977,18 @@ export const PROverview = memo(function PROverview() {
   const handleReplyToThread = useCallback(
     async (threadId: string, commentId: number, body: string) => {
       try {
-        await github.createPRComment(owner, repo, pr.number, body, {
-          reply_to_id: commentId,
-        });
+        const reply = await github.createPRComment(
+          owner,
+          repo,
+          pr.number,
+          body,
+          {
+            reply_to_id: commentId,
+          }
+        );
+        store.addReply(reply as ReviewComment);
         // Invalidate so the refetches below can't serve stale cached data
         github.invalidatePR(owner, repo, pr.number);
-        // Refresh threads to show new comment
-        const result = await github.getReviewThreads(owner, repo, pr.number);
-        store.setReviewThreads(result.threads);
         // Refresh timeline in background (reply may create a timeline event)
         github
           .getPRTimeline(owner, repo, pr.number)
@@ -1079,10 +1083,9 @@ export const PROverview = memo(function PROverview() {
 
   const handleEditReviewComment = useCallback(
     async (commentId: number, body: string) => {
-      await github.updateComment(owner, repo, commentId, body);
-      // Refresh threads to show updated comment
-      const result = await github.getReviewThreads(owner, repo, pr.number);
-      store.setReviewThreads(result.threads);
+      const updated = await github.updateComment(owner, repo, commentId, body);
+      store.updateComment(commentId, updated as ReviewComment);
+      github.invalidatePR(owner, repo, pr.number);
     },
     [github, owner, repo, pr.number, store]
   );
@@ -1090,8 +1093,8 @@ export const PROverview = memo(function PROverview() {
   const handleDeleteReviewComment = useCallback(
     async (commentId: number) => {
       await github.deleteComment(owner, repo, commentId);
-      const result = await github.getReviewThreads(owner, repo, pr.number);
-      store.setReviewThreads(result.threads);
+      store.deleteComment(commentId);
+      github.invalidatePR(owner, repo, pr.number);
     },
     [github, owner, repo, pr.number, store]
   );

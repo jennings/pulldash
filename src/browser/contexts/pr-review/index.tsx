@@ -3252,12 +3252,29 @@ export class PRReviewStore {
   }
 
   updateComment = (commentId: number, updatedComment: ReviewComment) => {
+    const [rewritten] = this.rewriteMetadataPaths([updatedComment]);
     this.set({
       comments: this.state.comments.map((c) =>
-        c.id === commentId ? updatedComment : c
+        c.id === commentId ? { ...c, ...rewritten } : c
       ),
+      reviewThreads: this.state.reviewThreads.map((thread) => ({
+        ...thread,
+        comments: {
+          nodes: thread.comments.nodes.map((comment) =>
+            comment.databaseId === commentId
+              ? {
+                  ...comment,
+                  body: updatedComment.body,
+                  bodyHTML: updatedComment.body_html,
+                  updatedAt: updatedComment.updated_at,
+                }
+              : comment
+          ),
+        },
+      })),
       editingCommentId: null,
     });
+    this.recomputeCommentRangeLookup();
   };
 
   deleteComment = (commentId: number) => {
@@ -3267,17 +3284,69 @@ export class PRReviewStore {
 
     this.set({
       comments: this.state.comments.filter((c) => c.id !== commentId),
+      reviewThreads: this.state.reviewThreads
+        .map((thread) => ({
+          ...thread,
+          comments: {
+            nodes: thread.comments.nodes.filter(
+              (c) => c.databaseId !== commentId
+            ),
+          },
+        }))
+        .filter((thread) => thread.comments.nodes.length > 0),
       focusedCommentId: null,
       // Focus the line the comment was on so user can continue with keyboard
       focusedLine: commentLine ?? null,
       focusedLineSide: commentLine ? "new" : null,
       focusSource: "keyboard",
     });
+    this.recomputeCommentRangeLookup();
   };
 
   addReply = (reply: ReviewComment) => {
+    const [rewritten] = this.rewriteMetadataPaths([reply]);
     this.set({
-      comments: [...this.state.comments, reply],
+      comments: [
+        ...this.state.comments.filter((c) => c.id !== reply.id),
+        rewritten!,
+      ],
+      reviewThreads: this.state.reviewThreads.map((thread) => {
+        if (
+          !thread.comments.nodes.some(
+            (c) => c.databaseId === reply.in_reply_to_id
+          )
+        )
+          return thread;
+        const node: ReviewThread["comments"]["nodes"][number] = {
+          id: reply.node_id,
+          databaseId: reply.id,
+          body: reply.body,
+          bodyHTML: reply.body_html,
+          path: rewritten!.path,
+          line: rewritten!.line ?? null,
+          originalLine: reply.original_line ?? null,
+          startLine: reply.start_line ?? null,
+          diffHunk: reply.diff_hunk,
+          originalCommit: { oid: reply.original_commit_id },
+          author: reply.user
+            ? { login: reply.user.login, avatarUrl: reply.user.avatar_url }
+            : null,
+          createdAt: reply.created_at,
+          updatedAt: reply.updated_at,
+          replyTo: reply.in_reply_to_id
+            ? { databaseId: reply.in_reply_to_id }
+            : null,
+        };
+        return {
+          ...thread,
+          comments: {
+            nodes: [
+              ...thread.comments.nodes.filter((c) => c.databaseId !== reply.id),
+              node,
+            ],
+          },
+        };
+      }),
       replyingToCommentId: null,
     });
     this.recomputeCommentRangeLookup();
