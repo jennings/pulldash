@@ -22,7 +22,7 @@ function getFullDiffFromCache(
   cacheContext?: string
 ): ParsedDiff | null {
   const suffix = cacheContext ? `:${cacheContext}` : "";
-  const key = `${file.sha}:full${suffix}`;
+  const key = `${file.filename}:${file.sha}:full${suffix}`;
   if (diffCache.has(key)) return diffCache.get(key)!;
   // Files without a patch may still be recoverable — don't short-circuit
   // by returning an empty diff; let the fetch path try recovery.
@@ -74,7 +74,7 @@ function extractFilePatch(
   return section.slice(hunkStart);
 }
 
-async function fetchParsedDiff(
+export async function fetchParsedDiff(
   file: PullRequestFile,
   signal?: AbortSignal,
   getFileContent?: FileContentGetter,
@@ -112,8 +112,8 @@ async function fetchParsedDiff(
   const hasContent = !!(getFileContent && baseRef && headRef);
   const suffix = cacheContext ? `:${cacheContext}` : "";
   const cacheKey = hasContent
-    ? `${file.sha}:full${suffix}`
-    : `${file.sha}${suffix}`;
+    ? `${file.filename}:${file.sha}:full${suffix}`
+    : `${file.filename}:${file.sha}${suffix}`;
 
   // Check cache first
   if (diffCache.has(cacheKey)) {
@@ -231,9 +231,23 @@ export function useDiffLoader() {
     if (!file) return;
 
     const currentFile = selectedFile;
-    // Commit-specific views use a distinct cache context so they don't collide
-    // with full-branch diffs that share the same blob SHA.
-    let cacheContext = selectedCommitSha ?? undefined;
+    const state = store.getSnapshot();
+    let baseRef = pr.base.sha;
+    let headRef = state.selectedHeadSha ?? pr.head.sha;
+    if (selectedCommitSha) {
+      const commits = [
+        ...state.commits,
+        ...state.commitsByVersion.flatMap((version) => version.commits),
+      ];
+      baseRef =
+        state.selectedParentSha ??
+        commits.find((commit) => commit.sha === selectedCommitSha)?.parents?.[0]
+          ?.sha ??
+        baseRef;
+      headRef = selectedCommitSha;
+    }
+    const cacheContext = JSON.stringify([owner, repo, baseRef, headRef]);
+    let active = true;
 
     // Check cache synchronously - only use if we have full content version
     const cached = getFullDiffFromCache(file, cacheContext);
@@ -270,38 +284,6 @@ export function useDiffLoader() {
     const getRawDiff: RawDiffGetter = (base, head) =>
       github.getRawCompareDiff(owner, repo, base, head, prKey);
 
-    // Determine correct base/head refs for the current view.
-    // When viewing a specific commit, use its parent as the base so file
-    // content fetching and raw diff recovery operate on the right range.
-    let baseRef = pr.base.sha;
-    let headRef = pr.head.sha;
-    if (selectedCommitSha) {
-      const state = store.getSnapshot();
-      const all = [...state.commits];
-      const seen = new Set(all.map((c) => c.sha));
-      for (const vc of state.commitsByVersion) {
-        for (const c of vc.commits) {
-          if (!seen.has(c.sha)) {
-            seen.add(c.sha);
-            all.push(c);
-          }
-        }
-      }
-      const commit = all.find((c) => c.sha === selectedCommitSha);
-      // Use the explicitly selected parent (always available from the store
-      // even before commits are loaded), falling back to the commit's first
-      // parent when no explicit selection has been made.
-      const parentSha = state.selectedParentSha ?? commit?.parents?.[0]?.sha;
-      if (parentSha) {
-        baseRef = parentSha;
-        headRef = selectedCommitSha;
-        // Include the parent SHA in the cache context so the diff for
-        // this commit vs its parent doesn't collide with the same commit
-        // vs a different parent.
-        cacheContext = `${selectedCommitSha}:parent:${parentSha}`;
-      }
-    }
-
     // Fetch immediately with full file content for better highlighting
     fetchParsedDiff(
       file,
@@ -313,7 +295,7 @@ export function useDiffLoader() {
       getRawDiff
     )
       .then((diff) => {
-        if (store.getSnapshot().selectedFile === currentFile) {
+        if (active && store.getSnapshot().selectedFile === currentFile) {
           store.setLoadedDiff(currentFile, diff);
           store.setDiffLoading(currentFile, false);
 
@@ -344,7 +326,9 @@ export function useDiffLoader() {
                 cacheContext,
                 getRawDiff
               )
-                .then((pdiff) => store.setLoadedDiff(pfile.filename, pdiff))
+                .then((pdiff) => {
+                  if (active) store.setLoadedDiff(pfile.filename, pdiff);
+                })
                 .catch(() => {})
             )
           );
@@ -353,6 +337,7 @@ export function useDiffLoader() {
       .catch((err) => {
         if (
           err?.name !== "AbortError" &&
+          active &&
           store.getSnapshot().selectedFile === currentFile
         ) {
           console.error(err);
@@ -362,6 +347,7 @@ export function useDiffLoader() {
 
     // Cleanup: cancel loading timeout
     return () => {
+      active = false;
       clearTimeout(loadingTimeoutId);
       store.setDiffLoading(currentFile, false);
     };
