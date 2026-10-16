@@ -135,6 +135,20 @@ export function AppShell() {
   const openPRReviewTab = useOpenPRReviewTab();
   const currentUserLogin = useCurrentUser()?.login ?? null;
 
+  useEffect(() => {
+    githubStore.setPRCheckPollingTargets(
+      tabs.flatMap((tab) =>
+        tab.type === "pr-review" &&
+        tab.owner &&
+        tab.repo &&
+        tab.number !== undefined
+          ? [githubStore.getPRCheckKey(tab.owner, tab.repo, tab.number)]
+          : []
+      )
+    );
+    return () => githubStore.setPRCheckPollingTargets([]);
+  }, [githubStore, tabs]);
+
   const tabScrollRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);

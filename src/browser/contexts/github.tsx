@@ -685,8 +685,22 @@ function createGitHubStore() {
     }
   }
 
-  function refreshAllPRChecks() {
-    for (const key of state.prChecks.keys()) {
+  let prCheckPollingTargets = new Set<string>();
+
+  function setPRCheckPollingTargets(keys: string[]) {
+    prCheckPollingTargets = new Set(keys);
+  }
+
+  function refreshAllPRChecks(includeTerminal = true) {
+    for (const key of prCheckPollingTargets) {
+      const check = state.prChecks.get(key);
+      if (
+        check?.loading ||
+        (!includeTerminal &&
+          (check?.status?.state === "merged" ||
+            check?.status?.state === "closed"))
+      )
+        continue;
       const [owner, repo, number] = key.split("/");
       if (owner && repo && number) {
         fetchPRChecks(owner, repo, parseInt(number, 10));
@@ -2928,6 +2942,7 @@ function createGitHubStore() {
     // State actions
     fetchPRChecks,
     refreshAllPRChecks,
+    setPRCheckPollingTargets,
     getPRCheckKey,
     // API methods
     searchPRs,
@@ -3094,8 +3109,8 @@ export function GitHubProvider({ children }: { children: ReactNode }) {
   // Auto-refresh PR checks every 30 seconds
   useEffect(() => {
     const interval = setInterval(() => {
-      if (store.getState().ready) {
-        store.refreshAllPRChecks();
+      if (store.getState().ready && document.visibilityState === "visible") {
+        store.refreshAllPRChecks(false);
       }
     }, 30_000);
     return () => clearInterval(interval);
