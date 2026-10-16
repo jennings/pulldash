@@ -203,6 +203,36 @@ test("refresh preserves a selected push version until returning to latest", asyn
   expect(store.getSnapshot().files).toEqual([latest]);
 });
 
+test("overview requests start before checks finish", async () => {
+  const github = createMockGitHubStore();
+  const checks = await github.getPRChecks("test", "repo", "head");
+  let finishChecks!: (
+    value: Awaited<ReturnType<GitHubStore["getPRChecks"]>>
+  ) => void;
+  github.getPRChecks = () =>
+    new Promise((resolve) => {
+      finishChecks = resolve;
+    });
+  let reviewsStarted = false;
+  github.getPRReviews = async () => {
+    reviewsStarted = true;
+    return [];
+  };
+  const store = new PRReviewStore(github, {
+    pr: createMockPR(),
+    files: [],
+    comments: [],
+    owner: "test",
+    repo: "repo",
+    viewerPermission: "WRITE",
+  });
+  const loading = store.loadPRData();
+  expect(reviewsStarted).toBe(true);
+  finishChecks(checks);
+  await loading;
+  expect(store.getSnapshot().loading).toBe(false);
+});
+
 // Helper: run a test that expects console.error to be called (suppresses noise)
 function suppressConsoleError(fn: () => Promise<void>): () => Promise<void> {
   return async () => {

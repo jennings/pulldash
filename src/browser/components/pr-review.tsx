@@ -288,8 +288,12 @@ export function PRReviewContent({
       }
 
       try {
-        const [pr, files, comments, reviewThreadsResult] = await Promise.all([
-          github.getPR(owner, repo, number),
+        // Warm independent overview queries while the PR header is loading.
+        github.getPRReviews(owner, repo, number).catch(() => {});
+        github.getPRConversation(owner, repo, number).catch(() => {});
+        github.getPRTimeline(owner, repo, number).catch(() => {});
+        const prPromise = github.getPR(owner, repo, number);
+        const detailsPromise = Promise.all([
           github.getPRFiles(owner, repo, number),
           github.getPRComments(owner, repo, number),
           github.getReviewThreads(owner, repo, number).catch(() => ({
@@ -299,6 +303,20 @@ export function PRReviewContent({
             isInMergeQueue: false,
           })),
         ]);
+        // Attach rejection handling immediately while waiting for metadata.
+        const dataPromise = Promise.all([prPromise, detailsPromise]);
+        dataPromise.catch(() => {});
+        if (!opts?.silent) {
+          const pr = await prPromise;
+          setFetchedData({
+            pr,
+            files: [],
+            comments: [],
+            viewerPermission: null,
+          });
+          setLoading(false);
+        }
+        const [pr, [files, comments, reviewThreadsResult]] = await dataPromise;
 
         // Cache PR metadata in tab for instant header on next switch
         if (updateTabMeta && tabId && pr.user) {

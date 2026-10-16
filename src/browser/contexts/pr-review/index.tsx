@@ -3598,6 +3598,7 @@ export class PRReviewStore {
    */
   loadPRData = async (): Promise<void> => {
     const { owner, repo, pr } = this.state;
+    this.loadOverviewData(owner, repo, pr.number);
 
     try {
       const [checksData, workflowRunsData, commitsData, reviewThreadsResult] =
@@ -3625,10 +3626,6 @@ export class PRReviewStore {
             isInMergeQueue: false,
           })),
         ]);
-
-      // Fire-and-forget: load overview data (reviews, conversation, timeline)
-      // in parallel so they don't wait for version data to complete.
-      this.loadOverviewData(owner, repo, pr.number);
 
       const awaitingApproval = workflowRunsData.workflow_runs
         .filter(
