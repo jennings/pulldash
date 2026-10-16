@@ -165,6 +165,11 @@ function reviewGroupMaps(
 // Main Component
 // ============================================================================
 
+import {
+  OverviewComposer,
+  type OverviewComposerHandle,
+} from "./overview-composer";
+
 export const PROverview = memo(function PROverview() {
   const github = useGitHub();
   const store = usePRReviewStore();
@@ -241,8 +246,8 @@ export const PROverview = memo(function PROverview() {
   );
   // Local UI state (not in store)
   const [showMergeOptions, setShowMergeOptions] = useState(false);
-  const [commentText, setCommentText] = useState("");
-  const [submittingComment, setSubmittingComment] = useState(false);
+  const commentDraft = useRef("");
+  const composerRef = useRef<OverviewComposerHandle>(null);
   const [assigningSelf, setAssigningSelf] = useState(false);
   const [refreshingChecks, setRefreshingChecks] = useState(false);
   const overviewRef = useRef<HTMLDivElement>(null);
@@ -437,54 +442,6 @@ export const PROverview = memo(function PROverview() {
     await store.approveWorkflows();
   }, [store]);
 
-  const handleAddComment = useCallback(async () => {
-    if (!commentText.trim()) return;
-
-    setSubmittingComment(true);
-    try {
-      const newComment = await github.createPRConversationComment(
-        owner,
-        repo,
-        pr.number,
-        commentText
-      );
-      store.addConversationComment(newComment);
-      store.addTimelineEvent({
-        event: "commented",
-        id: newComment.id,
-        node_id: newComment.node_id,
-        url: newComment.url,
-        body: newComment.body,
-        body_html: newComment.body_html,
-        html_url: newComment.html_url,
-        user: newComment.user!,
-        created_at: newComment.created_at,
-        updated_at: newComment.updated_at,
-        issue_url: newComment.issue_url,
-        author_association: newComment.author_association,
-        actor: newComment.user!,
-      } as TimelineEvent);
-      // Invalidate so later timeline refetches can't serve the cached
-      // pre-comment timeline and drop the local event.
-      github.invalidatePR(owner, repo, pr.number);
-      setCommentText("");
-    } catch (error) {
-      console.error("Failed to add comment:", error);
-    } finally {
-      setSubmittingComment(false);
-    }
-  }, [github, owner, repo, pr.number, commentText, store]);
-
-  const handleCommentKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-        e.preventDefault();
-        handleAddComment();
-      }
-    },
-    [handleAddComment]
-  );
-
   const handleUpdateBranch = useCallback(async () => {
     await store.updateBranch();
   }, [store]);
@@ -538,42 +495,14 @@ export const PROverview = memo(function PROverview() {
   }, [store]);
 
   const handleClosePR = useCallback(async () => {
-    // Post comment first if there's one typed (like GitHub does)
-    if (commentText.trim()) {
-      try {
-        const newComment = await github.createPRConversationComment(
-          owner,
-          repo,
-          pr.number,
-          commentText
-        );
-        store.addConversationComment(newComment);
-        setCommentText("");
-      } catch (error) {
-        console.error("Failed to add comment:", error);
-      }
-    }
+    await composerRef.current?.submit();
     await store.closePR();
-  }, [github, owner, repo, pr.number, commentText, store]);
+  }, [store]);
 
   const handleReopenPR = useCallback(async () => {
-    // Post comment first if there's one typed (like GitHub does)
-    if (commentText.trim()) {
-      try {
-        const newComment = await github.createPRConversationComment(
-          owner,
-          repo,
-          pr.number,
-          commentText
-        );
-        store.addConversationComment(newComment);
-        setCommentText("");
-      } catch (error) {
-        console.error("Failed to add comment:", error);
-      }
-    }
+    await composerRef.current?.submit();
     await store.reopenPR();
-  }, [github, owner, repo, pr.number, commentText, store]);
+  }, [store]);
 
   const handleDeleteBranch = useCallback(async () => {
     if (
@@ -1107,7 +1036,7 @@ export const PROverview = memo(function PROverview() {
         .split("\n")
         .map((line) => `> ${line}`)
         .join("\n") + "\n\n";
-    setCommentText(quoted);
+    composerRef.current?.setText(quoted);
     commentBoxEl?.scrollIntoView({ behavior: "smooth" });
     setTimeout(() => commentBoxEl?.querySelector("textarea")?.focus(), 100);
   }, []);
@@ -1119,7 +1048,7 @@ export const PROverview = memo(function PROverview() {
         .split("\n")
         .map((line) => `> ${line}`)
         .join("\n") + "\n\n";
-    setCommentText(quoted);
+    composerRef.current?.setText(quoted);
     commentBoxEl?.scrollIntoView({ behavior: "smooth" });
     setTimeout(() => commentBoxEl?.querySelector("textarea")?.focus(), 100);
   }, []);
@@ -2355,53 +2284,11 @@ export const PROverview = memo(function PROverview() {
 
                 {/* Add a comment - only show when user can write (comments allowed even without push) */}
                 {canWrite ? (
-                  <div id="conversation-comment-box" className="flex gap-3">
-                    {/* Avatar - hidden on narrow screens, where it and the gap
-                        cost 52px of a 390px viewport that the editor is better
-                        off with. */}
-                    {currentUser && (
-                      <img
-                        src={`https://avatars.githubusercontent.com/${currentUser}`}
-                        alt={currentUser}
-                        className="hidden sm:block w-10 h-10 rounded-full shrink-0"
-                      />
-                    )}
-                    <div className="flex-1 flex flex-col gap-2">
-                      <MarkdownEditor
-                        value={commentText}
-                        onChange={setCommentText}
-                        onKeyDown={handleCommentKeyDown}
-                        placeholder="Add your comment here..."
-                        minHeight="100px"
-                      />
-                      <div className="flex items-center justify-end gap-2">
-                        {canMergeRepo && pr.state === "open" && !pr.merged && (
-                          <button
-                            onClick={handleClosePR}
-                            disabled={closingPR}
-                            className="flex items-center gap-2 px-3 py-1.5 border border-red-500/50 text-red-400 rounded-md hover:bg-red-500/10 transition-colors text-sm font-medium disabled:opacity-50"
-                          >
-                            {closingPR ? (
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                            ) : (
-                              <GitPullRequest className="w-4 h-4" />
-                            )}
-                            {closingPR ? "Closing..." : "Close pull request"}
-                          </button>
-                        )}
-                        <button
-                          onClick={handleAddComment}
-                          disabled={!commentText.trim() || submittingComment}
-                          className="flex items-center gap-2 px-3 py-1.5 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors disabled:opacity-50 text-sm font-medium"
-                        >
-                          {submittingComment ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          ) : null}
-                          Comment
-                        </button>
-                      </div>
-                    </div>
-                  </div>
+                  <OverviewComposer
+                    ref={composerRef}
+                    draft={commentDraft}
+                    canClose={canMergeRepo}
+                  />
                 ) : (
                   <div className="flex items-center gap-2 py-3 px-4 bg-amber-500/10 border border-amber-500/20 rounded-md">
                     <MessageSquare className="w-4 h-4 text-amber-500" />
