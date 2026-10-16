@@ -153,13 +153,6 @@ export const PROverview = memo(function PROverview() {
   // Read PR data from store
   const reviews = usePRReviewSelector((s) => s.reviews);
   const reviewThreads = usePRReviewSelector((s) => s.reviewThreads);
-  const checks = usePRReviewSelector((s) => s.checks);
-  const checksLastUpdated = usePRReviewSelector((s) => s.checksLastUpdated);
-  const loadingChecks = usePRReviewSelector((s) => s.loadingChecks);
-  const workflowRunsAwaitingApproval = usePRReviewSelector(
-    (s) => s.workflowRunsAwaitingApproval
-  );
-  const approvingWorkflows = usePRReviewSelector((s) => s.approvingWorkflows);
   const timeline = usePRReviewSelector((s) => s.timeline);
   const commits = usePRReviewSelector((s) => s.commits);
   const pushVersions = usePRReviewSelector((s) => s.pushVersions);
@@ -219,7 +212,6 @@ export const PROverview = memo(function PROverview() {
   const commentDraft = useRef("");
   const composerRef = useRef<OverviewComposerHandle>(null);
   const [assigningSelf, setAssigningSelf] = useState(false);
-  const [refreshingChecks, setRefreshingChecks] = useState(false);
   const overviewRef = useRef<HTMLDivElement>(null);
   const overviewContentRef = useRef<HTMLDivElement>(null);
 
@@ -339,13 +331,6 @@ export const PROverview = memo(function PROverview() {
     );
   }, [overviewScrollTarget, store, loading, overviewLoading]);
 
-  // Manual refresh handler
-  const handleRefreshChecks = useCallback(async () => {
-    setRefreshingChecks(true);
-    await store.refreshChecks();
-    setRefreshingChecks(false);
-  }, [store]);
-
   const handleNavigateChecks = useCallback(
     async (sha: string) => {
       await store.setSelectedHeadSha(sha);
@@ -367,25 +352,6 @@ export const PROverview = memo(function PROverview() {
     },
     [store]
   );
-
-  const checkStatus = calculateCheckStatus(
-    checks,
-    workflowRunsAwaitingApproval
-  );
-
-  // Auto-refresh checks — poll faster while workflows are still running
-  useEffect(() => {
-    if (pr.state !== "open" || pr.merged) return;
-
-    const interval = setInterval(
-      () => {
-        store.refreshChecks();
-      },
-      checkStatus === "pending" ? 10_000 : 30_000
-    );
-
-    return () => clearInterval(interval);
-  }, [store, pr.state, pr.merged, checkStatus]);
 
   const handleMerge = useCallback(async () => {
     await store.mergePR();
@@ -1094,7 +1060,6 @@ export const PROverview = memo(function PROverview() {
   const reviewerStates = [...getLatestReviewByUser(reviews).values()].filter(
     (r) => r.user?.login !== authorLogin
   );
-  const canMergePR = canMerge(pr, checkStatus);
 
   // Combined list of all reviewers sorted by state priority:
   // CHANGES_REQUESTED > APPROVED > COMMENTED > pending
@@ -1177,11 +1142,6 @@ export const PROverview = memo(function PROverview() {
     pr.head?.sha,
     pr.user,
   ]);
-
-  // Tab counts
-  const checksCount = checks
-    ? checks.checkRuns.length + checks.status.statuses.length
-    : 0;
 
   // Get unique participants
   const participants = useMemo(() => {
@@ -1337,12 +1297,9 @@ export const PROverview = memo(function PROverview() {
               label="Commits"
               count={commits.length}
             />
-            <TabButton
+            <ChecksTabButton
               active={activeTab === "checks"}
               onClick={() => setActiveTab("checks")}
-              icon={<CheckStatusIcon status={checkStatus} size="sm" />}
-              label="Checks"
-              count={checksCount}
             />
             <TabButton
               active={false}
@@ -1596,9 +1553,6 @@ export const PROverview = memo(function PROverview() {
                   <>
                     <MergeSection
                       pr={pr}
-                      checkStatus={checkStatus}
-                      checks={checks}
-                      canMerge={canMergePR}
                       canMergeRepo={canMergeRepo}
                       merging={merging}
                       mergeMethod={mergeMethod}
@@ -1623,10 +1577,6 @@ export const PROverview = memo(function PROverview() {
                       markingReady={markingReady}
                       onMarkReadyForReview={handleMarkReadyForReview}
                       markingReadyError={markingReadyError}
-                      workflowRunsAwaitingApproval={
-                        workflowRunsAwaitingApproval
-                      }
-                      approvingWorkflows={approvingWorkflows}
                       onApproveWorkflows={handleApproveWorkflows}
                       canBypassBranchProtections={viewerCanMergeAsAdmin}
                     />
@@ -1865,14 +1815,7 @@ export const PROverview = memo(function PROverview() {
               <CommitsTab commits={commits} owner={owner} repo={repo} />
             )}
 
-            {activeTab === "checks" && (
-              <ChecksTab
-                checks={checks}
-                lastUpdated={checksLastUpdated}
-                onRefresh={handleRefreshChecks}
-                refreshing={refreshingChecks}
-              />
-            )}
+            {activeTab === "checks" && <ChecksTab />}
 
             {activeTab === "stack" && <StackTab />}
 
@@ -3915,9 +3858,6 @@ function ReviewThreadBox({
 
 function MergeSection({
   pr,
-  checkStatus,
-  checks,
-  canMerge: canMergePR,
   canMergeRepo,
   merging,
   mergeMethod,
@@ -3940,8 +3880,6 @@ function MergeSection({
   markingReady,
   onMarkReadyForReview,
   markingReadyError,
-  workflowRunsAwaitingApproval,
-  approvingWorkflows,
   onApproveWorkflows,
   canBypassBranchProtections,
 }: {
@@ -3952,9 +3890,6 @@ function MergeSection({
     mergeable_state?: string;
     requested_reviewers?: Array<{ login: string; avatar_url: string }> | null;
   };
-  checkStatus: "success" | "failure" | "pending" | "action_required";
-  checks: { checkRuns: CheckRun[]; status: CombinedStatus } | null;
-  canMerge: boolean;
   canMergeRepo: boolean;
   merging: boolean;
   mergeMethod: "merge" | "squash" | "rebase";
@@ -3977,16 +3912,20 @@ function MergeSection({
   markingReady?: boolean;
   onMarkReadyForReview?: () => void;
   markingReadyError?: string | null;
-  workflowRunsAwaitingApproval?: Array<{
-    id: number;
-    name: string;
-    html_url: string;
-  }>;
-  approvingWorkflows?: boolean;
   onApproveWorkflows?: () => void;
   canBypassBranchProtections?: boolean;
 }) {
   const store = usePRReviewStore();
+  const checks = usePRReviewSelector((s) => s.checks);
+  const workflowRunsAwaitingApproval = usePRReviewSelector(
+    (s) => s.workflowRunsAwaitingApproval
+  );
+  const approvingWorkflows = usePRReviewSelector((s) => s.approvingWorkflows);
+  const checkStatus = calculateCheckStatus(
+    checks,
+    workflowRunsAwaitingApproval
+  );
+  const canMergePR = canMerge(pr, checkStatus);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const [dropdownPosition, setDropdownPosition] = useState({
     top: 0,
@@ -4939,17 +4878,48 @@ function StackTab() {
 // Checks Tab Component
 // ============================================================================
 
-function ChecksTab({
-  checks,
-  lastUpdated,
-  onRefresh,
-  refreshing,
+function ChecksTabButton({
+  active,
+  onClick,
 }: {
-  checks: { checkRuns: CheckRun[]; status: CombinedStatus } | null;
-  lastUpdated: Date | null;
-  onRefresh: () => void;
-  refreshing: boolean;
+  active: boolean;
+  onClick: () => void;
 }) {
+  const store = usePRReviewStore();
+  const open = usePRReviewSelector(
+    (s) => s.pr.state === "open" && !s.pr.merged
+  );
+  const status = usePRReviewSelector((s) =>
+    calculateCheckStatus(s.checks, s.workflowRunsAwaitingApproval)
+  );
+  const count = usePRReviewSelector((s) =>
+    s.checks ? s.checks.checkRuns.length + s.checks.status.statuses.length : 0
+  );
+  useEffect(() => {
+    if (!open) return;
+    const interval = setInterval(
+      () => void store.refreshChecks(),
+      status === "pending" ? 10_000 : 30_000
+    );
+    return () => clearInterval(interval);
+  }, [store, open, status]);
+  return (
+    <TabButton
+      active={active}
+      onClick={onClick}
+      icon={<CheckStatusIcon status={status} size="sm" />}
+      label="Checks"
+      count={count}
+    />
+  );
+}
+
+function ChecksTab() {
+  const store = usePRReviewStore();
+  const checks = usePRReviewSelector((s) => s.checks);
+  const lastUpdated = usePRReviewSelector((s) => s.checksLastUpdated);
+  const refreshing = usePRReviewSelector((s) => s.loadingChecks);
+  const onRefresh = () => void store.refreshChecks();
   if (
     !checks ||
     (checks.checkRuns.length === 0 && checks.status.statuses.length === 0)
