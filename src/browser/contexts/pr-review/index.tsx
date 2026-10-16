@@ -3091,6 +3091,33 @@ export class PRReviewStore {
     this.set({ pr });
   };
 
+  refreshPR = async (pr: PullRequest, files: PullRequestFile[]) => {
+    const sorted = sortFilesLikeTree(files);
+    const changed =
+      pr.base.sha !== this.state.pr.base.sha ||
+      pr.head.sha !== this.state.pr.head.sha ||
+      JSON.stringify(sorted) !== JSON.stringify(this.baseFiles);
+    this.baseFiles = sorted;
+    const { selectedCommitSha, selectedHeadSha, compareToSha } = this.state;
+    if (!changed || selectedCommitSha || selectedHeadSha || compareToSha) {
+      this.set({ pr });
+    } else {
+      this.set({
+        pr,
+        files: sorted,
+        loadedDiffs: {},
+        navigableItems: {},
+        loadingFiles: new Set(),
+        expandedSkipBlocks: {},
+        expandingSkipBlocks: new Set(),
+      });
+    }
+    if (changed && compareToSha && !selectedHeadSha && !selectedCommitSha) {
+      await this.refreshFiles();
+      await this.computeFullBranchInterdiff(compareToSha, pr.head.sha);
+    }
+  };
+
   setFiles = (files: PullRequestFile[]) => {
     // Keep the tree display order invariant (the search and file navigation
     // follow it).
@@ -4504,14 +4531,10 @@ export function PRReviewProvider({
     storeRef.current?.setComments(comments);
   }, [comments]);
 
-  // Sync pr + files from props (in-place refreshes update them)
+  // Reconcile the latest baseline without replacing a historical selection.
   useEffect(() => {
-    storeRef.current?.setPr(pr);
-  }, [pr]);
-
-  useEffect(() => {
-    storeRef.current?.setFiles(files);
-  }, [files]);
+    storeRef.current?.refreshPR(pr, files);
+  }, [pr, files]);
 
   // Sync viewerPermission from props
   useEffect(() => {

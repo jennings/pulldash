@@ -150,6 +150,59 @@ beforeEach(() => {
   storage.clear();
 });
 
+test("refresh preserves a selected commit and updates the latest baseline", async () => {
+  const github = createMockGitHubStore();
+  const historical = createMockFile("historical.ts");
+  github.getCommitFiles = async () => [historical];
+  const store = new PRReviewStore(github, {
+    pr: createMockPR(),
+    files: [createMockFile("old.ts")],
+    comments: [],
+    owner: "test",
+    repo: "repo",
+    viewerPermission: "WRITE",
+  });
+  await store.setSelectedCommitSha("historical");
+  const diff = { hunks: [] };
+  store.setLoadedDiff("historical.ts", diff);
+  const latest = createMockFile("latest.ts");
+  await store.refreshPR(
+    createMockPR({
+      head: { ref: "feature", sha: "new-head" },
+    } as Partial<PullRequest>),
+    [latest]
+  );
+  expect(store.getSnapshot().files).toEqual([historical]);
+  expect(store.getSnapshot().loadedDiffs["historical.ts"]).toBe(diff);
+  await store.setSelectedCommitSha(null);
+  expect(store.getSnapshot().files).toEqual([latest]);
+  expect(store.getSnapshot().loadedDiffs).toEqual({});
+});
+
+test("refresh invalidates latest diffs only when the comparison changes", async () => {
+  const store = createStore();
+  const { pr, files } = store.getSnapshot();
+  const diff = { hunks: [] };
+  store.setLoadedDiff(files[0]!.filename, diff);
+  await store.refreshPR({ ...pr, title: "edited title" }, [...files]);
+  expect(store.getSnapshot().loadedDiffs[files[0]!.filename]).toBe(diff);
+  await store.refreshPR(pr, [{ ...files[0]!, patch: "new patch" }]);
+  expect(store.getSnapshot().loadedDiffs).toEqual({});
+  expect(store.getSnapshot().files[0]!.patch).toBe("new patch");
+});
+
+test("refresh preserves a selected push version until returning to latest", async () => {
+  const store = createStore();
+  await store.setSelectedHeadSha("old-head");
+  const files = store.getSnapshot().files;
+  const latest = createMockFile("new-version.ts");
+  await store.refreshPR(createMockPR(), [latest]);
+  expect(store.getSnapshot().selectedHeadSha).toBe("old-head");
+  expect(store.getSnapshot().files).toBe(files);
+  await store.setSelectedHeadSha(null);
+  expect(store.getSnapshot().files).toEqual([latest]);
+});
+
 // Helper: run a test that expects console.error to be called (suppresses noise)
 function suppressConsoleError(fn: () => Promise<void>): () => Promise<void> {
   return async () => {
