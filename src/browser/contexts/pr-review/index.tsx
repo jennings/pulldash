@@ -41,6 +41,10 @@ import { queries } from "@/browser/lib/queries";
 import { subscribePRRefresh } from "@/browser/lib/pr-refresh-bus";
 import { setLastViewed } from "@/browser/lib/waiting-prs";
 import { markSelfActivity } from "@/browser/lib/notifications";
+import {
+  SubmittedActivityBuffer,
+  type SubmittedActivity,
+} from "@/browser/lib/submitted-activity";
 
 // ============================================================================
 // File Sorting (match file tree order)
@@ -570,6 +574,8 @@ function buildCommitVersionHistory(
 }
 
 export class PRReviewStore {
+  private submittedActivity = new SubmittedActivityBuffer();
+  private submissionVersion = 0;
   private state: PRReviewState;
   private listeners = new Set<Listener>();
   private storageKey: string;
@@ -3070,7 +3076,9 @@ export class PRReviewStore {
   }
 
   setComments = (comments: ReviewComment[]) => {
-    const rewritten = this.rewriteMetadataPaths(comments);
+    const rewritten = this.rewriteMetadataPaths(
+      this.submittedActivity.mergeComments(comments)
+    );
     const enriched = this.enrichCommentsFromThreads(
       rewritten,
       this.state.reviewThreads
@@ -3080,11 +3088,74 @@ export class PRReviewStore {
   };
 
   setReviews = (reviews: Review[]) => {
-    this.set({ reviews });
+    this.set({ reviews: this.submittedActivity.mergeReviews(reviews) });
   };
 
   setTimeline = (timeline: TimelineEvent[]) => {
-    this.set({ timeline, branchDeleted: isBranchDeleted(timeline) });
+    const merged = this.submittedActivity.mergeTimeline(timeline);
+    this.set({ timeline: merged, branchDeleted: isBranchDeleted(merged) });
+  };
+
+  publishSubmittedActivity = (activity: SubmittedActivity) => {
+    this.submissionVersion++;
+    this.submittedActivity.add(activity);
+    const reviewThreads = this.rewriteThreadPaths(
+      this.submittedActivity.mergeThreads(this.state.reviewThreads, false)
+    );
+    this.set({
+      reviews: this.submittedActivity.mergeReviews(this.state.reviews, false),
+      conversation: this.submittedActivity.mergeConversation(
+        this.state.conversation,
+        false
+      ),
+      timeline: this.submittedActivity.mergeTimeline(
+        this.state.timeline,
+        false
+      ),
+      reviewThreads,
+      comments: this.enrichCommentsFromThreads(
+        this.rewriteMetadataPaths(
+          this.submittedActivity.mergeComments(this.state.comments, false)
+        ),
+        reviewThreads
+      ),
+      overviewLoading: false,
+      loading: false,
+    });
+    this.recomputeCommentRangeLookup();
+  };
+
+  refreshSubmittedActivity = async () => {
+    const { owner, repo, pr } = this.state;
+    const version = this.submissionVersion;
+    const apply =
+      <T,>(setter: (value: T) => void) =>
+      (value: T) => {
+        if (version === this.submissionVersion) setter(value);
+      };
+    const results = await Promise.allSettled([
+      this.github
+        .getPRComments(owner, repo, pr.number)
+        .then(apply(this.setComments)),
+      this.github
+        .getPRReviews(owner, repo, pr.number)
+        .then(apply(this.setReviews)),
+      this.github
+        .getPRConversation(owner, repo, pr.number)
+        .then(apply(this.setConversation)),
+      this.github
+        .getPRTimeline(owner, repo, pr.number)
+        .then(apply(this.setTimeline)),
+      this.github
+        .getReviewThreads(owner, repo, pr.number)
+        .then((result) => result.threads)
+        .then(apply(this.setReviewThreads)),
+      this.github.getPR(owner, repo, pr.number).then(apply(this.setPr)),
+    ]);
+    for (const result of results) {
+      if (result.status === "rejected")
+        console.error("Failed to refresh submitted activity:", result.reason);
+    }
   };
 
   setPr = (pr: PullRequest) => {
@@ -3274,6 +3345,10 @@ export class PRReviewStore {
       })),
       editingCommentId: null,
     });
+    this.submittedActivity.updateLocalComments(
+      this.state.comments,
+      this.state.reviewThreads
+    );
     this.recomputeCommentRangeLookup();
   };
 
@@ -3300,6 +3375,10 @@ export class PRReviewStore {
       focusedLineSide: commentLine ? "new" : null,
       focusSource: "keyboard",
     });
+    this.submittedActivity.updateLocalComments(
+      this.state.comments,
+      this.state.reviewThreads
+    );
     this.recomputeCommentRangeLookup();
   };
 
@@ -3349,6 +3428,10 @@ export class PRReviewStore {
       }),
       replyingToCommentId: null,
     });
+    this.submittedActivity.updateLocalComments(
+      this.state.comments,
+      this.state.reviewThreads
+    );
     this.recomputeCommentRangeLookup();
   };
 
@@ -3667,6 +3750,7 @@ export class PRReviewStore {
    */
   loadPRData = async (): Promise<void> => {
     const { owner, repo, pr } = this.state;
+    const submissionVersion = this.submissionVersion;
     this.loadOverviewData(owner, repo, pr.number);
 
     try {
@@ -3709,9 +3793,12 @@ export class PRReviewStore {
         }));
 
       this.baseCommits = commitsData;
-      const rewrittenThreads = this.rewriteThreadPaths(
-        reviewThreadsResult.threads
-      );
+      const rewrittenThreads =
+        submissionVersion !== this.submissionVersion
+          ? this.state.reviewThreads
+          : this.rewriteThreadPaths(
+              this.submittedActivity.mergeThreads(reviewThreadsResult.threads)
+            );
       this.set({
         checks: checksData,
         checksLastUpdated: new Date(),
@@ -3772,6 +3859,7 @@ export class PRReviewStore {
     prNumber: number,
     opts?: { force?: boolean }
   ): Promise<void> => {
+    const submissionVersion = this.submissionVersion;
     try {
       const [reviewsData, conversationData, timelineData] = await Promise.all([
         this.github
@@ -3784,6 +3872,7 @@ export class PRReviewStore {
           .getPRTimeline(owner, repo, prNumber)
           .catch(() => [] as TimelineEvent[]),
       ]);
+      if (submissionVersion !== this.submissionVersion) return;
 
       // Batch-fetch checks for force-push commits in the timeline
       const forcePushShas = (
@@ -3802,9 +3891,10 @@ export class PRReviewStore {
       if (!opts?.force && !this.state.overviewLoading) return;
 
       this.set({
-        reviews: reviewsData,
-        conversation: conversationData,
-        timeline: timelineData,
+        reviews: this.submittedActivity.mergeReviews(reviewsData),
+        conversation:
+          this.submittedActivity.mergeConversation(conversationData),
+        timeline: this.submittedActivity.mergeTimeline(timelineData),
         branchDeleted: isBranchDeleted(timelineData),
         overviewLoading: false,
       });
@@ -4482,7 +4572,9 @@ export class PRReviewStore {
   // ---------------------------------------------------------------------------
 
   setConversation = (conversation: IssueComment[]) => {
-    this.set({ conversation });
+    this.set({
+      conversation: this.submittedActivity.mergeConversation(conversation),
+    });
   };
 
   addConversationComment = (comment: IssueComment) => {
@@ -4518,7 +4610,9 @@ export class PRReviewStore {
   }
 
   setReviewThreads = (threads: ReviewThread[]) => {
-    const rewritten = this.rewriteThreadPaths(threads);
+    const rewritten = this.rewriteThreadPaths(
+      this.submittedActivity.mergeThreads(threads)
+    );
     const enrichedComments = this.enrichCommentsFromThreads(
       this.state.comments,
       rewritten
@@ -4539,6 +4633,10 @@ export class PRReviewStore {
       updatedThreads
     );
     this.set({ reviewThreads: updatedThreads, comments: enrichedComments });
+    this.submittedActivity.updateLocalComments(
+      this.state.comments,
+      this.state.reviewThreads
+    );
     this.recomputeCommentRangeLookup();
   };
 }

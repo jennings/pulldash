@@ -1,6 +1,7 @@
 import React, {
   useState,
   useEffect,
+  useLayoutEffect,
   useCallback,
   memo,
   useMemo,
@@ -117,6 +118,7 @@ import {
 import { IssueHoverCard } from "../ui/issue-hover-card";
 import { buildMetadataLines } from "../contexts/pr-review/useCurrentDiff";
 import { buildOverviewTimeline } from "../lib/overview-timeline";
+import { scrollToTimelineTarget } from "../lib/timeline-scroll";
 
 // ============================================================================
 // Types
@@ -326,28 +328,15 @@ export const PROverview = memo(function PROverview() {
   const overviewScrollTarget = usePRReviewSelector(
     (s) => s.overviewScrollTarget
   );
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!overviewScrollTarget) return;
-
-    // Small delay to ensure the element is rendered
-    const timer = setTimeout(() => {
-      const element = document.getElementById(overviewScrollTarget);
-      if (element) {
-        element.scrollIntoView({ behavior: "smooth", block: "start" });
-        // Flash highlight effect
-        element.classList.add("ring-2", "ring-blue-500/50");
-        setTimeout(() => {
-          element.classList.remove("ring-2", "ring-blue-500/50");
-        }, 2000);
-        store.clearOverviewScrollTarget();
-      } else if (!loading && !overviewLoading) {
-        // Data is fully loaded but element wasn't found — give up
-        store.clearOverviewScrollTarget();
-      }
-      // If still loading, keep the target — effect re-runs when loading finishes
-    }, 100);
-
-    return () => clearTimeout(timer);
+    const root = overviewRef.current;
+    if (!root) return;
+    return scrollToTimelineTarget(
+      root,
+      overviewScrollTarget,
+      store.clearOverviewScrollTarget
+    );
   }, [overviewScrollTarget, store, loading, overviewLoading]);
 
   // Manual refresh handler
@@ -3625,6 +3614,11 @@ function ReviewThreadBox({
           return (
             <div
               key={comment.id}
+              id={
+                comment.databaseId
+                  ? `discussion_r${comment.databaseId}`
+                  : undefined
+              }
               className={cn(
                 "p-4",
                 idx < comments.length - 1 && "border-b border-border"

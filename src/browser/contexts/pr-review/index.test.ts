@@ -1,5 +1,10 @@
 import { test, expect, beforeEach, mock } from "bun:test";
-import type { PullRequest, PullRequestFile, ReviewComment } from "@/api/types";
+import type {
+  PullRequest,
+  PullRequestFile,
+  ReviewComment,
+  Review,
+} from "@/api/types";
 import {
   PRReviewStore,
   sortFilesLikeTree,
@@ -231,6 +236,63 @@ test("overview requests start before checks finish", async () => {
   finishChecks(checks);
   await loading;
   expect(store.getSnapshot().loading).toBe(false);
+});
+
+test("pre-submission fetches cannot remove accepted activity after reconciliation", async () => {
+  const github = createMockGitHubStore();
+  const oldThreads =
+    Promise.withResolvers<
+      Awaited<ReturnType<GitHubStore["getReviewThreads"]>>
+    >();
+  const emptyResult = await github.getReviewThreads("test", "repo", 1);
+  github.getReviewThreads = () => oldThreads.promise;
+  const store = new PRReviewStore(github, {
+    pr: createMockPR(),
+    files: [],
+    comments: [],
+    owner: "test",
+    repo: "repo",
+    viewerPermission: "WRITE",
+  });
+  const loading = store.loadPRData();
+  const thread: ReviewThread = {
+    id: "accepted-thread",
+    isResolved: false,
+    isOutdated: false,
+    resolvedBy: null,
+    pullRequestReview: { databaseId: 42, author: null },
+    comments: {
+      nodes: [
+        {
+          id: "node",
+          databaseId: 11,
+          body: "Accepted",
+          path: "a.ts",
+          line: 1,
+          originalLine: 1,
+          startLine: null,
+          diffHunk: null,
+          author: null,
+          createdAt: "2026-01-02",
+          updatedAt: "2026-01-02",
+          replyTo: null,
+        },
+      ],
+    },
+  };
+  const review = {
+    id: 42,
+    body: "Accepted summary",
+    state: "COMMENTED",
+    submitted_at: "2026-01-02",
+  } as Review;
+  store.publishSubmittedActivity({ reviews: [review], threads: [thread] });
+  store.setReviews([review]);
+  store.setReviewThreads([thread]);
+  oldThreads.resolve(emptyResult);
+  await loading;
+  expect(store.getSnapshot().reviewThreads).toEqual([thread]);
+  expect(store.getSnapshot().reviews).toEqual([review]);
 });
 
 // Helper: run a test that expects console.error to be called (suppresses noise)

@@ -2461,6 +2461,7 @@ function createGitHubStore() {
     state: string;
     submittedAt: string | null;
     viewerDidAuthor: boolean;
+    body: string;
   } | null> {
     if (!batcher) throw new Error("Not initialized");
     const data = await batcher.query<{
@@ -2470,6 +2471,7 @@ function createGitHubStore() {
         state: string;
         submittedAt: string | null;
         viewerDidAuthor: boolean;
+        body: string;
       } | null;
     }>(
       `query ($id: ID!) {
@@ -2480,6 +2482,7 @@ function createGitHubStore() {
             state
             submittedAt
             viewerDidAuthor
+            body
           }
         }
       }`,
