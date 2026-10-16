@@ -64,6 +64,113 @@ test("single commit cache retains files alongside parent metadata", async () => 
   }
 });
 
+test("PR commits and comparison commits include subsequent pages", async () => {
+  const calls: Array<Record<string, unknown>> = [];
+  setOctokit({
+    request: async (route: string, params: Record<string, unknown>) => {
+      calls.push(params);
+      const commits = Array.from(
+        { length: params.page === 1 ? 100 : 1 },
+        (_, i) => ({ sha: `${params.page}-${i}` })
+      );
+      return {
+        data: route.includes("compare")
+          ? {
+              commits,
+              total_commits: 101,
+              files:
+                params.page === 1 ? [{ filename: "first-page.ts" }] : undefined,
+            }
+          : commits,
+      };
+    },
+  } as never);
+  const context = {
+    signal: new AbortController().signal,
+    meta: undefined,
+  } as never;
+  const commits = await queries.pullRequestCommits("o", "r", 1).queryFn!(
+    context
+  );
+  const comparison = await queries.comparison(
+    "pagination-test",
+    "r",
+    "base",
+    "head"
+  ).queryFn!(context);
+  expect(commits).toHaveLength(101);
+  expect(comparison.commits).toHaveLength(101);
+  expect(comparison.files[0]?.filename).toBe("first-page.ts");
+  expect(calls.map((call) => call.page)).toEqual([1, 2, 1, 2]);
+});
+
+test("review threads paginate both the thread list and nested replies", async () => {
+  const calls: Array<Record<string, unknown>> = [];
+  const pageInfo = (next: boolean) => ({
+    hasNextPage: next,
+    endCursor: next ? "next" : null,
+  });
+  const comment = (id: number) => ({
+    databaseId: id,
+    body: `comment ${id}`,
+    pullRequestReview: { databaseId: 1, author: null },
+  });
+  const thread = (id: number) => ({
+    id: `thread-${id}`,
+    comments: {
+      nodes:
+        id === 0
+          ? Array.from({ length: 100 }, (_, i) => comment(i))
+          : [comment(id)],
+      pageInfo: pageInfo(id === 0),
+    },
+  });
+  setOctokit({
+    graphql: async (query: string, params: Record<string, unknown>) => {
+      calls.push(params);
+      if (query.includes("$id:"))
+        return {
+          node: {
+            comments: { nodes: [comment(100)], pageInfo: pageInfo(false) },
+          },
+        };
+      return {
+        repository: {
+          viewerPermission: "WRITE",
+          mergeCommitAllowed: true,
+          squashMergeAllowed: true,
+          rebaseMergeAllowed: true,
+          mergeQueue: null,
+          pullRequest: {
+            viewerCanMergeAsAdmin: false,
+            isInMergeQueue: false,
+            baseRef: null,
+            reviewThreads: {
+              nodes: params.after
+                ? [thread(101)]
+                : Array.from({ length: 100 }, (_, i) => thread(i)),
+              pageInfo: pageInfo(!params.after),
+            },
+          },
+        },
+      };
+    },
+  } as never);
+  const result = await queries.reviewThreads("o", "r", 1).queryFn!({
+    signal: new AbortController().signal,
+    meta: undefined,
+  } as never);
+  expect(result.threads).toHaveLength(101);
+  expect(result.threads[0]!.comments.nodes).toHaveLength(101);
+  expect(result.threads[0]!.comments.nodes.at(-1)!.databaseId).toBe(100);
+  expect(result.threads[0]!.pullRequestReview?.databaseId).toBe(1);
+  expect(calls.map((call) => [call.after, call.id])).toEqual([
+    [null, undefined],
+    ["next", undefined],
+    ["next", "thread-0"],
+  ]);
+});
+
 test("pullRequestReviews paginates until a partial page", async () => {
   const page = (n: number) => Array.from({ length: n }, (_, i) => review(i));
   const calls: Array<Record<string, unknown>> = [];

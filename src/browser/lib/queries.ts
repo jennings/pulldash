@@ -62,6 +62,14 @@ function toCurrentUserData(user: AnyUser): CurrentUserData {
   };
 }
 
+const reviewCommentFields = `
+  id databaseId body bodyHTML path line originalLine startLine
+  originalCommit { oid }
+  diffHunk author { login avatarUrl } createdAt updatedAt
+  replyTo { databaseId }
+  pullRequestReview { databaseId author { login avatarUrl } }
+`;
+
 export const queries = {
   currentUser: () =>
     queryOptions({
@@ -318,17 +326,22 @@ export const queries = {
     queryOptions({
       queryKey: ["pull-request", owner, repo, number, "commits"],
       queryFn: async ({ signal }) => {
-        const res = await getOctokit().request(
-          "GET /repos/{owner}/{repo}/pulls/{pull_number}/commits",
-          {
-            owner,
-            repo,
-            pull_number: number,
-            per_page: 100,
-            request: { signal },
-          }
-        );
-        return res.data as components["schemas"]["commit"][];
+        const commits: PRCommit[] = [];
+        for (let page = 1; ; page++) {
+          const res = await getOctokit().request(
+            "GET /repos/{owner}/{repo}/pulls/{pull_number}/commits",
+            {
+              owner,
+              repo,
+              pull_number: number,
+              per_page: 100,
+              page,
+              request: { signal },
+            }
+          );
+          commits.push(...res.data);
+          if (res.data.length < 100) return commits;
+        }
       },
       staleTime: 30_000,
     }),
@@ -594,12 +607,14 @@ export const queries = {
     queryOptions({
       queryKey: ["pull-request", owner, repo, number, "review-threads"],
       queryFn: async ({ signal }) => {
+        type PageInfo = { hasNextPage: boolean; endCursor: string | null };
         interface RawReviewThread {
           id: string;
           isResolved: boolean;
           isOutdated: boolean;
           resolvedBy: { login: string; avatarUrl: string } | null;
           comments: {
+            pageInfo: PageInfo;
             nodes: Array<{
               id: string;
               databaseId: number;
@@ -622,33 +637,34 @@ export const queries = {
             }>;
           };
         }
-        const data = await getOctokit().graphql<{
-          repository: {
-            viewerPermission: string | null;
-            mergeCommitAllowed: boolean;
-            squashMergeAllowed: boolean;
-            rebaseMergeAllowed: boolean;
-            mergeQueue: { id: string } | null;
-            pullRequest: {
-              viewerCanMergeAsAdmin: boolean;
-              isInMergeQueue: boolean;
-              baseRef: {
-                rules: {
-                  nodes: Array<{
-                    type: string;
-                    parameters: {
-                      __typename: string;
-                      allowedMergeMethods?: string[];
-                    } | null;
-                  }>;
-                };
-              } | null;
-              reviewThreads: { nodes: RawReviewThread[] };
+        const fetchPage = (after: string | null) =>
+          getOctokit().graphql<{
+            repository: {
+              viewerPermission: string | null;
+              mergeCommitAllowed: boolean;
+              squashMergeAllowed: boolean;
+              rebaseMergeAllowed: boolean;
+              mergeQueue: { id: string } | null;
+              pullRequest: {
+                viewerCanMergeAsAdmin: boolean;
+                isInMergeQueue: boolean;
+                baseRef: {
+                  rules: {
+                    nodes: Array<{
+                      type: string;
+                      parameters: {
+                        __typename: string;
+                        allowedMergeMethods?: string[];
+                      } | null;
+                    }>;
+                  };
+                } | null;
+                reviewThreads: { nodes: RawReviewThread[]; pageInfo: PageInfo };
+              };
             };
-          };
-        }>(
-          `
-          query ($owner: String!, $repo: String!, $number: Int!) {
+          }>(
+            `
+          query ($owner: String!, $repo: String!, $number: Int!, $after: String) {
             repository(owner: $owner, name: $repo) {
               viewerPermission
               mergeCommitAllowed
@@ -673,32 +689,17 @@ export const queries = {
                     }
                   }
                 }
-                reviewThreads(first: 100) {
+                reviewThreads(first: 100, after: $after) {
+                  pageInfo { hasNextPage endCursor }
                   nodes {
                     id
                     isResolved
                     isOutdated
                     resolvedBy { login avatarUrl }
                     comments(first: 100) {
+                      pageInfo { hasNextPage endCursor }
                       nodes {
-                        id
-                        databaseId
-                        body
-                        bodyHTML
-                        path
-                        line
-                        originalLine
-                        startLine
-                        originalCommit { oid }
-                        diffHunk
-                        author { login avatarUrl }
-                        createdAt
-                        updatedAt
-                        replyTo { databaseId }
-                        pullRequestReview {
-                          databaseId
-                          author { login avatarUrl }
-                        }
+                        ${reviewCommentFields}
                       }
                     }
                   }
@@ -707,16 +708,49 @@ export const queries = {
             }
           }
         `,
-          { owner, repo, number, request: { signal } }
+            { owner, repo, number, after, request: { signal } }
+          );
+        const data = await fetchPage(null);
+        let connection = data.repository.pullRequest.reviewThreads;
+        const rawThreads = [...connection.nodes];
+        while (connection.pageInfo.hasNextPage) {
+          connection = (await fetchPage(connection.pageInfo.endCursor))
+            .repository.pullRequest.reviewThreads;
+          rawThreads.push(...connection.nodes);
+        }
+        await Promise.all(
+          rawThreads.map(async (thread) => {
+            let comments = thread.comments;
+            while (comments.pageInfo.hasNextPage) {
+              const next = await getOctokit().graphql<{
+                node: { comments: RawReviewThread["comments"] };
+              }>(
+                `query ($id: ID!, $after: String) {
+                node(id: $id) { ... on PullRequestReviewThread {
+                  comments(first: 100, after: $after) {
+                    pageInfo { hasNextPage endCursor }
+                    nodes { ${reviewCommentFields} }
+                  }
+                } }
+              }`,
+                {
+                  id: thread.id,
+                  after: comments.pageInfo.endCursor,
+                  request: { signal },
+                }
+              );
+              comments = next.node.comments;
+              thread.comments.nodes.push(...comments.nodes);
+            }
+          })
         );
-        const threads: ReviewThread[] =
-          data.repository.pullRequest.reviewThreads.nodes.map((thread) => {
-            const firstComment = thread.comments.nodes[0];
-            return {
-              ...thread,
-              pullRequestReview: firstComment?.pullRequestReview ?? null,
-            };
-          });
+        const threads: ReviewThread[] = rawThreads.map((thread) => {
+          const firstComment = thread.comments.nodes[0];
+          return {
+            ...thread,
+            pullRequestReview: firstComment?.pullRequestReview ?? null,
+          };
+        });
         // Branch rulesets can restrict which merge methods are permitted on
         // the base branch. If any PULL_REQUEST rule specifies a non-empty
         // allowedMergeMethods list, intersect with the repo-level flags.
@@ -921,24 +955,30 @@ export const queries = {
     queryOptions({
       queryKey: ["comparison", owner, repo, baseSha, headSha],
       queryFn: async ({ signal }) => {
-        const key = `compare:${owner}/${repo}/${baseSha}...${headSha}:response`;
+        const key = `compare:${owner}/${repo}/${baseSha}...${headSha}:response-v2`;
         type Comparison = { files: PullRequestFile[]; commits: PRCommit[] };
         const cached = await PersistentCache.get<Comparison>(key);
         if (cached) return cached;
-        const { data } = await getOctokit().request(
-          "GET /repos/{owner}/{repo}/compare/{basehead}",
-          {
-            owner,
-            repo,
-            basehead: `${baseSha}...${headSha}`,
-            per_page: 100,
-            request: { signal },
-          }
-        );
-        const comparison = {
-          files: (data.files ?? []) as PullRequestFile[],
-          commits: data.commits as PRCommit[],
-        };
+        const commits: PRCommit[] = [];
+        let files: PullRequestFile[] = [];
+        for (let page = 1; ; page++) {
+          const { data } = await getOctokit().request(
+            "GET /repos/{owner}/{repo}/compare/{basehead}",
+            {
+              owner,
+              repo,
+              basehead: `${baseSha}...${headSha}`,
+              per_page: 100,
+              page,
+              request: { signal },
+            }
+          );
+          if (page === 1) files = (data.files ?? []) as PullRequestFile[];
+          commits.push(...data.commits);
+          if (data.commits.length < 100 || commits.length >= data.total_commits)
+            break;
+        }
+        const comparison = { files, commits };
         if (prKey) await PersistentCache.put(key, comparison, prKey);
         return comparison;
       },
