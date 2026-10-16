@@ -101,6 +101,7 @@ import {
 } from "../contexts/pr-review";
 import { getTimeAgo } from "../lib/dates";
 import { TimeAgo } from "../ui/time-ago";
+import { useDraft } from "../hooks/use-draft";
 import {
   stripCommitMetadataPrefix,
   isMetadataComment,
@@ -4633,16 +4634,11 @@ const CommentThread = memo(function CommentThread({
   editingCommentId,
   replyingToCommentId,
 }: CommentThreadProps) {
-  const store = usePRReviewStore();
   const canWrite = useCanWrite();
   const owner = usePRReviewSelector((s) => s.owner);
   const repo = usePRReviewSelector((s) => s.repo);
-  const { replyToComment, updateComment, deleteComment } = useCommentActions();
+  const { updateComment, deleteComment } = useCommentActions();
   const { resolveThread, unresolveThread } = useThreadActions();
-  const [replyText, setReplyText] = useState(
-    () => store.getSnapshot().replyDrafts[comments[0]?.id ?? -1] ?? ""
-  );
-  const [submitting, setSubmitting] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [resolving, setResolving] = useState(false);
 
@@ -4654,56 +4650,6 @@ const CommentThread = memo(function CommentThread({
   const isResolved = firstComment?.is_resolved ?? false;
   const isOutdated = firstComment?.outdated ?? false;
   const threadId = firstComment?.pull_request_review_thread_id;
-
-  const draftCommentId = firstComment?.id ?? null;
-
-  const handleReplyChange = useCallback(
-    (value: string) => {
-      setReplyText(value);
-      if (draftCommentId == null) return;
-      if (value.trim()) {
-        store.setReplyDraft(draftCommentId, value);
-      } else {
-        store.clearReplyDraft(draftCommentId);
-      }
-    },
-    [draftCommentId, store]
-  );
-
-  const handleSubmitReply = useCallback(async () => {
-    if (!replyText.trim() || !replyingTo) return;
-
-    setSubmitting(true);
-    try {
-      await replyToComment(replyingTo, replyText.trim());
-      setReplyText("");
-      if (draftCommentId != null) store.clearReplyDraft(draftCommentId);
-    } finally {
-      setSubmitting(false);
-    }
-  }, [replyText, replyingTo, replyToComment, draftCommentId, store]);
-
-  // Esc just closes the editor; the draft stays in the store so reopening
-  // the reply box restores the text. The Cancel button discards explicitly.
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-        e.preventDefault();
-        handleSubmitReply();
-      }
-      if (e.key === "Escape") {
-        e.preventDefault();
-        store.cancelReplying();
-      }
-    },
-    [handleSubmitReply, store]
-  );
-
-  const handleCancel = useCallback(() => {
-    if (draftCommentId != null) store.clearReplyDraft(draftCommentId);
-    setReplyText("");
-    store.cancelReplying();
-  }, [store, draftCommentId]);
 
   const handleResolve = useCallback(async () => {
     if (!threadId) return;
@@ -4870,37 +4816,89 @@ const CommentThread = memo(function CommentThread({
             />
           ))}
 
-          {canWrite && replyingTo && (
-            <div className="px-4 py-3 border-t border-border/50">
-              <MarkdownEditor
-                value={replyText}
-                onChange={handleReplyChange}
-                onKeyDown={handleKeyDown}
-                placeholder="Write a reply..."
-                minHeight="60px"
-                autoFocus
-              />
-              <div className="flex justify-end gap-2 mt-3">
-                <button
-                  onClick={handleCancel}
-                  title="Discard draft"
-                  className="px-3 py-1.5 text-sm rounded-md hover:bg-muted transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleSubmitReply}
-                  disabled={!replyText.trim() || submitting}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
-                >
-                  <Send className="w-3.5 h-3.5" />
-                  Reply
-                </button>
-              </div>
-            </div>
+          {canWrite && replyingTo && firstComment && (
+            <DiffReplyComposer
+              key={firstComment.id}
+              commentId={firstComment.id}
+              replyingTo={replyingTo}
+            />
           )}
         </>
       )}
+    </div>
+  );
+});
+
+const DiffReplyComposer = memo(function DiffReplyComposer({
+  commentId,
+  replyingTo,
+}: {
+  commentId: number;
+  replyingTo: number;
+}) {
+  const store = usePRReviewStore();
+  const { replyToComment } = useCommentActions();
+  const saved = usePRReviewSelector((s) => s.replyDrafts[commentId] ?? "");
+  const [body, setBody, flush] = useDraft(saved, (value) => {
+    if (value.trim()) store.setReplyDraft(commentId, value);
+    else store.clearReplyDraft(commentId);
+  });
+  const [submitting, setSubmitting] = useState(false);
+  const submit = async () => {
+    if (submitting || !body.trim()) return;
+    flush();
+    setSubmitting(true);
+    try {
+      await replyToComment(replyingTo, body.trim());
+      setBody("");
+      store.clearReplyDraft(commentId);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+  return (
+    <div className="px-4 py-3 border-t border-border/50" onBlurCapture={flush}>
+      <MarkdownEditor
+        value={body}
+        onChange={setBody}
+        onKeyDown={(e) => {
+          if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+            e.preventDefault();
+            void submit();
+          }
+          if (e.key === "Escape") {
+            e.preventDefault();
+            flush();
+            store.cancelReplying();
+          }
+        }}
+        placeholder="Write a reply..."
+        minHeight="60px"
+        autoFocus
+        disabled={submitting}
+      />
+      <div className="flex justify-end gap-2 mt-3">
+        <button
+          onClick={() => {
+            setBody("");
+            flush();
+            store.cancelReplying();
+          }}
+          disabled={submitting}
+          title="Discard draft"
+          className="px-3 py-1.5 text-sm rounded-md hover:bg-muted transition-colors"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={submit}
+          disabled={!body.trim() || submitting}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+        >
+          <Send className="w-3.5 h-3.5" />
+          Reply
+        </button>
+      </div>
     </div>
   );
 });
@@ -5405,11 +5403,21 @@ const PendingCommentItem = memo(function PendingCommentItem({
 
 const SubmitReviewDropdown = memo(function SubmitReviewDropdown() {
   const store = usePRReviewStore();
-  const { submitReview } = useReviewActions();
+  const { submitReview: submitStoredReview } = useReviewActions();
   const { removePendingComment } = useCommentActions();
 
   const pendingComments = usePRReviewSelector((s) => s.pendingComments);
-  const reviewBody = usePRReviewSelector((s) => s.reviewBody);
+  const reviewBodyRef = useRef<{ flush: () => void }>(null);
+  const [hasReviewBody, setHasReviewBody] = useState(
+    () => !!store.getSnapshot().reviewBody.trim()
+  );
+  const submitReview = useCallback(
+    (event: "COMMENT" | "APPROVE" | "REQUEST_CHANGES") => {
+      reviewBodyRef.current?.flush();
+      return submitStoredReview(event);
+    },
+    [submitStoredReview]
+  );
   const submitting = usePRReviewSelector((s) => s.submittingReview);
   const pr = usePRReviewSelector((s) => s.pr);
   const currentUser = usePRReviewSelector((s) => s.currentUser);
@@ -5496,11 +5504,7 @@ const SubmitReviewDropdown = memo(function SubmitReviewDropdown() {
         // Check if submit is allowed
         const canSubmit =
           !submitting &&
-          !(
-            reviewType === "COMMENT" &&
-            pendingCount === 0 &&
-            !reviewBody.trim()
-          );
+          !(reviewType === "COMMENT" && pendingCount === 0 && !hasReviewBody);
         if (canSubmit) {
           handleSubmit();
         }
@@ -5509,7 +5513,14 @@ const SubmitReviewDropdown = memo(function SubmitReviewDropdown() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, submitting, reviewType, pendingCount, reviewBody, handleSubmit]);
+  }, [
+    isOpen,
+    submitting,
+    reviewType,
+    pendingCount,
+    hasReviewBody,
+    handleSubmit,
+  ]);
 
   const handleJumpToComment = useCallback(
     (comment: LocalPendingComment) => {
@@ -5584,11 +5595,9 @@ const SubmitReviewDropdown = memo(function SubmitReviewDropdown() {
 
         {/* Review body */}
         <div className="p-3" onClick={(e) => e.stopPropagation()}>
-          <MarkdownEditor
-            value={reviewBody}
-            onChange={(v) => store.setReviewBody(v)}
-            placeholder="Leave a comment"
-            minHeight="80px"
+          <ReviewBodyEditor
+            ref={reviewBodyRef}
+            onHasBodyChange={setHasReviewBody}
             autoFocus={openedViaKeyboard}
           />
         </div>
@@ -5777,9 +5786,7 @@ const SubmitReviewDropdown = memo(function SubmitReviewDropdown() {
             }}
             disabled={
               submitting ||
-              (reviewType === "COMMENT" &&
-                pendingCount === 0 &&
-                !reviewBody.trim())
+              (reviewType === "COMMENT" && pendingCount === 0 && !hasReviewBody)
             }
             className={cn(
               "flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded-md transition-colors disabled:opacity-50",
@@ -5805,6 +5812,36 @@ const SubmitReviewDropdown = memo(function SubmitReviewDropdown() {
         </div>
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+});
+
+const ReviewBodyEditor = memo(function ReviewBodyEditor({
+  ref,
+  onHasBodyChange,
+  autoFocus,
+}: {
+  ref: React.Ref<{ flush: () => void }>;
+  onHasBodyChange: (hasBody: boolean) => void;
+  autoFocus: boolean;
+}) {
+  const store = usePRReviewStore();
+  const saved = usePRReviewSelector((s) => s.reviewBody);
+  const submitting = usePRReviewSelector((s) => s.submittingReview);
+  const [body, setBody, flush] = useDraft(saved, store.setReviewBody);
+  React.useImperativeHandle(ref, () => ({ flush }), [flush]);
+  const hasBody = !!body.trim();
+  useEffect(() => onHasBodyChange(hasBody), [hasBody, onHasBodyChange]);
+  return (
+    <div onBlurCapture={flush}>
+      <MarkdownEditor
+        value={body}
+        onChange={setBody}
+        placeholder="Leave a comment"
+        minHeight="80px"
+        autoFocus={autoFocus}
+        disabled={submitting}
+      />
+    </div>
   );
 });
 

@@ -3175,8 +3175,7 @@ function ReviewThreadBox({
   onEditComment?: (commentId: number, body: string) => Promise<void>;
   onDeleteComment?: (commentId: number) => Promise<void>;
 }) {
-  const [replyText, setReplyText] = useState("");
-  const [submitting, setSubmitting] = useState(false);
+  const [replyQuote, setReplyQuote] = useState({ body: "" });
   const [resolving, setResolving] = useState(false);
   const [showReplyBox, setShowReplyBox] = useState(false);
   const [showResolved, setShowResolved] = useState(false);
@@ -3325,7 +3324,7 @@ function ReviewThreadBox({
         .split("\n")
         .map((line) => `> ${line}`)
         .join("\n") + "\n\n";
-    setReplyText(quoted);
+    setReplyQuote({ body: quoted });
     setShowReplyBox(true);
   }, []);
 
@@ -3358,29 +3357,15 @@ function ReviewThreadBox({
     );
   }
 
-  const handleSubmitReply = async () => {
-    if (!onReply || submitting || !replyText.trim()) return;
-    setSubmitting(true);
-    try {
-      const lastComment = comments[comments.length - 1];
-      await onReply(thread.id, lastComment.databaseId, replyText.trim());
-      setReplyText("");
-      setShowReplyBox(false);
-    } finally {
-      setSubmitting(false);
-    }
+  const closeReply = () => {
+    setShowReplyBox(false);
+    setReplyQuote({ body: "" });
   };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-      e.preventDefault();
-      handleSubmitReply();
-    }
-    if (e.key === "Escape") {
-      e.preventDefault();
-      setShowReplyBox(false);
-      setReplyText("");
-    }
+  const handleSubmitReply = async (body: string) => {
+    if (!onReply) return;
+    const lastComment = comments[comments.length - 1];
+    await onReply(thread.id, lastComment.databaseId, body);
+    closeReply();
   };
 
   return (
@@ -3718,83 +3703,47 @@ function ReviewThreadBox({
       {canWrite && (
         <div className="p-4 bg-card/30 border-t border-border">
           {showReplyBox ? (
-            <div className="space-y-3">
-              <div className="flex items-start gap-3">
-                {currentUser && (
-                  <img
-                    src={`https://avatars.githubusercontent.com/${currentUser}`}
-                    alt={currentUser}
-                    className="w-6 h-6 rounded-full shrink-0 mt-1"
-                  />
-                )}
-                <div className="flex-1">
-                  <MarkdownEditor
-                    value={replyText}
-                    onChange={setReplyText}
-                    onKeyDown={handleKeyDown}
-                    placeholder="Write a reply..."
-                    minHeight="80px"
-                    autoFocus
-                  />
-                </div>
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  {canResolveThread && !thread.isResolved && (
-                    <button
-                      onClick={async () => {
-                        if (!onResolve || resolving) return;
-                        setResolving(true);
-                        try {
-                          await onResolve(thread.id);
-                        } finally {
-                          setResolving(false);
-                        }
-                      }}
-                      disabled={resolving}
-                      className="text-xs text-muted-foreground hover:text-foreground px-2 py-1.5 rounded border border-border hover:bg-muted disabled:opacity-50"
-                    >
-                      {resolving ? "..." : "Resolve conversation"}
-                    </button>
-                  )}
-                  {canResolveThread && thread.isResolved && (
-                    <button
-                      onClick={async () => {
-                        if (!onUnresolve || resolving) return;
-                        setResolving(true);
-                        try {
-                          await onUnresolve(thread.id);
-                        } finally {
-                          setResolving(false);
-                        }
-                      }}
-                      disabled={resolving}
-                      className="text-xs text-muted-foreground hover:text-foreground px-2 py-1.5 rounded border border-border hover:bg-muted disabled:opacity-50"
-                    >
-                      {resolving ? "..." : "Unresolve"}
-                    </button>
-                  )}
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => {
-                      setShowReplyBox(false);
-                      setReplyText("");
-                    }}
-                    className="px-3 py-1.5 text-sm rounded-md hover:bg-muted transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleSubmitReply}
-                    disabled={!replyText.trim() || submitting}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md bg-green-600 text-white hover:bg-green-700 transition-colors disabled:opacity-50"
-                  >
-                    {submitting ? "Sending..." : "Reply"}
-                  </button>
-                </div>
-              </div>
-            </div>
+            <ThreadReplyComposer
+              quote={replyQuote}
+              currentUser={currentUser}
+              onSubmit={handleSubmitReply}
+              onClose={closeReply}
+            >
+              {canResolveThread && !thread.isResolved && (
+                <button
+                  onClick={async () => {
+                    if (!onResolve || resolving) return;
+                    setResolving(true);
+                    try {
+                      await onResolve(thread.id);
+                    } finally {
+                      setResolving(false);
+                    }
+                  }}
+                  disabled={resolving}
+                  className="text-xs text-muted-foreground hover:text-foreground px-2 py-1.5 rounded border border-border hover:bg-muted disabled:opacity-50"
+                >
+                  {resolving ? "..." : "Resolve conversation"}
+                </button>
+              )}
+              {canResolveThread && thread.isResolved && (
+                <button
+                  onClick={async () => {
+                    if (!onUnresolve || resolving) return;
+                    setResolving(true);
+                    try {
+                      await onUnresolve(thread.id);
+                    } finally {
+                      setResolving(false);
+                    }
+                  }}
+                  disabled={resolving}
+                  className="text-xs text-muted-foreground hover:text-foreground px-2 py-1.5 rounded border border-border hover:bg-muted disabled:opacity-50"
+                >
+                  {resolving ? "..." : "Unresolve"}
+                </button>
+              )}
+            </ThreadReplyComposer>
           ) : (
             <div className="flex items-center gap-3">
               {currentUser && (
@@ -3855,6 +3804,85 @@ function ReviewThreadBox({
 // ============================================================================
 // Merge Section Component
 // ============================================================================
+
+function ThreadReplyComposer({
+  quote,
+  currentUser,
+  onSubmit,
+  onClose,
+  children,
+}: {
+  quote: { body: string };
+  currentUser?: string | null;
+  onSubmit: (body: string) => Promise<void>;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  const [body, setBody] = useState(quote.body);
+  const [submitting, setSubmitting] = useState(false);
+  useEffect(() => setBody(quote.body), [quote]);
+  const submit = async () => {
+    if (submitting || !body.trim()) return;
+    setSubmitting(true);
+    try {
+      await onSubmit(body.trim());
+    } finally {
+      setSubmitting(false);
+    }
+  };
+  return (
+    <div className="space-y-3">
+      <div className="flex items-start gap-3">
+        {currentUser && (
+          <img
+            src={`https://avatars.githubusercontent.com/${currentUser}`}
+            alt={currentUser}
+            className="w-6 h-6 rounded-full shrink-0 mt-1"
+          />
+        )}
+        <div className="flex-1">
+          <MarkdownEditor
+            value={body}
+            onChange={setBody}
+            onKeyDown={(e) => {
+              if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                e.preventDefault();
+                void submit();
+              }
+              if (e.key === "Escape") {
+                e.preventDefault();
+                if (!submitting) onClose();
+              }
+            }}
+            placeholder="Write a reply..."
+            minHeight="80px"
+            autoFocus
+            disabled={submitting}
+          />
+        </div>
+      </div>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">{children}</div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onClose}
+            disabled={submitting}
+            className="px-3 py-1.5 text-sm rounded-md hover:bg-muted transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={submit}
+            disabled={!body.trim() || submitting}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md bg-green-600 text-white hover:bg-green-700 transition-colors disabled:opacity-50"
+          >
+            {submitting ? "Sending..." : "Reply"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function MergeSection({
   pr,
