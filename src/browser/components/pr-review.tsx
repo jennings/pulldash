@@ -2511,13 +2511,17 @@ const DiffViewer = memo(function DiffViewer({
     [virtualRows, commentsHidden, wordWrap]
   );
 
+  const getItemKey = useCallback(
+    (index: number) => `${selectedFile}-${wordWrap ? "w" : "nw"}-${index}`,
+    [selectedFile, wordWrap]
+  );
   const virtualizer = useVirtualizer({
     count: virtualRows.length,
     getScrollElement: () => parentRef.current,
     estimateSize,
     // Include selectedFile in key to force React to re-render when switching files
     // This fixes dangerouslySetInnerHTML not updating when DOM elements are reused
-    getItemKey: (index) => `${selectedFile}-${wordWrap ? "w" : "nw"}-${index}`,
+    getItemKey,
     // High overscan for smooth navigation - rows pre-rendered above/below viewport
     overscan: 100,
     // Add padding at the end so we can scroll the last line to center
