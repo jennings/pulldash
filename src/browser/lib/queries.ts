@@ -838,26 +838,6 @@ export const queries = {
       meta: { persist: true },
     }),
 
-  commitFiles: (owner: string, repo: string, sha: string, prKey?: string) =>
-    queryOptions({
-      queryKey: ["commit-files", owner, repo, sha],
-      queryFn: async ({ signal }) => {
-        const key = `commit:${owner}/${repo}/${sha}:files`;
-        const cached = await PersistentCache.get<PullRequestFile[]>(key);
-        if (cached) return cached;
-        const { data } = await getOctokit().request(
-          "GET /repos/{owner}/{repo}/commits/{ref}",
-          { owner, repo, ref: sha, request: { signal } }
-        );
-        const files = (data.files ?? []) as PullRequestFile[];
-        if (prKey) await PersistentCache.put(key, files, prKey);
-        return files;
-      },
-      staleTime: Infinity,
-      gcTime: 5 * 60_000,
-      meta: { immutable: true },
-    }),
-
   singleCommit: (owner: string, repo: string, ref: string, prKey?: string) =>
     queryOptions({
       queryKey: ["single-commit", owner, repo, ref],

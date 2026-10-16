@@ -38,6 +38,32 @@ test("comparison consumers share one response for files and commits", async () =
   }
 });
 
+test("single commit cache retains files alongside parent metadata", async () => {
+  let requests = 0;
+  setOctokit({
+    request: async () => {
+      requests++;
+      return {
+        data: {
+          files: [{ filename: "commit.ts" }],
+          parents: [{ sha: "parent" }],
+        },
+      };
+    },
+  } as never);
+  const client = new QueryClient();
+  try {
+    const options = queries.singleCommit("commit-cache-test", "r", "head");
+    const first = await client.fetchQuery(options);
+    const second = await client.fetchQuery(options);
+    expect(first.files?.[0]?.filename).toBe("commit.ts");
+    expect(second.parents[0]?.sha).toBe("parent");
+    expect(requests).toBe(1);
+  } finally {
+    client.clear();
+  }
+});
+
 test("pullRequestReviews paginates until a partial page", async () => {
   const page = (n: number) => Array.from({ length: n }, (_, i) => review(i));
   const calls: Array<Record<string, unknown>> = [];

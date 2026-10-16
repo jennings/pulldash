@@ -810,13 +810,14 @@ function createGitHubStore() {
     );
   }
 
-  function getCommitFiles(
+  async function getCommitFiles(
     owner: string,
     repo: string,
     sha: string,
     prKey?: string
   ): Promise<PullRequestFile[]> {
-    return queryClient.fetchQuery(queries.commitFiles(owner, repo, sha, prKey));
+    return ((await getSingleCommit(owner, repo, sha, prKey)).files ??
+      []) as PullRequestFile[];
   }
 
   function getSingleCommit(
