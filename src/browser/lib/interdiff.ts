@@ -48,34 +48,7 @@ import type {
 } from "./diff-worker";
 import { escapeHtml, highlightFileByLines } from "../../shared/diff-utils";
 
-const extToLang: Record<string, string> = {
-  py: "python",
-  js: "javascript",
-  ts: "typescript",
-  tsx: "tsx",
-  jsx: "jsx",
-  go: "go",
-  rs: "rust",
-  rb: "ruby",
-  java: "java",
-  c: "c",
-  cpp: "cpp",
-  cs: "csharp",
-  sh: "bash",
-  bash: "bash",
-  yml: "yaml",
-  yaml: "yaml",
-  json: "json",
-  md: "markdown",
-  css: "css",
-  html: "markup",
-  xml: "markup",
-};
-
-function guessLang(filename: string): string {
-  const ext = filename.split(".").pop()?.toLowerCase() ?? "";
-  return extToLang[ext] ?? "tsx";
-}
+import { guessLang } from "../../shared/language";
 
 const CONTEXT_LINES = 3;
 
