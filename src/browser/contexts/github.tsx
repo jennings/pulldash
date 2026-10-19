@@ -875,11 +875,14 @@ function createGitHubStore() {
     headSha: string,
     prKey?: string
   ): Promise<PullRequestFile[]> {
-    return (
-      await queryClient.fetchQuery(
-        queries.comparison(owner, repo, baseSha, headSha, prKey)
-      )
-    ).files;
+    const comparison = await queryClient.fetchQuery(
+      queries.comparison(owner, repo, baseSha, headSha, prKey)
+    );
+    if (!comparison.filesComplete)
+      throw new Error(
+        "GitHub's comparison file limit was reached; a complete file list is unavailable."
+      );
+    return comparison.files;
   }
 
   function getPRComments(

@@ -64,6 +64,49 @@ test("single commit cache retains files alongside parent metadata", async () => 
   }
 });
 
+test("single commit files include subsequent pages", async () => {
+  const calls: number[] = [];
+  setOctokit({
+    request: async (_route: string, params: { page: number }) => {
+      calls.push(params.page);
+      return {
+        data: {
+          sha: "head",
+          parents: [{ sha: "parent" }],
+          files: Array.from(
+            { length: params.page === 1 ? 100 : 1 },
+            (_, i) => ({ filename: `${params.page}-${i}` })
+          ),
+        },
+      };
+    },
+  } as never);
+  const result = await queries.singleCommit("commit-pagination", "r", "head")
+    .queryFn!({ signal: new AbortController().signal } as never);
+  expect(result.files).toHaveLength(101);
+  expect(result.parents[0]?.sha).toBe("parent");
+  expect(calls).toEqual([1, 2]);
+});
+
+test("comparison identifies file lists at the GitHub limit as incomplete", async () => {
+  setOctokit({
+    request: async () => ({
+      data: {
+        files: Array.from({ length: 300 }, (_, i) => ({ filename: `${i}.ts` })),
+        commits: [],
+        total_commits: 0,
+      },
+    }),
+  } as never);
+  const result = await queries.comparison(
+    "comparison-file-limit",
+    "r",
+    "base",
+    "head"
+  ).queryFn!({ signal: new AbortController().signal } as never);
+  expect(result.filesComplete).toBe(false);
+});
+
 test("PR commits and comparison commits include subsequent pages", async () => {
   const calls: Array<Record<string, unknown>> = [];
   setOctokit({

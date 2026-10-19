@@ -874,16 +874,27 @@ export const queries = {
 
   singleCommit: (owner: string, repo: string, ref: string, prKey?: string) =>
     queryOptions({
-      queryKey: ["single-commit", owner, repo, ref],
+      queryKey: ["single-commit", owner, repo, ref, "files-v2"],
       queryFn: async ({ signal }) => {
-        const key = `commit:${owner}/${repo}:${ref}`;
+        const key = `commit-v2:${owner}/${repo}:${ref}`;
         const cached = await PersistentCache.get<PRCommit>(key);
         if (cached) return cached;
-        const { data } = await getOctokit().request(
-          "GET /repos/{owner}/{repo}/commits/{ref}",
-          { owner, repo, ref, request: { signal } }
-        );
-        const commit = data as PRCommit;
+        let commit: PRCommit | undefined;
+        const files: PullRequestFile[] = [];
+        for (let page = 1; ; page++) {
+          const { data } = await getOctokit().request(
+            "GET /repos/{owner}/{repo}/commits/{ref}",
+            { owner, repo, ref, per_page: 100, page, request: { signal } }
+          );
+          commit ??= data as PRCommit;
+          files.push(...((data.files ?? []) as PullRequestFile[]));
+          if ((data.files?.length ?? 0) < 100) break;
+          if (files.length >= 3000)
+            throw new Error(
+              "GitHub's commit file limit was reached; a complete file list is unavailable."
+            );
+        }
+        commit = { ...commit!, files };
         if (prKey) await PersistentCache.put(key, commit, prKey);
         return commit;
       },
@@ -955,8 +966,12 @@ export const queries = {
     queryOptions({
       queryKey: ["comparison", owner, repo, baseSha, headSha],
       queryFn: async ({ signal }) => {
-        const key = `compare:${owner}/${repo}/${baseSha}...${headSha}:response-v2`;
-        type Comparison = { files: PullRequestFile[]; commits: PRCommit[] };
+        const key = `compare:${owner}/${repo}/${baseSha}...${headSha}:response-v3`;
+        type Comparison = {
+          files: PullRequestFile[];
+          commits: PRCommit[];
+          filesComplete: boolean;
+        };
         const cached = await PersistentCache.get<Comparison>(key);
         if (cached) return cached;
         const commits: PRCommit[] = [];
@@ -978,7 +993,11 @@ export const queries = {
           if (data.commits.length < 100 || commits.length >= data.total_commits)
             break;
         }
-        const comparison = { files, commits };
+        const comparison = {
+          files,
+          commits,
+          filesComplete: files.length < 300,
+        };
         if (prKey) await PersistentCache.put(key, comparison, prKey);
         return comparison;
       },
