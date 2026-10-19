@@ -591,6 +591,7 @@ export function areLineCommentsHidden(
 export class PRReviewStore {
   private submittedActivity = new SubmittedActivityBuffer();
   private submissionVersion = 0;
+  private selectionVersion = 0;
   private state: PRReviewState;
   private listeners = new Set<Listener>();
   private storageKey: string;
@@ -858,6 +859,7 @@ export class PRReviewStore {
   }
 
   private async refreshFiles(): Promise<void> {
+    const version = this.selectionVersion;
     const { owner, repo, pr, selectedHeadSha, compareToSha } = this.state;
     const prKey = `${owner}/${repo}/${pr.number}`;
 
@@ -879,6 +881,7 @@ export class PRReviewStore {
           .getPRFilesForRange(owner, repo, pr.base.sha, headSha, prKey)
           .catch(() => [] as PullRequestFile[]),
       ]);
+      if (version !== this.selectionVersion) return;
 
       const prevMap = new Map(prevFiles.map((f) => [f.filename, f.patch]));
       const currMap = new Map(currFiles.map((f) => [f.filename, f.patch]));
@@ -915,6 +918,7 @@ export class PRReviewStore {
       const files = await this.github
         .getPRFilesForRange(owner, repo, pr.base.sha, selectedHeadSha, prKey)
         .catch(() => [] as PullRequestFile[]);
+      if (version !== this.selectionVersion) return;
       this.set({
         ...resetBase,
         files: sortFilesLikeTree(files),
@@ -1397,6 +1401,7 @@ export class PRReviewStore {
   // ---------------------------------------------------------------------------
 
   setSelectedHeadSha = async (sha: string | null): Promise<void> => {
+    const version = ++this.selectionVersion;
     const { owner, repo, pr, pushVersions, commitsByVersion } = this.state;
 
     if (sha === null) {
@@ -1446,6 +1451,7 @@ export class PRReviewStore {
     });
 
     await this.refreshFiles();
+    if (version !== this.selectionVersion) return;
 
     const { compareToSha, selectedCommitSha } = this.state;
     if (compareToSha && selectedCommitSha === null) {
@@ -1468,6 +1474,7 @@ export class PRReviewStore {
   // ---------------------------------------------------------------------------
 
   setSelectedCommitSha = async (sha: string | null): Promise<void> => {
+    const version = ++this.selectionVersion;
     const { owner, repo } = this.state;
 
     // loadedDiffs is intentionally NOT in this first set — it must be cleared
@@ -1502,6 +1509,7 @@ export class PRReviewStore {
             `${owner}/${repo}/${pr.number}`
           )
           .catch(() => [] as PullRequestFile[]);
+        if (version !== this.selectionVersion) return;
         this.set({ files: sortFilesLikeTree(versionFiles), loadedDiffs: {} });
         if (compareToSha) {
           this.set({ interdiffEnabled: true, interdiffLoadedDiffs: {} });
@@ -1529,6 +1537,7 @@ export class PRReviewStore {
       )
       .catch(() => [] as PullRequestFile[]);
 
+    if (version !== this.selectionVersion) return;
     this.set({ files: sortFilesLikeTree(commitFiles), loadedDiffs: {} });
 
     // If comparing to a specific version, auto-match the commit in that version
@@ -1601,6 +1610,7 @@ export class PRReviewStore {
   }
 
   setSelectedParentSha = async (sha: string | null): Promise<void> => {
+    const version = ++this.selectionVersion;
     const { owner, repo, selectedCommitSha, compareToSha } = this.state;
 
     // Parents and push-version comparisons are mutually exclusive
@@ -1628,6 +1638,7 @@ export class PRReviewStore {
           `${owner}/${repo}/${this.state.pr.number}`
         )
         .catch(() => [] as PullRequestFile[]);
+      if (version !== this.selectionVersion) return;
       this.set({ files: sortFilesLikeTree(commitFiles), loadedDiffs: {} });
       return;
     }
@@ -1645,6 +1656,7 @@ export class PRReviewStore {
         `${owner}/${repo}/${this.state.pr.number}`
       )
       .catch(() => [] as PullRequestFile[]);
+    if (version !== this.selectionVersion) return;
     this.set({ files: sortFilesLikeTree(mergeFiles), loadedDiffs: {} });
   };
 
@@ -1652,6 +1664,7 @@ export class PRReviewStore {
     baseCommitSha: string,
     headCommitSha: string
   ): Promise<void> => {
+    const version = this.selectionVersion;
     const { owner, repo, pr } = this.state;
     const prKey = `${owner}/${repo}/${pr.number}`;
 
@@ -1663,6 +1676,7 @@ export class PRReviewStore {
         .getCommitFiles(owner, repo, headCommitSha, prKey)
         .catch(() => [] as PullRequestFile[]),
     ]);
+    if (version !== this.selectionVersion) return;
 
     const prevByFilename = new Map(prevFiles.map((f) => [f.filename, f]));
 
@@ -1680,6 +1694,7 @@ export class PRReviewStore {
       })
     );
 
+    if (version !== this.selectionVersion) return;
     this.set({ interdiffLoadedDiffs: Object.fromEntries(interdiffEntries) });
   };
 
@@ -1687,6 +1702,7 @@ export class PRReviewStore {
     compareToSha: string,
     headSha: string
   ): Promise<void> => {
+    const version = this.selectionVersion;
     const { owner, repo, pr } = this.state;
     const prKey = `${owner}/${repo}/${pr.number}`;
 
@@ -1698,6 +1714,7 @@ export class PRReviewStore {
         .getPRFilesForRange(owner, repo, pr.base.sha, headSha, prKey)
         .catch(() => [] as PullRequestFile[]),
     ]);
+    if (version !== this.selectionVersion) return;
 
     const prevByFilename = new Map(prevFiles.map((f) => [f.filename, f]));
     const headByFilename = new Map(headFiles.map((f) => [f.filename, f]));
@@ -1724,6 +1741,7 @@ export class PRReviewStore {
       interdiffEntries.push([prevFile.filename, diff]);
     }
 
+    if (version !== this.selectionVersion) return;
     this.set({ interdiffLoadedDiffs: Object.fromEntries(interdiffEntries) });
   };
 
@@ -1734,6 +1752,7 @@ export class PRReviewStore {
   private autoMatchAndComputeInterdiff = async (
     headCommitSha: string
   ): Promise<void> => {
+    const version = this.selectionVersion;
     const { compareToSha, commits, commitsByVersion, pushVersions } =
       this.state;
     if (!compareToSha) return;
@@ -1778,6 +1797,7 @@ export class PRReviewStore {
       }
     }
 
+    if (version !== this.selectionVersion) return;
     const interdiffEnabled = compareToCommitSha !== null;
     this.set({
       compareToCommitSha,
@@ -1791,6 +1811,7 @@ export class PRReviewStore {
   };
 
   setCompareToSha = async (sha: string | null): Promise<void> => {
+    const version = ++this.selectionVersion;
     this.set({
       compareToSha: sha,
       selectedParentSha: null,
@@ -1808,6 +1829,7 @@ export class PRReviewStore {
         selectedHeadSha ?? pr.head.sha
       );
     }
+    if (version !== this.selectionVersion) return;
     await this.refreshFiles();
   };
 
@@ -1831,6 +1853,7 @@ export class PRReviewStore {
   };
 
   setCompareToCommitSha = async (sha: string | null): Promise<void> => {
+    ++this.selectionVersion;
     const { selectedCommitSha } = this.state;
     const interdiffEnabled = sha !== null && selectedCommitSha !== null;
     this.set({

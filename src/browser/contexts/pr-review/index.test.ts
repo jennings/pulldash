@@ -117,6 +117,52 @@ function createMockCommit(sha = "1111111"): PRCommit {
   } as unknown as PRCommit;
 }
 
+test("a superseded comparison cannot replace the active comparison results", async () => {
+  const previous = Promise.withResolvers<PullRequestFile[]>();
+  const github = createMockGitHubStore();
+  github.getCommitFiles = async (_owner, _repo, sha) =>
+    sha === "old-A" ? previous.promise : [createMockFile("active.ts")];
+  const store = new PRReviewStore(github, {
+    pr: createMockPR(),
+    files: [],
+    comments: [],
+    owner: "test",
+    repo: "repo",
+    viewerPermission: "WRITE",
+  });
+  await store.setSelectedCommitSha("head");
+  const obsolete = store.setCompareToCommitSha("old-A");
+  await store.setCompareToCommitSha("old-B");
+  const activeResults = store.getSnapshot().interdiffLoadedDiffs;
+  previous.resolve([createMockFile("obsolete.ts")]);
+  await obsolete;
+  expect(store.getSnapshot().compareToCommitSha).toBe("old-B");
+  expect(store.getSnapshot().interdiffLoadedDiffs).toBe(activeResults);
+});
+
+test("a superseded commit fetch cannot replace the active files", async () => {
+  const previous = Promise.withResolvers<PullRequestFile[]>();
+  const github = createMockGitHubStore();
+  github.getCommitFiles = async (_owner, _repo, sha) =>
+    sha === "old" ? previous.promise : [createMockFile("active.ts")];
+  const store = new PRReviewStore(github, {
+    pr: createMockPR(),
+    files: [],
+    comments: [],
+    owner: "test",
+    repo: "repo",
+    viewerPermission: "WRITE",
+  });
+  const obsolete = store.setSelectedCommitSha("old");
+  await store.setSelectedCommitSha("new");
+  previous.resolve([createMockFile("obsolete.ts")]);
+  await obsolete;
+  expect(store.getSnapshot().selectedCommitSha).toBe("new");
+  expect(store.getSnapshot().files.map((f) => f.filename)).toEqual([
+    "active.ts",
+  ]);
+});
+
 function createMockComment(
   id: number,
   path: string,
