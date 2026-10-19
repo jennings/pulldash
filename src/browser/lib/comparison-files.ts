@@ -56,3 +56,26 @@ export function comparisonFileList(pairs: ComparisonFile[]): PullRequestFile[] {
       }
   );
 }
+
+export function comparisonSources(
+  pair: ComparisonFile,
+  oldSha: string,
+  newSha: string
+) {
+  return {
+    old: {
+      sha: oldSha,
+      path:
+        pair.previous?.filename ??
+        pair.current?.previous_filename ??
+        pair.filename,
+    },
+    new: {
+      sha: newSha,
+      path:
+        pair.current?.filename ??
+        pair.previous?.previous_filename ??
+        pair.filename,
+    },
+  };
+}

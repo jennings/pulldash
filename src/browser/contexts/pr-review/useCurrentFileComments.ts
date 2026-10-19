@@ -10,6 +10,8 @@ import {
   isMetadataComment,
   parseCommitMetadataMarker,
 } from "@/shared/commit-metadata";
+import { useCurrentDiff } from "./useCurrentDiff";
+import { comparisonCommentSide } from "@/browser/lib/comparison-comments";
 
 const EMPTY_COMMENTS: ReviewComment[] = [];
 
@@ -25,6 +27,7 @@ export function useCurrentFileComments(): ReviewComment[] {
   );
   const commitChangeIds = usePRReviewSelector((s) => s.commitChangeIds);
   const comments = usePRReviewSelector((s) => s.comments);
+  const diff = useCurrentDiff();
 
   // Lazy-fetch the jj change-id from the raw git commit header when the
   // commit has no Change-Id trailer in its message body. When the current
@@ -70,6 +73,32 @@ export function useCurrentFileComments(): ReviewComment[] {
   ]);
   return useMemo(() => {
     if (!selectedFile) return EMPTY_COMMENTS;
+    if (diff?.sources && selectedFile !== ":commit")
+      return comments.flatMap((comment) => {
+        const side = comparisonCommentSide(
+          diff,
+          comment.path,
+          comment.commit_id,
+          comment.side
+        );
+        if (side) return [{ ...comment, side }];
+        const originalSide = comparisonCommentSide(
+          diff,
+          comment.path,
+          comment.original_commit_id,
+          comment.side
+        );
+        return originalSide && comment.original_line != null
+          ? [
+              {
+                ...comment,
+                side: originalSide,
+                line: comment.original_line,
+                commit_id: comment.original_commit_id,
+              },
+            ]
+          : [];
+      });
     if (selectedFile === ":commit") {
       return comments.filter((c) => {
         if (c.path !== ":commit") return false;
@@ -80,5 +109,5 @@ export function useCurrentFileComments(): ReviewComment[] {
       });
     }
     return comments.filter((c) => c.path === selectedFile);
-  }, [selectedFile, validShas, comments]);
+  }, [selectedFile, validShas, comments, diff]);
 }

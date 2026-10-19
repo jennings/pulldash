@@ -10,6 +10,8 @@ import {
   isMetadataComment,
   parseCommitMetadataMarker,
 } from "@/shared/commit-metadata";
+import { useCurrentDiff } from "./useCurrentDiff";
+import { comparisonCommentSide } from "@/browser/lib/comparison-comments";
 
 const EMPTY_PENDING_COMMENTS: LocalPendingComment[] = [];
 
@@ -27,6 +29,7 @@ export function useCurrentFilePendingComments(): LocalPendingComment[] {
   );
   const commitChangeIds = usePRReviewSelector((s) => s.commitChangeIds);
   const pendingComments = usePRReviewSelector((s) => s.pendingComments);
+  const diff = useCurrentDiff();
 
   // Lazy-fetch the jj change-id from the raw git commit header when the
   // commit has no Change-Id trailer in its message body.
@@ -75,6 +78,16 @@ export function useCurrentFilePendingComments(): LocalPendingComment[] {
   );
   return useMemo(() => {
     if (!selectedFile) return EMPTY_PENDING_COMMENTS;
+    if (diff?.sources && selectedFile !== ":commit")
+      return pendingComments.flatMap((comment) => {
+        const side = comparisonCommentSide(
+          diff,
+          comment.path,
+          comment.targetSha ?? pr.head.sha,
+          comment.side
+        );
+        return side ? [{ ...comment, side }] : [];
+      });
     const onCurrentDiff = (c: LocalPendingComment) => {
       if (!c.targetSha) return viewingHead;
       return validShas.has(c.targetSha.slice(0, 7));
@@ -90,5 +103,12 @@ export function useCurrentFilePendingComments(): LocalPendingComment[] {
     return pendingComments.filter(
       (c) => c.path === selectedFile && onCurrentDiff(c)
     );
-  }, [selectedFile, viewingHead, validShas, pendingComments]);
+  }, [
+    selectedFile,
+    viewingHead,
+    validShas,
+    pendingComments,
+    diff,
+    pr.head.sha,
+  ]);
 }

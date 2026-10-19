@@ -6,6 +6,37 @@ import {
 } from "./comment-anchor";
 import type { ParsedDiff, DiffLine } from "./diff-worker";
 
+test("comparison comment coordinates belong to the displayed source commit", () => {
+  const diff: ParsedDiff = {
+    hunks: [],
+    sources: {
+      old: { sha: "previous", path: "file" },
+      new: { sha: "current", path: "file" },
+    },
+  };
+  expect(
+    resolveCommentLine(
+      { side: "LEFT", commitId: "previous", line: 50 },
+      "current",
+      diff
+    )
+  ).toBe(50);
+  expect(
+    resolveCommentLine(
+      { side: "LEFT", commitId: "current", line: 50 },
+      "current",
+      diff
+    )
+  ).toBeNull();
+  expect(
+    resolveCommentLine(
+      { side: "RIGHT", commitId: "current", line: 60 },
+      "current",
+      diff
+    )
+  ).toBe(60);
+});
+
 function normal(content: string, oldLine: number, newLine: number): DiffLine {
   return {
     type: "normal",

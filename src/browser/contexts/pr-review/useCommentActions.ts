@@ -4,11 +4,13 @@ import {
   usePRReviewStore,
   usePRReviewSelector,
   type LocalPendingComment,
+  getLoadedFileDiff,
 } from ".";
 import { getCommitFieldLabel } from "./useCurrentDiff";
 import { withReviewGroupMarker } from "@/shared/review-group";
 import { isOutOfDiffComment, rebuildOutOfDiffBody } from "@/shared/out-of-diff";
 import { resolveCommentPosition } from "@/browser/lib/reviews";
+import { comparisonCommentTarget } from "@/browser/lib/comparison-comments";
 
 export function useCommentActions() {
   const store = usePRReviewStore();
@@ -24,17 +26,24 @@ export function useCommentActions() {
   ) => {
     const state = store.getSnapshot();
     if (!state.selectedFile) return;
+    const displaySide = state.commentingOnLine?.side === "old" ? "old" : "new";
+    const target = comparisonCommentTarget(
+      getLoadedFileDiff(state, state.selectedFile),
+      displaySide
+    );
+    if (state.interdiffEnabled && state.selectedFile !== ":commit" && !target)
+      return;
 
     // For :commit synthetic file, prefix the body with a marker so we
     // can route the comment back on reload. The local pending comment
     // stays on ":commit" with the original line; only the GitHub sync
     // redirects to the first real file at a line in the diff.
-    let githubPath = state.selectedFile;
+    let githubPath = target?.path ?? state.selectedFile;
     let githubLine = line;
     let finalBody = body;
     let githubStartLine: number | undefined = startLine;
     const commentSide: "LEFT" | "RIGHT" =
-      state.commentingOnLine?.side === "old" ? "LEFT" : "RIGHT";
+      target?.side ?? (displaySide === "old" ? "LEFT" : "RIGHT");
     let githubSide: "LEFT" | "RIGHT" = commentSide;
 
     if (state.selectedFile === ":commit" && state.files.length > 0) {
@@ -63,10 +72,13 @@ export function useCommentActions() {
     // Record the diff the comment was made on so submission can anchor it
     // to that commit (undefined = PR head).
     const targetSha =
-      state.selectedCommitSha ?? state.selectedHeadSha ?? undefined;
+      target?.targetSha ??
+      state.selectedCommitSha ??
+      state.selectedHeadSha ??
+      undefined;
     const newComment: LocalPendingComment = {
       id: localId,
-      path: state.selectedFile,
+      path: target?.path ?? state.selectedFile,
       line,
       start_line: startLine,
       body: finalBody,

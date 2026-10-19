@@ -39,6 +39,7 @@ import { diffService } from "@/browser/lib/diff";
 import {
   pairComparisonFiles,
   comparisonFileList,
+  comparisonSources,
 } from "@/browser/lib/comparison-files";
 import { resolveCommentLine } from "@/browser/lib/comment-anchor";
 import { queryClient } from "@/browser/lib/query-client";
@@ -1675,7 +1676,17 @@ export class PRReviewStore {
               hunks: [] as ParsedDiff["hunks"],
               error: "Could not compute this comparison.",
             }));
-          return [filename, diff] as const;
+          return [
+            filename,
+            {
+              ...diff,
+              sources: comparisonSources(
+                { filename, previous, current },
+                baseCommitSha,
+                headCommitSha
+              ),
+            },
+          ] as const;
         })
       );
 
@@ -1744,7 +1755,17 @@ export class PRReviewStore {
             hunks: [] as ParsedDiff["hunks"],
             error: "Could not compute this comparison.",
           }));
-        interdiffEntries.push([filename, diff]);
+        interdiffEntries.push([
+          filename,
+          {
+            ...diff,
+            sources: comparisonSources(
+              { filename, previous, current },
+              compareToSha,
+              headSha
+            ),
+          },
+        ]);
       }
 
       if (version !== this.selectionVersion) return;

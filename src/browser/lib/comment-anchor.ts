@@ -106,6 +106,14 @@ export function resolveCommentLine(
   viewedCommitSha: string | null | undefined,
   parsedDiff: ParsedDiff
 ): number | null | undefined {
+  if (parsedDiff.sources) {
+    const source = parsedDiff.sources[comment.side === "LEFT" ? "old" : "new"];
+    if (commitShasMatch(comment.commitId, source.sha))
+      return comment.line ?? comment.originalLine;
+    if (commitShasMatch(comment.originalCommitId, source.sha))
+      return comment.originalLine;
+    return null;
+  }
   if (comment.commitId && !commitShasMatch(comment.commitId, viewedCommitSha)) {
     if (
       comment.originalCommitId &&

@@ -56,6 +56,10 @@ export interface DiffSkipBlock {
 export interface ParsedDiff {
   hunks: (DiffHunk | DiffSkipBlock)[];
   error?: string;
+  sources?: {
+    old: { sha: string; path: string };
+    new: { sha: string; path: string };
+  };
 }
 
 interface ParseOptions {
