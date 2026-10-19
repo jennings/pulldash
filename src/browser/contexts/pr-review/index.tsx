@@ -36,6 +36,10 @@ import {
   groupCommitsIntoVersions,
 } from "@/browser/contexts/github";
 import { diffService } from "@/browser/lib/diff";
+import {
+  pairComparisonFiles,
+  comparisonFileList,
+} from "@/browser/lib/comparison-files";
 import { resolveCommentLine } from "@/browser/lib/comment-anchor";
 import { queryClient } from "@/browser/lib/query-client";
 import { queries } from "@/browser/lib/queries";
@@ -898,36 +902,12 @@ export class PRReviewStore {
       ]);
       if (version !== this.selectionVersion) return;
 
-      const prevMap = new Map(prevFiles.map((f) => [f.filename, f.patch]));
-      const currMap = new Map(currFiles.map((f) => [f.filename, f.patch]));
-      const allFiles = new Set([...prevMap.keys(), ...currMap.keys()]);
-
-      const interdiffFiles: PullRequestFile[] = [];
-      const noChangeFiles: string[] = [];
-      for (const filename of allFiles) {
-        const prevPatch = prevMap.get(filename);
-        const currPatch = currMap.get(filename);
-
-        if (currPatch === undefined) {
-          const prev = prevFiles.find((f) => f.filename === filename)!;
-          interdiffFiles.push({ ...prev, status: "removed" });
-        } else {
-          const currFile = currFiles.find((f) => f.filename === filename)!;
-          interdiffFiles.push(currFile);
-          if (
-            prevPatch !== undefined &&
-            prevPatch === currPatch &&
-            currFile.status !== "removed"
-          ) {
-            noChangeFiles.push(filename);
-          }
-        }
-      }
+      const pairs = pairComparisonFiles(prevFiles, currFiles);
 
       this.set({
         ...resetBase,
-        files: sortFilesLikeTree(interdiffFiles),
-        versionCompareNoChangeFiles: noChangeFiles,
+        files: sortFilesLikeTree(comparisonFileList(pairs)),
+        versionCompareNoChangeFiles: [],
       });
     } else if (selectedHeadSha) {
       const files = await this.github
@@ -1693,24 +1673,24 @@ export class PRReviewStore {
     ]);
     if (version !== this.selectionVersion) return;
 
-    const prevByFilename = new Map(prevFiles.map((f) => [f.filename, f]));
+    const pairs = pairComparisonFiles(prevFiles, headFiles);
 
     const interdiffEntries = await Promise.all(
-      headFiles.map(async (currFile) => {
-        const prevFile = prevByFilename.get(currFile.filename);
+      pairs.map(async ({ filename, previous, current }) => {
         const diff = await diffService
-          .interdiff(
-            prevFile?.patch ?? "",
-            currFile.patch ?? "",
-            currFile.filename
-          )
+          .interdiff(previous?.patch ?? "", current?.patch ?? "", filename)
           .catch(() => ({ hunks: [] as ParsedDiff["hunks"] }));
-        return [currFile.filename, diff] as const;
+        return [filename, diff] as const;
       })
     );
 
     if (version !== this.selectionVersion) return;
-    this.set({ interdiffLoadedDiffs: Object.fromEntries(interdiffEntries) });
+    this.set({
+      files: sortFilesLikeTree(comparisonFileList(pairs)),
+      interdiffLoadedDiffs: Object.fromEntries(interdiffEntries),
+      versionCompareNoChangeFiles: [],
+      loadedDiffs: {},
+    });
   };
 
   private computeFullBranchInterdiff = async (
@@ -1731,33 +1711,24 @@ export class PRReviewStore {
     ]);
     if (version !== this.selectionVersion) return;
 
-    const prevByFilename = new Map(prevFiles.map((f) => [f.filename, f]));
-    const headByFilename = new Map(headFiles.map((f) => [f.filename, f]));
+    const pairs = pairComparisonFiles(prevFiles, headFiles);
 
     const interdiffEntries: Array<[string, ParsedDiff]> = [];
 
-    for (const currFile of headFiles) {
-      const prevFile = prevByFilename.get(currFile.filename);
+    for (const { filename, previous, current } of pairs) {
       const diff = await diffService
-        .interdiff(
-          prevFile?.patch ?? "",
-          currFile.patch ?? "",
-          currFile.filename
-        )
+        .interdiff(previous?.patch ?? "", current?.patch ?? "", filename)
         .catch(() => ({ hunks: [] as ParsedDiff["hunks"] }));
-      interdiffEntries.push([currFile.filename, diff]);
-    }
-
-    for (const prevFile of prevFiles) {
-      if (headByFilename.has(prevFile.filename) || !prevFile.patch) continue;
-      const diff = await diffService
-        .interdiff(prevFile.patch, "", prevFile.filename)
-        .catch(() => ({ hunks: [] as ParsedDiff["hunks"] }));
-      interdiffEntries.push([prevFile.filename, diff]);
+      interdiffEntries.push([filename, diff]);
     }
 
     if (version !== this.selectionVersion) return;
-    this.set({ interdiffLoadedDiffs: Object.fromEntries(interdiffEntries) });
+    this.set({
+      files: sortFilesLikeTree(comparisonFileList(pairs)),
+      interdiffLoadedDiffs: Object.fromEntries(interdiffEntries),
+      versionCompareNoChangeFiles: [],
+      loadedDiffs: {},
+    });
   };
 
   /**
@@ -1845,7 +1816,16 @@ export class PRReviewStore {
       );
     }
     if (version !== this.selectionVersion) return;
-    await this.refreshFiles();
+    if (!sha && selectedCommitSha) {
+      const version = this.selectionVersion;
+      const files = await this.github.getCommitFiles(
+        this.state.owner,
+        this.state.repo,
+        selectedCommitSha
+      );
+      if (version === this.selectionVersion)
+        this.set({ files: sortFilesLikeTree(files), loadedDiffs: {} });
+    } else if (!sha) await this.refreshFiles();
   };
 
   getChecksStatus = async (

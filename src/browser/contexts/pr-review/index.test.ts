@@ -140,6 +140,37 @@ test("a superseded comparison cannot replace the active comparison results", asy
   expect(store.getSnapshot().interdiffLoadedDiffs).toBe(activeResults);
 });
 
+test("commit comparisons retain old-only files and do not refresh branch files", async () => {
+  const github = createMockGitHubStore();
+  github.getCommitFiles = async (_owner, _repo, sha) => [
+    createMockFile(sha === "old" ? "reverted.ts" : "current.ts"),
+  ];
+  github.getPRFilesForRange = async () => {
+    throw new Error("unexpected branch comparison");
+  };
+  const store = new PRReviewStore(github, {
+    pr: createMockPR(),
+    files: [],
+    comments: [],
+    owner: "test",
+    repo: "repo",
+    viewerPermission: "WRITE",
+  });
+  await store.setSelectedCommitSha("new");
+  await store.setCompareToCommitSha("old");
+  expect(store.getSnapshot().files.map((f) => f.filename)).toEqual([
+    "current.ts",
+    "reverted.ts",
+  ]);
+  expect(Object.keys(store.getSnapshot().interdiffLoadedDiffs).sort()).toEqual([
+    "current.ts",
+    "reverted.ts",
+  ]);
+  expect(
+    store.getSnapshot().files.find((f) => f.filename === "reverted.ts")?.status
+  ).toBe("modified");
+});
+
 test("a superseded commit fetch cannot replace the active files", async () => {
   const previous = Promise.withResolvers<PullRequestFile[]>();
   const github = createMockGitHubStore();
@@ -1453,7 +1484,7 @@ test("removed files with identical patches are not added to versionCompareNoChan
   ).toBe(true);
 });
 
-test("modified files with identical patches are still added to versionCompareNoChangeFiles", async () => {
+test("identical patches still go through interdiff computation", async () => {
   const patch = "@@ -1,3 +1,4 @@\n line1\n+added\n line2";
   const modifiedFile: PullRequestFile = {
     ...createMockFile("same.py"),
@@ -1466,7 +1497,8 @@ test("modified files with identical patches are still added to versionCompareNoC
   await store.setCompareToSha("v1sha");
 
   const state = store.getSnapshot();
-  expect(state.versionCompareNoChangeFiles).toContain("same.py");
+  expect(state.versionCompareNoChangeFiles).toEqual([]);
+  expect(state.interdiffLoadedDiffs["same.py"]?.hunks).toEqual([]);
 });
 
 test("files only in previous version get an interdiff entry via interdiff(prevPatch, '')", async () => {
@@ -1493,11 +1525,9 @@ test("files only in previous version get an interdiff entry via interdiff(prevPa
 
   const state = store.getSnapshot();
   expect("removed.py" in state.interdiffLoadedDiffs).toBe(true);
-  // Should be in the file list with status removed
+  // The old deletion is reverted, so this file is restored.
   expect(
-    state.files.some(
-      (f) => f.filename === "removed.py" && f.status === "removed"
-    )
+    state.files.some((f) => f.filename === "removed.py" && f.status === "added")
   ).toBe(true);
   // Should NOT be in noChangeFiles
   expect(state.versionCompareNoChangeFiles).not.toContain("removed.py");
