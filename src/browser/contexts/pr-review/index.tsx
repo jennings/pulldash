@@ -588,6 +588,21 @@ export function areLineCommentsHidden(
   );
 }
 
+export function getLoadedFileDiff(
+  state: Pick<
+    PRReviewState,
+    "interdiffEnabled" | "interdiffLoadedDiffs" | "loadedDiffs"
+  >,
+  filename: string | null
+): ParsedDiff | null {
+  if (!filename) return null;
+  return (
+    (state.interdiffEnabled ? state.interdiffLoadedDiffs : state.loadedDiffs)[
+      filename
+    ] ?? null
+  );
+}
+
 export class PRReviewStore {
   private submittedActivity = new SubmittedActivityBuffer();
   private submissionVersion = 0;
@@ -2083,7 +2098,7 @@ export class PRReviewStore {
     const targetSide = direction === "left" ? "old" : "new";
     if (focusedLineSide === targetSide) return; // Already on target side
 
-    const diff = selectedFile ? loadedDiffs[selectedFile] : null;
+    const diff = getLoadedFileDiff(this.state, selectedFile);
     if (!diff?.hunks) return;
 
     // Collect all lines from hunks, substituting expanded skip blocks
@@ -2196,7 +2211,7 @@ export class PRReviewStore {
     } = this.state;
 
     if (!selectedFile) return;
-    const diff = loadedDiffs[selectedFile];
+    const diff = getLoadedFileDiff(this.state, selectedFile);
     if (!diff?.hunks) return;
 
     // Use pre-computed navigable items (Fix 2)
@@ -2212,7 +2227,11 @@ export class PRReviewStore {
 
     let navigableItems: NavItem[];
 
-    if (!hasExpandedSkipBlocks && precomputedItems[selectedFile]) {
+    if (
+      !this.state.interdiffEnabled &&
+      !hasExpandedSkipBlocks &&
+      precomputedItems[selectedFile]
+    ) {
       // Fast path: use pre-computed items
       navigableItems = precomputedItems[selectedFile].map(
         (item: NavigableItem) => {
@@ -2955,7 +2974,7 @@ export class PRReviewStore {
       return;
     }
 
-    const diff = selectedFile ? loadedDiffs[selectedFile] : null;
+    const diff = getLoadedFileDiff(this.state, selectedFile);
     if (!diff?.hunks) {
       this.exitGotoMode();
       return;

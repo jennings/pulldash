@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import {
   usePRReviewSelector,
+  getLoadedFileDiff,
   parseChangeId,
   type ParsedDiff,
   type DiffLine,
@@ -346,8 +347,10 @@ export function useCurrentDiff(): ParsedDiff | null {
       }
       return buildSingleCommitDiff(headCommit, headChangeId);
     }
-    if (interdiffEnabled) return interdiffLoadedDiffs[selectedFile] ?? null;
-    return loadedDiffs[selectedFile] ?? null;
+    return getLoadedFileDiff(
+      { interdiffEnabled, interdiffLoadedDiffs, loadedDiffs },
+      selectedFile
+    );
   }, [
     selectedFile,
     loadedDiffs,

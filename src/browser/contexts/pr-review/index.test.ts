@@ -163,6 +163,38 @@ test("a superseded commit fetch cannot replace the active files", async () => {
   ]);
 });
 
+test("line, side, and go-to navigation use the displayed comparison", () => {
+  const store = createStore({ files: [createMockFile("file.ts")] });
+  const diff = (old: number, current: number) => ({
+    hunks: [
+      {
+        type: "hunk",
+        oldStart: old,
+        newStart: current,
+        lines: [0, 1].map((i) => ({
+          type: "normal",
+          oldLineNumber: old + i,
+          newLineNumber: current + i,
+          content: [{ type: "normal", value: "line", html: "line" }],
+        })),
+      },
+    ],
+  });
+  store.setLoadedDiff("file.ts", diff(1, 1) as any);
+  (store as any).set({
+    selectedFile: "file.ts",
+    interdiffEnabled: true,
+    interdiffLoadedDiffs: { "file.ts": diff(30, 40) },
+  });
+  store.setFocusedLine(40, "new");
+  store.navigateLine("down", false);
+  expect(store.getSnapshot().focusedLine).toBe(41);
+  (store as any).set({ diffViewMode: "split" });
+  store.navigateSide("left");
+  expect(store.getSnapshot().focusedLine).toBe(31);
+  expect(store.getSnapshot().focusedLineSide).toBe("old");
+});
+
 function createMockComment(
   id: number,
   path: string,
