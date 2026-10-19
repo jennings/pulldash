@@ -9,7 +9,8 @@
  * 1. Extract every line from each patch (context, insert, delete) preserving
  *    its kind and the line number it carries.
  * 2. Short-circuit if both patches' kind-tagged sequences are byte-identical.
- * 3. LCS-align the two sequences by content using diffArrays.
+ * 3. LCS-align by content and base position, using shared unique lines to
+ *    account for rebases without matching unrelated repeated context.
  * 4. Walk the alignment.  For each chunk, classify per (side, kind):
  *      B-only insert  → INSERT (v2 added a line v1 didn't)
  *      B-only delete  → DELETE (v2 removed a line v1 didn't touch)
@@ -24,9 +25,10 @@
  *      equal pair, contextA/deleteB   → DELETE (v2 removed it)
  *      equal pair, deleteA/contextB   → INSERT (v2 kept it)
  *      equal pair, other kind mismatch→ equal (LCS misalignment)
- * 5. Group into hunks with CONTEXT_LINES of surrounding context.
+ * 5. Group into hunks with CONTEXT_LINES of surrounding context, stopping at
+ *    gaps between sparse patch windows.
  *
- * Content-based alignment (step 3) handles the line-number-shift case: when v2
+ * Base-position alignment (step 3) handles the line-number-shift case: when v2
  * deletes a block above shared content, those shared lines move to smaller
  * line numbers but their content stays the same, so the LCS correctly groups
  * them as equal rather than emitting spurious delete+insert pairs.
@@ -37,15 +39,15 @@
  * preserved through the alignment and emitted as a DELETE.
  */
 
-import gitDiffParser from "gitdiff-parser";
+import gitDiffParser, { type Change } from "gitdiff-parser";
 import { diffArrays } from "diff";
 import type {
   ParsedDiff,
   DiffHunk,
   DiffSkipBlock,
   DiffLine,
-  LineSegment,
-} from "./diff-worker";
+} from "./diff-parser";
+import { mergeModifiedLines } from "./diff-parser";
 import { escapeHtml, highlightFileByLines } from "../../shared/diff-utils";
 
 import { guessLang } from "../../shared/language";
@@ -55,6 +57,8 @@ const CONTEXT_LINES = 3;
 interface PatchLineEntry {
   content: string;
   kind: "context" | "insert" | "delete";
+  baseLineNumber: number;
+  offsetAfter: number;
   // context: both line numbers populated
   // insert : only newLineNumber
   // delete : only oldLineNumber
@@ -76,9 +80,16 @@ function buildPatchEntries(patch: string): PatchLineEntry[] {
     if (!files[0]) return entries;
 
     for (const hunk of files[0].hunks) {
+      let oldLine = Math.max(1, hunk.oldStart);
+      let newLine = Math.max(1, hunk.newStart);
       for (const change of hunk.changes) {
+        const baseLineNumber = oldLine;
+        if (change.type !== "insert") oldLine++;
+        if (change.type !== "delete") newLine++;
+        const position = { baseLineNumber, offsetAfter: newLine - oldLine };
         if (change.type === "normal") {
           entries.push({
+            ...position,
             content: change.content,
             kind: "context",
             oldLineNumber: change.oldLineNumber,
@@ -86,12 +97,14 @@ function buildPatchEntries(patch: string): PatchLineEntry[] {
           });
         } else if (change.type === "insert") {
           entries.push({
+            ...position,
             content: change.content,
             kind: "insert",
             newLineNumber: change.lineNumber,
           });
         } else if (change.type === "delete") {
           entries.push({
+            ...position,
             content: change.content,
             kind: "delete",
             oldLineNumber: change.lineNumber,
@@ -105,6 +118,55 @@ function buildPatchEntries(patch: string): PatchLineEntry[] {
   return entries;
 }
 
+function postImageLine(entries: PatchLineEntry[], baseLine: number) {
+  let low = 0;
+  let high = entries.length;
+  while (low < high) {
+    const mid = (low + high) >>> 1;
+    if (entries[mid].baseLineNumber <= baseLine) low = mid + 1;
+    else high = mid;
+  }
+  return baseLine + (entries[low - 1]?.offsetAfter ?? 0);
+}
+
+function baseLineMapper(from: PatchLineEntry[], to: PatchLineEntry[]) {
+  const unique = (entries: PatchLineEntry[]) => {
+    const map = new Map<string, PatchLineEntry | null>();
+    for (const entry of entries) {
+      if (entry.content.trim())
+        map.set(entry.content, map.has(entry.content) ? null : entry);
+    }
+    return map;
+  };
+  const target = unique(to);
+  const anchors: { line: number; offset: number }[] = [];
+  for (const entry of unique(from).values()) {
+    const match = entry && target.get(entry.content);
+    if (entry && match && entry.kind === match.kind)
+      anchors.push({
+        line: entry.baseLineNumber,
+        offset: match.baseLineNumber - entry.baseLineNumber,
+      });
+  }
+  anchors.sort((a, b) => a.line - b.line);
+  return (line: number) => {
+    let low = 0;
+    let high = anchors.length;
+    while (low < high) {
+      const mid = (low + high) >>> 1;
+      if (anchors[mid].line < line) low = mid + 1;
+      else high = mid;
+    }
+    const before = anchors[low - 1];
+    const after = anchors[low];
+    const best =
+      !before || (after && after.line - line < line - before.line)
+        ? after
+        : before;
+    return line + (best?.offset ?? 0);
+  };
+}
+
 /**
  * Extract the post-image lines from a unified-diff patch string.
  * Returns only the lines that survive into the new file (context + inserts).
@@ -113,6 +175,29 @@ export function buildPostImageLines(patch: string): string[] {
   return buildPatchEntries(patch)
     .filter((e) => e.kind !== "delete")
     .map((e) => e.content);
+}
+
+function orderChangeGroups<T extends { type: string }>(lines: T[]) {
+  for (let start = 0; start < lines.length; ) {
+    if (lines[start].type !== "delete" && lines[start].type !== "insert") {
+      start++;
+      continue;
+    }
+    let end = start;
+    while (
+      end < lines.length &&
+      (lines[end].type === "delete" || lines[end].type === "insert")
+    )
+      end++;
+    const block = lines.slice(start, end);
+    lines.splice(
+      start,
+      block.length,
+      ...block.filter((line) => line.type === "delete"),
+      ...block.filter((line) => line.type === "insert")
+    );
+    start = end;
+  }
 }
 
 /**
@@ -139,10 +224,14 @@ export function computeInterdiff(
     return { hunks: [] };
   }
 
-  // LCS-align the two entry sequences by content.
-  const contentsA = entriesA.map((e) => e.content);
-  const contentsB = entriesB.map((e) => e.content);
-  const chunks = diffArrays(contentsA, contentsB);
+  const baseAtoB = baseLineMapper(entriesA, entriesB);
+  const baseBtoA = baseLineMapper(entriesB, entriesA);
+  // Repeated context such as blank lines must not align unrelated patch windows.
+  const chunks = diffArrays(entriesA, entriesB, {
+    comparator: (a, b) =>
+      a.content === b.content &&
+      baseAtoB(a.baseLineNumber) === b.baseLineNumber,
+  });
 
   interface FlatLine {
     type: "equal" | "delete" | "insert";
@@ -155,25 +244,14 @@ export function computeInterdiff(
   let idxA = 0;
   let idxB = 0;
 
-  // Track the expected next old/new post-image line numbers as we walk the
-  // aligned sequences. A-only / B-only context lines (present in one patch's
-  // window but not the other's) don't carry the missing side's real number,
-  // so we synthesize it from this counter to keep the sequence monotonic and
-  // consistent with surrounding paired equals. 0 means "no anchor yet"; fall
-  // back to the visible side's number in that case.
-  let nextOld = 0;
-  let nextNew = 0;
-
   const pushFlat = (line: FlatLine) => {
     flat.push(line);
-    if (line.oldLineNumber != null) nextOld = line.oldLineNumber + 1;
-    if (line.newLineNumber != null) nextNew = line.newLineNumber + 1;
   };
 
   for (const chunk of chunks) {
     if (!chunk.added && !chunk.removed) {
       // LCS equal: same content in both sequences.  Disambiguate by kind.
-      for (const content of chunk.value) {
+      for (const { content } of chunk.value) {
         const ea = entriesA[idxA++];
         const eb = entriesB[idxB++];
         if (ea.kind === "insert" && eb.kind === "delete") {
@@ -206,7 +284,7 @@ export function computeInterdiff(
           pushFlat({
             type: "delete",
             content,
-            oldLineNumber: eb.oldLineNumber,
+            oldLineNumber: ea.newLineNumber,
           });
         } else if (ea.kind === "delete" && eb.kind === "context") {
           // v1 deleted it; v2 kept it as context → INSERT.
@@ -229,7 +307,7 @@ export function computeInterdiff(
       }
     } else if (chunk.removed) {
       // Present in v1's patch sequence but not v2's.
-      for (const content of chunk.value) {
+      for (const { content } of chunk.value) {
         const ea = entriesA[idxA++];
         if (ea.kind === "insert") {
           // v1 deliberately added this line; v2 doesn't have it → delete.
@@ -244,16 +322,15 @@ export function computeInterdiff(
           pushFlat({
             type: "insert",
             content,
-            newLineNumber: ea.oldLineNumber,
+            newLineNumber: postImageLine(entriesB, baseAtoB(ea.baseLineNumber)),
           });
         } else {
-          // kind="context": line is in v1's patch window but not v2's.
-          // Treat as equal (both versions have it, but v2 just doesn't include
-          // it in its patch window). Old-side gets v1's real number; new-side
-          // is synthesized from the running counter so it stays consistent
-          // with surrounding paired equals.
+          // Context outside the other patch's windows still has real file coordinates.
           const oldLineNumber = ea.newLineNumber;
-          const newLineNumber = nextNew || oldLineNumber;
+          const newLineNumber = postImageLine(
+            entriesB,
+            baseAtoB(ea.baseLineNumber)
+          );
           pushFlat({
             type: "equal",
             content,
@@ -264,7 +341,7 @@ export function computeInterdiff(
       }
     } else {
       // Present in v2's patch sequence but not v1's.
-      for (const content of chunk.value) {
+      for (const { content } of chunk.value) {
         const eb = entriesB[idxB++];
         if (eb.kind === "insert") {
           // v2 deliberately added this line; v1 doesn't have it → insert.
@@ -279,13 +356,14 @@ export function computeInterdiff(
           pushFlat({
             type: "delete",
             content,
-            oldLineNumber: eb.oldLineNumber,
+            oldLineNumber: postImageLine(entriesA, baseBtoA(eb.baseLineNumber)),
           });
         } else {
-          // kind="context": mirror of the A-only branch. New-side gets v2's
-          // real number; old-side is synthesized from the running counter.
           const newLineNumber = eb.newLineNumber;
-          const oldLineNumber = nextOld || newLineNumber;
+          const oldLineNumber = postImageLine(
+            entriesA,
+            baseBtoA(eb.baseLineNumber)
+          );
           pushFlat({
             type: "equal",
             content,
@@ -297,28 +375,48 @@ export function computeInterdiff(
     }
   }
 
-  const isChanged = flat.map((l) => l.type !== "equal");
-  const changedIdxs = flat.map((_, i) => i).filter((i) => isChanged[i]);
+  // Patch windows omit real file lines. Context expansion and replacement
+  // pairing must stop at those gaps rather than treating the windows as adjacent.
+  const regions: [number, number][] = [];
+  let regionStart = 0;
+  let lastOld: number | undefined;
+  let lastNew: number | undefined;
+  flat.forEach((line, index) => {
+    if (
+      (line.oldLineNumber != null &&
+        lastOld != null &&
+        line.oldLineNumber !== lastOld + 1) ||
+      (line.newLineNumber != null &&
+        lastNew != null &&
+        line.newLineNumber !== lastNew + 1)
+    ) {
+      regions.push([regionStart, index]);
+      regionStart = index;
+      lastOld = lastNew = undefined;
+    }
+    if (line.oldLineNumber != null) lastOld = line.oldLineNumber;
+    if (line.newLineNumber != null) lastNew = line.newLineNumber;
+  });
+  regions.push([regionStart, flat.length]);
 
-  if (changedIdxs.length === 0) return { hunks: [] };
-
-  // Merge changed indices into hunk ranges (±CONTEXT_LINES context each side)
   const ranges: [number, number][] = [];
-  let rangeStart = Math.max(0, changedIdxs[0] - CONTEXT_LINES);
-  let rangeEnd = Math.min(flat.length - 1, changedIdxs[0] + CONTEXT_LINES);
-
-  for (let i = 1; i < changedIdxs.length; i++) {
-    const nextStart = Math.max(0, changedIdxs[i] - CONTEXT_LINES);
-    const nextEnd = Math.min(flat.length - 1, changedIdxs[i] + CONTEXT_LINES);
-    if (nextStart <= rangeEnd + 1) {
-      rangeEnd = Math.max(rangeEnd, nextEnd);
-    } else {
-      ranges.push([rangeStart, rangeEnd]);
-      rangeStart = nextStart;
-      rangeEnd = nextEnd;
+  for (const [start, end] of regions) {
+    const block = flat.slice(start, end);
+    orderChangeGroups(block);
+    flat.splice(start, block.length, ...block);
+    let range: [number, number] | undefined;
+    for (let index = start; index < end; index++) {
+      if (flat[index].type === "equal") continue;
+      const nextStart = Math.max(start, index - CONTEXT_LINES);
+      const nextEnd = Math.min(end - 1, index + CONTEXT_LINES);
+      if (range && nextStart <= range[1] + 1) range[1] = nextEnd;
+      else {
+        range = [nextStart, nextEnd];
+        ranges.push(range);
+      }
     }
   }
-  ranges.push([rangeStart, rangeEnd]);
+  if (!ranges.length) return { hunks: [] };
 
   const output: (DiffHunk | DiffSkipBlock)[] = [];
   // Track the next post-image (newLineNumber) file line the diff should cover.
@@ -353,44 +451,67 @@ export function computeInterdiff(
       });
     }
 
-    const hunkLines: DiffLine[] = [];
+    const changes: Change[] = hunkBlock.map((line) => {
+      if (line.type === "equal") {
+        return {
+          type: "normal",
+          isNormal: true,
+          oldLineNumber: line.oldLineNumber!,
+          newLineNumber: line.newLineNumber!,
+          content: line.content,
+        };
+      }
+      return line.type === "delete"
+        ? {
+            type: "delete",
+            isDelete: true,
+            lineNumber: line.oldLineNumber!,
+            content: line.content,
+          }
+        : {
+            type: "insert",
+            isInsert: true,
+            lineNumber: line.newLineNumber!,
+            content: line.content,
+          };
+    });
+    const oldStart =
+      hunkBlock.find((line) => line.oldLineNumber != null)?.oldLineNumber ??
+      hunkStart;
+    const mergedLines = mergeModifiedLines(
+      changes,
+      undefined,
+      hunkStart - oldStart
+    );
+    orderChangeGroups(mergedLines);
     const lang = filename ? guessLang(filename) : null;
     const hunkHtml = lang
-      ? highlightFileByLines(hunkBlock.map((fl) => fl.content).join("\n"), lang)
-      : hunkBlock.map((fl) => escapeHtml(fl.content));
-    hunkBlock.forEach((fl, idx) => {
-      const segs: LineSegment[] = [
-        {
-          value: fl.content,
-          html: hunkHtml[idx] ?? escapeHtml(fl.content),
-          type: "normal",
-        },
-      ];
-      if (fl.type === "equal") {
-        hunkLines.push({
-          type: "normal",
-          oldLineNumber: fl.oldLineNumber,
-          newLineNumber: fl.newLineNumber,
-          content: segs,
-        });
-      } else if (fl.type === "delete") {
-        hunkLines.push({
-          type: "delete",
-          oldLineNumber: fl.oldLineNumber,
-          content: segs,
-        });
-      } else {
-        hunkLines.push({
-          type: "insert",
-          newLineNumber: fl.newLineNumber,
-          content: segs,
-        });
-      }
-    });
+      ? highlightFileByLines(
+          mergedLines
+            .map((line) => line.content.map((seg) => seg.value).join(""))
+            .join("\n"),
+          lang
+        )
+      : [];
+    const hunkLines: DiffLine[] = mergedLines.map((line, idx) => ({
+      type: line.type,
+      oldLineNumber: line.oldLineNumber,
+      newLineNumber: line.newLineNumber,
+      content: line.content.map((seg) => ({
+        ...seg,
+        html:
+          line.content.length === 1
+            ? (hunkHtml[idx] ?? escapeHtml(seg.value))
+            : lang
+              ? (highlightFileByLines(seg.value, lang)[0] ??
+                escapeHtml(seg.value))
+              : escapeHtml(seg.value),
+      })),
+    }));
 
     output.push({
       type: "hunk",
-      oldStart: flat[start].oldLineNumber ?? hunkStart,
+      oldStart,
       newStart: hunkStart,
       lines: hunkLines,
     });
