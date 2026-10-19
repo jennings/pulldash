@@ -9,6 +9,7 @@ import React, {
 } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { measureElement, useVirtualizer } from "@tanstack/react-virtual";
+import { measureCommentHeight } from "@/browser/lib/comment-height";
 
 import {
   Loader2,
@@ -2553,12 +2554,21 @@ const DiffViewer = memo(function DiffViewer({
   );
 
   const getItemKey = useCallback(
-    (index: number) => `${selectedFile}-${wordWrap ? "w" : "nw"}-${index}`,
-    [selectedFile, wordWrap]
+    (index: number) => {
+      const row = virtualRows[index];
+      const identity =
+        row?.type === "pending-comment"
+          ? `pending-${row.comment.id}`
+          : row?.type === "comment-thread"
+            ? `thread-${row.comments[0]?.id}`
+            : index;
+      return `${selectedFile}-${viewMode}-${wordWrap ? "w" : "nw"}-${identity}`;
+    },
+    [selectedFile, viewMode, wordWrap, virtualRows]
   );
   const commentHeights = useMemo(
     () => new Map<string | number | bigint, number>(),
-    [staticRows, selectedFile, wordWrap]
+    [selectedFile, viewMode, wordWrap]
   );
   const commentScrollAnchor = useRef<{
     index: number;
@@ -2576,12 +2586,16 @@ const DiffViewer = memo(function DiffViewer({
     measureElement: (element, entry, instance) => {
       const index = instance.indexFromElement(element);
       const row = virtualRows[index];
-      const size = measureElement(element, entry, instance);
       if (row?.type === "comment-thread" || row?.type === "pending-comment") {
-        if (isCommentRowHidden(row)) return 0;
-        commentHeights.set(getItemKey(index), size);
+        return measureCommentHeight(
+          element,
+          entry,
+          commentHeights,
+          getItemKey(index),
+          isCommentRowHidden(row)
+        );
       }
-      return size;
+      return measureElement(element, entry, instance);
     },
     // High overscan for smooth navigation - rows pre-rendered above/below viewport
     overscan: 100,

@@ -1,8 +1,25 @@
 import { test, expect, describe } from "bun:test";
+import { structuredPatch } from "diff";
 import { computeInterdiff, buildPostImageLines } from "./interdiff";
 import { escapeHtml, hastToHtml } from "../../shared/diff-utils";
-import type { DiffHunk, DiffSkipBlock } from "./diff-worker";
+import type { DiffHunk, DiffSkipBlock, DiffLine } from "./diff-worker";
 import type { RootContent } from "hast";
+
+function changedContents(lines: DiffLine[], type: "delete" | "insert") {
+  return lines
+    .filter(
+      (line) =>
+        line.type === type ||
+        (line.type === "normal" &&
+          line.content.some((seg) => seg.type !== "normal"))
+    )
+    .map((line) =>
+      line.content
+        .filter((seg) => seg.type !== (type === "delete" ? "insert" : "delete"))
+        .map((seg) => seg.value)
+        .join("")
+    );
+}
 
 describe("escapeHtml", () => {
   test("escapes ampersands", () => {
@@ -108,6 +125,164 @@ describe("buildPostImageLines", () => {
 });
 
 describe("computeInterdiff", () => {
+  test("sparse patch windows retain gaps and source coordinates, including after a rebase", () => {
+    const base = Array.from({ length: 110 }, (_, index) =>
+      index % 10 < 5 ? "" : `line ${index + 1}`
+    );
+    base[39] = "from typing import TYPE_CHECKING, Literal, overload";
+    base[49] = "def host_data(hostname_or_ip: str) -> dict[str, str]:";
+    base[83] = "        self.password = h_data['password']";
+    base[84] =
+      "        self.skip_xo_config = h_data.get('skip_xo_config', False)";
+    const oldLines = [...base];
+    oldLines[39] = "from typing import TYPE_CHECKING, Any, Literal, overload";
+    oldLines[49] = "def host_data(hostname_or_ip: str) -> dict[str, Any]:";
+    oldLines[100] = "shared addition";
+    const newLines = [...base];
+    newLines[100] = "shared addition";
+    newLines.splice(
+      86,
+      0,
+      "        # Fail early when the host is down.",
+      "        if not Host.ssh_reachable(hostname_or_ip):",
+      "            raise Exception('unreachable')",
+      ""
+    );
+    const patch = (base: string[], lines: string[]) =>
+      structuredPatch(
+        "host.py",
+        "host.py",
+        base.join("\n") + "\n",
+        lines.join("\n") + "\n"
+      )
+        .hunks.map(
+          (hunk) =>
+            `@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@\n${hunk.lines.join("\n")}`
+        )
+        .join("\n");
+
+    for (const offset of [0, 20]) {
+      const prefix = Array.from(
+        { length: offset },
+        (_, index) => `rebase line ${index}`
+      );
+      const sources = [oldLines, [...prefix, ...newLines]];
+      const result = computeInterdiff(
+        patch(base, oldLines),
+        patch([...prefix, ...base], sources[1]),
+        "host.py"
+      );
+      const hunks = result.hunks.filter((hunk) => hunk.type === "hunk");
+      expect(hunks.map((hunk) => [hunk.oldStart, hunk.newStart])).toEqual([
+        [37, 37 + offset],
+        [47, 47 + offset],
+        [84, 84 + offset],
+      ]);
+      expect(result.hunks[0]).toMatchObject({
+        type: "skip",
+        count: 36 + offset,
+      });
+      expect(result.hunks[2]).toMatchObject({ type: "skip", count: 3 });
+      for (const [side, number, excluded] of [
+        [0, "oldLineNumber", "insert"],
+        [1, "newLineNumber", "delete"],
+      ] as const) {
+        let previous = 0;
+        for (const hunk of hunks) {
+          let previousInHunk: number | undefined;
+          for (const line of hunk.lines) {
+            const n = line[number];
+            if (n == null) continue;
+            expect(n).toBeGreaterThan(previous);
+            if (previousInHunk !== undefined)
+              expect(n).toBe(previousInHunk + 1);
+            expect(
+              line.content
+                .filter((seg) => seg.type !== excluded)
+                .map((seg) => seg.value)
+                .join("")
+            ).toBe(sources[side][n - 1]);
+            previous = previousInHunk = n;
+          }
+        }
+      }
+    }
+  });
+
+  test("reverted typing import changes use inline highlighting in both directions", () => {
+    const patch = `@@ -37,7 +37,7 @@
+ from lib.vm import VM
+ from lib.xo import xo_cli, xo_object_exists
+ 
+-from typing import TYPE_CHECKING, Literal, overload
++from typing import TYPE_CHECKING, Any, Literal, overload
+ 
+ if TYPE_CHECKING:
+     from lib.pool import Pool`;
+    for (const [before, after, type] of [
+      [patch, "", "delete"],
+      ["", patch, "insert"],
+    ] as const) {
+      const result = computeInterdiff(before, after, "lib/host.py");
+      const lines = result.hunks.flatMap((h) =>
+        h.type === "hunk" ? h.lines : []
+      );
+      const line = lines.find((line) => line.newLineNumber === 40)!;
+      expect(line.type).toBe("normal");
+      expect(line.oldLineNumber).toBe(40);
+      expect(
+        line.content
+          .filter((segment) => segment.type === type)
+          .map((segment) => segment.value)
+          .join("")
+      ).toBe("Any, ");
+      expect(
+        line.content
+          .filter((segment) => segment.type !== "insert")
+          .map((segment) => segment.value)
+          .join("")
+      ).toBe(
+        before
+          ? "from typing import TYPE_CHECKING, Any, Literal, overload"
+          : "from typing import TYPE_CHECKING, Literal, overload"
+      );
+      expect(
+        line.content
+          .filter((segment) => segment.type !== "delete")
+          .map((segment) => segment.value)
+          .join("")
+      ).toBe(
+        after
+          ? "from typing import TYPE_CHECKING, Any, Literal, overload"
+          : "from typing import TYPE_CHECKING, Literal, overload"
+      );
+      expect(lines.filter((line) => line.type !== "normal")).toEqual([]);
+    }
+  });
+
+  test("reverted unrelated replacements keep all deletions before additions", () => {
+    const patch = `@@ -40,2 +40,2 @@
+-apple
+-pear
++socket
++server`;
+    const result = computeInterdiff(patch, "");
+    const lines = result.hunks.flatMap((h) =>
+      h.type === "hunk" ? h.lines : []
+    );
+    expect(
+      lines.map((line) => [
+        line.type,
+        line.content.map((seg) => seg.value).join(""),
+      ])
+    ).toEqual([
+      ["delete", "socket"],
+      ["delete", "server"],
+      ["insert", "apple"],
+      ["insert", "pear"],
+    ]);
+  });
+
   test("identical patches produce empty output", () => {
     const patch = `@@ -1,3 +1,3 @@
  context
@@ -133,10 +308,8 @@ describe("computeInterdiff", () => {
     expect(result.hunks.length).toBeGreaterThan(0);
     const hunk = result.hunks.find((h) => h.type === "hunk") as DiffHunk;
     expect(hunk).toBeDefined();
-    const hasDelete = hunk.lines.some((l) => l.type === "delete");
-    const hasInsert = hunk.lines.some((l) => l.type === "insert");
-    expect(hasDelete).toBe(true);
-    expect(hasInsert).toBe(true);
+    expect(changedContents(hunk.lines, "delete")).toContain("v1_line");
+    expect(changedContents(hunk.lines, "insert")).toContain("v2_line");
   });
 
   test("rebase-only shift produces empty output", () => {
@@ -364,18 +537,12 @@ describe("computeInterdiff", () => {
     const hunks = result.hunks.filter((h) => h.type === "hunk") as DiffHunk[];
     expect(hunks.length).toBeGreaterThan(0);
     const allLines = hunks.flatMap((h) => h.lines);
-    const deletes = allLines.filter((l) => l.type === "delete");
-    const inserts = allLines.filter((l) => l.type === "insert");
-    expect(
-      deletes.some((l) =>
-        l.content.some((s) => s.value.includes("HandoffView.Main"))
-      )
-    ).toBe(true);
-    expect(
-      inserts.some((l) =>
-        l.content.some((s) => s.value.includes("HandoffView.TimeWanted"))
-      )
-    ).toBe(true);
+    expect(changedContents(allLines, "delete")).toContain(
+      "setMenuState(HandoffView.Main)"
+    );
+    expect(changedContents(allLines, "insert")).toContain(
+      "setMenuState(HandoffView.TimeWanted)"
+    );
   });
 
   test("v1 deletes a line v2 doesn't touch shows as insert", () => {
@@ -455,28 +622,8 @@ describe("computeInterdiff", () => {
     const allLines = (
       result.hunks.filter((h) => h.type === "hunk") as DiffHunk[]
     ).flatMap((h) => h.lines);
-    const deletes = allLines.filter((l) => l.type === "delete");
-    const inserts = allLines.filter((l) => l.type === "insert");
-    expect(
-      deletes.some((l) =>
-        l.content.some((s) => s.value.includes("v1_replacement"))
-      )
-    ).toBe(true);
-    expect(
-      inserts.some((l) =>
-        l.content.some((s) => s.value.includes("v2_replacement"))
-      )
-    ).toBe(true);
-    expect(
-      deletes.some((l) =>
-        l.content.some((s) => s.value.includes("shared_removed"))
-      )
-    ).toBe(false);
-    expect(
-      inserts.some((l) =>
-        l.content.some((s) => s.value.includes("shared_removed"))
-      )
-    ).toBe(false);
+    expect(changedContents(allLines, "delete")).toEqual(["v1_replacement"]);
+    expect(changedContents(allLines, "insert")).toEqual(["v2_replacement"]);
   });
 
   test("delete-only change in v2 includes surrounding context", () => {
@@ -552,28 +699,16 @@ describe("computeInterdiff", () => {
     const hunks = result.hunks.filter((h) => h.type === "hunk") as DiffHunk[];
     expect(hunks.length).toBeGreaterThan(0);
     const allLines = hunks.flatMap((h) => h.lines);
-    const deletes = allLines.filter((l) => l.type === "delete");
-    const inserts = allLines.filter((l) => l.type === "insert");
+    const deletes = changedContents(allLines, "delete");
+    const inserts = changedContents(allLines, "insert");
     // "ctx_c" was context in v1, deleted in v2 → must show as DELETE
-    expect(
-      deletes.some((l) => l.content.some((s) => s.value.includes("ctx_c")))
-    ).toBe(true);
+    expect(deletes).toContain("ctx_c");
     // "new_line_v1" was inserted in v1, not in v2 → must show as DELETE
-    expect(
-      deletes.some((l) =>
-        l.content.some((s) => s.value.includes("new_line_v1"))
-      )
-    ).toBe(true);
+    expect(deletes).toContain("new_line_v1");
     // "new_line_v2" was inserted in v2, not in v1 → must show as INSERT
-    expect(
-      inserts.some((l) =>
-        l.content.some((s) => s.value.includes("new_line_v2"))
-      )
-    ).toBe(true);
+    expect(inserts).toContain("new_line_v2");
     // "kept_line" is context in both patches → EQUAL (not in deletes or inserts)
-    expect(
-      deletes.some((l) => l.content.some((s) => s.value.includes("kept_line")))
-    ).toBe(false);
+    expect(deletes).not.toContain("kept_line");
   });
 
   test("delete/context in equal LCS: v1 deletes line, v2 keeps as context", () => {
@@ -599,28 +734,18 @@ describe("computeInterdiff", () => {
     const allLines = (
       result.hunks.filter((h) => h.type === "hunk") as DiffHunk[]
     ).flatMap((h) => h.lines);
-    const inserts = allLines.filter((l) => l.type === "insert");
-    const deletes = allLines.filter((l) => l.type === "delete");
+    const inserts = changedContents(allLines, "insert");
+    const deletes = changedContents(allLines, "delete");
     // "X" was deleted in v1, kept as context in v2 → INSERT
-    expect(
-      inserts.some((l) => l.content.some((s) => s.value.includes("X")))
-    ).toBe(true);
+    expect(inserts).toContain("X");
     // "after" was context in v1, deleted in v2 → DELETE
-    expect(
-      deletes.some((l) => l.content.some((s) => s.value.includes("after")))
-    ).toBe(true);
+    expect(deletes).toContain("after");
     // "before_v1" was inserted in v1 only → DELETE
-    expect(
-      deletes.some((l) => l.content.some((s) => s.value.includes("before_v1")))
-    ).toBe(true);
+    expect(deletes).toContain("before_v1");
     // "before_v2" was inserted in v2 only → INSERT
-    expect(
-      inserts.some((l) => l.content.some((s) => s.value.includes("before_v2")))
-    ).toBe(true);
+    expect(inserts).toContain("before_v2");
     // "after_v2" was inserted in v2 only → INSERT
-    expect(
-      inserts.some((l) => l.content.some((s) => s.value.includes("after_v2")))
-    ).toBe(true);
+    expect(inserts).toContain("after_v2");
   });
 
   test("skip-block counts match real file-line gaps, not flat-array indices", () => {
