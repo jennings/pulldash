@@ -1,7 +1,13 @@
 import { useCallback } from "react";
 import { useGitHub } from "@/browser/contexts/github";
 import { diffService } from "@/browser/lib/diff";
-import { usePRReviewStore, usePRReviewSelector, type DiffLine } from ".";
+import {
+  usePRReviewStore,
+  usePRReviewSelector,
+  getLoadedFileDiff,
+  type DiffLine,
+} from ".";
+import { expandComparisonContext } from "@/browser/lib/diff-expansion";
 
 export function useSkipBlockExpansion() {
   const store = usePRReviewStore();
@@ -24,6 +30,9 @@ export function useSkipBlockExpansion() {
       if (!selectedFile) return;
 
       const key = store.getSkipBlockKey(selectedFile, skipIndex);
+      const version = store.getSelectionVersion();
+      const state = store.getSnapshot();
+      const diff = getLoadedFileDiff(state, selectedFile);
 
       // Already expanded or expanding
       if (expandedSkipBlocks[key] || expandingSkipBlocks.has(key)) return;
@@ -31,30 +40,41 @@ export function useSkipBlockExpansion() {
       store.setSkipBlockExpanding(key, true);
 
       try {
-        // Fetch the file content from the head commit
-        const content = await github.getFileContent(
-          owner,
-          repo,
-          selectedFile,
-          pr.head.sha,
-          `${owner}/${repo}/${pr.number}`
-        );
-
-        if (!content) {
-          console.error("Failed to fetch file for skip block expansion");
-          return;
-        }
-
-        // Get highlighted lines via WebWorker. oldStartLine tracks the paired
-        // old-side line number so revealed context lines carry the right pair
-        // when the two files have drifted (hunks above added or removed lines).
-        const expandedLines = await diffService.highlightLines(
-          content,
-          selectedFile,
-          startLine,
-          oldStartLine,
-          count
-        );
+        const getContent = (path: string, sha: string) =>
+          github.getFileContent(
+            owner,
+            repo,
+            path,
+            sha,
+            `${owner}/${repo}/${pr.number}`
+          );
+        const block = diff?.hunks.filter((h) => h.type === "skip")[skipIndex];
+        const expandedLines =
+          diff?.sources && block
+            ? await expandComparisonContext(
+                {
+                  ...block,
+                  oldStart: block.oldStart ?? oldStartLine,
+                  newStart: block.newStart ?? startLine,
+                },
+                diff.sources,
+                getContent,
+                diffService.compareContents.bind(diffService),
+                diffService.highlightLines.bind(diffService)
+              )
+            : await diffService.highlightLines(
+                await getContent(
+                  selectedFile,
+                  state.selectedCommitSha ??
+                    state.selectedHeadSha ??
+                    pr.head.sha
+                ),
+                selectedFile,
+                startLine,
+                oldStartLine,
+                count
+              );
+        if (version !== store.getSelectionVersion()) return;
 
         store.setExpandedSkipBlock(key, expandedLines);
 
@@ -66,13 +86,17 @@ export function useSkipBlockExpansion() {
           const firstLineNum =
             firstLine.newLineNumber || firstLine.oldLineNumber;
           if (firstLineNum) {
-            store.setFocusedLine(firstLineNum, "new");
+            store.setFocusedLine(
+              firstLineNum,
+              firstLine.newLineNumber != null ? "new" : "old"
+            );
           }
         }
       } catch (error) {
         console.error("Failed to expand skip block:", error);
       } finally {
-        store.setSkipBlockExpanding(key, false);
+        if (version === store.getSelectionVersion())
+          store.setSkipBlockExpanding(key, false);
       }
     },
     [

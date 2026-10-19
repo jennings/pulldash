@@ -8,7 +8,7 @@ import gitDiffParser, {
   DeleteChange,
   InsertChange,
 } from "gitdiff-parser";
-import { diffArrays } from "diff";
+import { diffArrays, createTwoFilesPatch } from "diff";
 import { refractor } from "refractor/all";
 import { INLINE_MAX_CHAR_EDITS } from "../../diff-parse-constants";
 import {
@@ -51,14 +51,18 @@ export interface DiffSkipBlock {
   type: "skip";
   count: number;
   content: string;
+  oldStart?: number;
+  newStart?: number;
+  oldCount?: number;
+  newCount?: number;
 }
 
 export interface ParsedDiff {
   hunks: (DiffHunk | DiffSkipBlock)[];
   error?: string;
   sources?: {
-    old: { sha: string; path: string };
-    new: { sha: string; path: string };
+    old: { sha: string; path: string; exists?: boolean };
+    new: { sha: string; path: string; exists?: boolean };
   };
 }
 
@@ -83,17 +87,21 @@ interface Hunk extends Omit<_Hunk, "changes"> {
   lines: Line[];
 }
 
-interface SkipBlock {
-  count: number;
-  type: "skip";
-  content: string;
-}
+type SkipBlock = DiffSkipBlock;
 
 // ============================================================================
 // Message Types
 // ============================================================================
 
 export type WorkerRequest =
+  | {
+      type: "compare-content";
+      id: string;
+      oldContent: string;
+      newContent: string;
+      filename: string;
+      context?: number;
+    }
   | {
       type: "parse-diff";
       id: string;
@@ -578,6 +586,7 @@ const extractHunkContext = (header: string): string =>
 const insertSkipBlocks = (hunks: Hunk[]): (Hunk | SkipBlock)[] => {
   const result: (Hunk | SkipBlock)[] = [];
   let lastHunkLine = 1;
+  let lastNewLine = 1;
 
   for (const hunk of hunks) {
     const distanceToLastHunk = hunk.oldStart - lastHunkLine;
@@ -585,6 +594,10 @@ const insertSkipBlocks = (hunks: Hunk[]): (Hunk | SkipBlock)[] => {
     if (distanceToLastHunk > 0) {
       result.push({
         count: distanceToLastHunk,
+        oldStart: lastHunkLine,
+        newStart: lastNewLine,
+        oldCount: distanceToLastHunk,
+        newCount: Math.max(0, hunk.newStart - lastNewLine),
         type: "skip",
         content:
           context && context.length >= 5
@@ -593,6 +606,7 @@ const insertSkipBlocks = (hunks: Hunk[]): (Hunk | SkipBlock)[] => {
       });
     }
     lastHunkLine = Math.max(hunk.oldStart + hunk.oldLines, lastHunkLine);
+    lastNewLine = Math.max(hunk.newStart + hunk.newLines, lastNewLine);
     result.push(hunk);
   }
 
@@ -794,6 +808,32 @@ ${patch}`;
   });
 
   return { hunks };
+}
+
+export function compareFileContents(
+  oldContent: string,
+  newContent: string,
+  filename: string,
+  context = 3
+): ParsedDiff {
+  const patch = createTwoFilesPatch(
+    filename,
+    filename,
+    oldContent,
+    newContent,
+    undefined,
+    undefined,
+    { context }
+  );
+  const start = patch.indexOf("@@");
+  if (start < 0) return { hunks: [] };
+  return parseDiffWithHighlighting(
+    patch.slice(start),
+    filename,
+    undefined,
+    oldContent,
+    newContent
+  );
 }
 
 export function highlightFileLines(

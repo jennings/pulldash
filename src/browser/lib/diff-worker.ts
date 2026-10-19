@@ -1,6 +1,7 @@
 import {
   parseDiffWithHighlighting,
   highlightFileLines,
+  compareFileContents,
   type WorkerRequest,
   type WorkerResponse,
 } from "./diff-parser";
@@ -13,6 +14,20 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
 
   try {
     switch (request.type) {
+      case "compare-content": {
+        const result = compareFileContents(
+          request.oldContent,
+          request.newContent,
+          request.filename,
+          request.context
+        );
+        self.postMessage({
+          type: "parse-diff-result",
+          id: request.id,
+          result,
+        } as WorkerResponse);
+        break;
+      }
       case "parse-diff": {
         const result = parseDiffWithHighlighting(
           request.patch,

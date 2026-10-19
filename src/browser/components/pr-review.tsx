@@ -2121,8 +2121,8 @@ const DiffViewer = memo(function DiffViewer({
       const hunk = hunks[i];
       if (hunk.type === "skip") {
         starts.push({
-          newStart: expectedNextNew,
-          oldStart: expectedNextOld,
+          newStart: hunk.newStart ?? expectedNextNew,
+          oldStart: hunk.oldStart ?? expectedNextOld,
         });
         expectedNextNew += hunk.count;
         expectedNextOld += hunk.count;

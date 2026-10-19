@@ -65,6 +65,9 @@ export function comparisonSources(
   return {
     old: {
       sha: oldSha,
+      exists: pair.previous
+        ? pair.previous.status !== "removed"
+        : pair.current?.status !== "added",
       path:
         pair.previous?.filename ??
         pair.current?.previous_filename ??
@@ -72,6 +75,9 @@ export function comparisonSources(
     },
     new: {
       sha: newSha,
+      exists: pair.current
+        ? pair.current.status !== "removed"
+        : pair.previous?.status !== "added",
       path:
         pair.current?.filename ??
         pair.previous?.previous_filename ??

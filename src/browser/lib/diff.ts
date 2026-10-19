@@ -156,6 +156,28 @@ export class DiffWorkerPool {
     });
   }
 
+  async compareContents(
+    oldContent: string,
+    newContent: string,
+    filename: string,
+    context?: number
+  ): Promise<ParsedDiff> {
+    const id = this.generateId();
+    const worker = this.getNextWorker();
+    return new Promise((resolve, reject) => {
+      this.pendingRequests.set(id, { worker, resolve, reject });
+      this.loads.set(worker, (this.loads.get(worker) ?? 0) + 1);
+      worker.postMessage({
+        type: "compare-content",
+        id,
+        oldContent,
+        newContent,
+        filename,
+        context,
+      } satisfies WorkerRequest);
+    });
+  }
+
   async interdiff(
     patch1: string,
     patch2: string,

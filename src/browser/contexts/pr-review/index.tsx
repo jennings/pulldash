@@ -830,6 +830,7 @@ export class PRReviewStore {
   };
 
   getSnapshot = (): PRReviewState => this.state;
+  getSelectionVersion = () => this.selectionVersion;
 
   private emit() {
     this.listeners.forEach((l) => l());

@@ -425,6 +425,7 @@ export function computeInterdiff(
   // `flat` (which only contains lines the two patches touched) undercounts by
   // orders of magnitude.
   let nextFileLine = 1;
+  let nextOldLine = 1;
 
   for (const [start, end] of ranges) {
     const hunkBlock = flat.slice(start, end + 1);
@@ -442,12 +443,19 @@ export function computeInterdiff(
     }
     const hunkStart = firstNewLine ?? flat[start].oldLineNumber ?? nextFileLine;
     const hunkEnd = lastNewLine ?? hunkStart;
+    const firstOld =
+      hunkBlock.find((line) => line.oldLineNumber != null)?.oldLineNumber ??
+      nextOldLine;
 
     if (hunkStart > nextFileLine) {
       output.push({
         type: "skip",
         count: hunkStart - nextFileLine,
         content: "",
+        oldStart: nextOldLine,
+        newStart: nextFileLine,
+        oldCount: Math.max(0, firstOld - nextOldLine),
+        newCount: hunkStart - nextFileLine,
       });
     }
 
@@ -517,6 +525,9 @@ export function computeInterdiff(
     });
 
     nextFileLine = hunkEnd + 1;
+    nextOldLine =
+      (hunkBlock.findLast((line) => line.oldLineNumber != null)
+        ?.oldLineNumber ?? nextOldLine - 1) + 1;
   }
 
   // Trailing skip: total file length is not known here (the worker only sees
@@ -527,6 +538,8 @@ export function computeInterdiff(
     type: "skip",
     count: Number.MAX_SAFE_INTEGER,
     content: "Show remainder of file",
+    oldStart: nextOldLine,
+    newStart: nextFileLine,
   });
 
   return { hunks: output };

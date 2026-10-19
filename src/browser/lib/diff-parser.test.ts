@@ -1,5 +1,32 @@
 import { expect, test } from "bun:test";
-import { parseDiffWithHighlighting } from "./diff-parser";
+import { parseDiffWithHighlighting, compareFileContents } from "./diff-parser";
+
+test("complete-content comparison reconstructs both sides including repeated replacements", () => {
+  const old = "shared\nkeep\nbase\n";
+  const current = "base\nkeep\nshared\n";
+  const lines = compareFileContents(
+    old,
+    current,
+    "file.txt",
+    Infinity
+  ).hunks.flatMap((h) => (h.type === "hunk" ? h.lines : []));
+  for (const [content, excluded] of [
+    [old, "insert"],
+    [current, "delete"],
+  ] as const) {
+    expect(
+      lines
+        .filter((line) => line.type !== excluded)
+        .map((line) =>
+          line.content
+            .filter((s) => s.type !== excluded)
+            .map((s) => s.value)
+            .join("")
+        )
+        .join("\n") + "\n"
+    ).toBe(content);
+  }
+});
 
 test("leading deletions remain before following context and preserve both files", () => {
   const result = parseDiffWithHighlighting(
