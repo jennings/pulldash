@@ -328,15 +328,16 @@ function detectAndUnpairCrossings(
 // always reads monotonically: context, insert and merged rows are keyed by
 // their new line number. Unpaired deletes (which have no new line number) are
 // keyed just past the nearest row that has a new line number and precedes them
-// in the OLD file, so both gutters stay monotonic; when no such row exists
-// (delete before the hunk's first new-side line) the hunk's old→new delta is
-// used as a fallback. The sort is stable, so rows that share a key keep their
+// in the OLD file, so both gutters stay monotonic. Leading deletes sort before
+// the first new-side row. The sort is stable, so rows that share a key keep their
 // original diff order (deletes before inserts within a change group).
 function computeSortKeys(rows: Line[], delta: number) {
   const newSide: { old: number; new: number }[] = [];
+  let firstNew = Infinity;
   for (const line of rows) {
     const n = (line as any).newLineNumber;
     const o = (line as any).oldLineNumber;
+    if (n != null) firstNew = Math.min(firstNew, n);
     if (n != null && o != null) newSide.push({ old: o, new: n });
   }
   newSide.sort((a, b) => a.old - b.old);
@@ -355,7 +356,8 @@ function computeSortKeys(rows: Line[], delta: number) {
         break;
       }
     }
-    (line as any)._sortKey = key ?? old + delta;
+    (line as any)._sortKey =
+      key ?? (Number.isFinite(firstNew) ? firstNew - 0.5 : old + delta);
   }
 }
 
