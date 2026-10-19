@@ -1383,7 +1383,11 @@ const DiffPanel = memo(function DiffPanel() {
           <div className="flex-1 min-h-0 flex flex-row">
             {/* Scrollable diff content - DiffViewer handles its own virtualized scroll */}
             <div className="flex-1 min-h-0 flex flex-col">
-              {displayDiff && displayDiff.hunks.length > 0 ? (
+              {parsedDiff?.error ? (
+                <div role="alert" className="p-4 text-sm text-muted-foreground">
+                  {parsedDiff.error}
+                </div>
+              ) : displayDiff && displayDiff.hunks.length > 0 ? (
                 <div className="relative flex flex-1 min-h-0 flex-col">
                   <DiffViewer
                     diff={displayDiff}

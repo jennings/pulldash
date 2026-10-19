@@ -301,6 +301,7 @@ export function useCurrentDiff(): ParsedDiff | null {
   const selectedFile = usePRReviewSelector((s) => s.selectedFile);
   const loadedDiffs = usePRReviewSelector((s) => s.loadedDiffs);
   const interdiffEnabled = usePRReviewSelector((s) => s.interdiffEnabled);
+  const interdiffError = usePRReviewSelector((s) => s.interdiffError);
   const interdiffLoadedDiffs = usePRReviewSelector(
     (s) => s.interdiffLoadedDiffs
   );
@@ -318,6 +319,8 @@ export function useCurrentDiff(): ParsedDiff | null {
   const commitChangeIds = usePRReviewSelector((s) => s.commitChangeIds);
   return useMemo(() => {
     if (!selectedFile) return null;
+    if (interdiffEnabled && interdiffError)
+      return { hunks: [], error: interdiffError };
     if (versionCompareNoChangeFiles.includes(selectedFile)) return EMPTY_DIFF;
     if (selectedFile === COMMIT_FILE && selectedCommitSha) {
       const headCommit =
@@ -355,6 +358,7 @@ export function useCurrentDiff(): ParsedDiff | null {
     selectedFile,
     loadedDiffs,
     interdiffEnabled,
+    interdiffError,
     interdiffLoadedDiffs,
     versionCompareNoChangeFiles,
     commits,

@@ -171,6 +171,30 @@ test("commit comparisons retain old-only files and do not refresh branch files",
   ).toBe("modified");
 });
 
+test("missing patches and failed file fetches are not empty comparisons", async () => {
+  const github = createMockGitHubStore();
+  github.getCommitFiles = async (_owner, _repo, sha) => {
+    if (sha === "unavailable") throw new Error("network failure");
+    return [{ ...createMockFile("large.ts"), patch: undefined }];
+  };
+  const store = new PRReviewStore(github, {
+    pr: createMockPR(),
+    files: [],
+    comments: [],
+    owner: "test",
+    repo: "repo",
+    viewerPermission: "WRITE",
+  });
+  await store.setSelectedCommitSha("head");
+  await store.setCompareToCommitSha("old");
+  expect(store.getSnapshot().interdiffLoadedDiffs["large.ts"]?.error).toContain(
+    "patch"
+  );
+  await store.setCompareToCommitSha("unavailable");
+  expect(store.getSnapshot().interdiffError).toContain("Could not load");
+  expect(store.getSnapshot().interdiffLoadedDiffs).toEqual({});
+});
+
 test("a superseded commit fetch cannot replace the active files", async () => {
   const previous = Promise.withResolvers<PullRequestFile[]>();
   const github = createMockGitHubStore();

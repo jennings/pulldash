@@ -105,36 +105,18 @@ export interface LocalPendingComment extends PendingReviewComment {
   targetSha?: string;
 }
 
-interface LineSegment {
-  value: string;
-  html: string;
-  type: "insert" | "delete" | "normal";
-}
-
-export interface DiffLine {
-  type: "insert" | "delete" | "normal";
-  oldLineNumber?: number;
-  newLineNumber?: number;
-  content: LineSegment[];
-}
-
-export interface DiffHunk {
-  type: "hunk";
-  oldStart: number;
-  newStart: number;
-  lines: DiffLine[];
-  isRebaseArtifact?: boolean;
-}
-
-export interface DiffSkipBlock {
-  type: "skip";
-  count: number;
-  content: string;
-}
-
-export interface ParsedDiff {
-  hunks: (DiffHunk | DiffSkipBlock)[];
-}
+import type {
+  DiffLine,
+  DiffHunk,
+  DiffSkipBlock,
+  ParsedDiff,
+} from "@/browser/lib/diff-parser";
+export type {
+  DiffLine,
+  DiffHunk,
+  DiffSkipBlock,
+  ParsedDiff,
+} from "@/browser/lib/diff-parser";
 
 export interface CommentingOnLine {
   line: number;
@@ -237,6 +219,7 @@ interface PRReviewState {
   interdiffEnabled: boolean;
   /** Interdiff ParsedDiff results per file (populated when interdiffEnabled) */
   interdiffLoadedDiffs: Record<string, ParsedDiff>;
+  interdiffError: string | null;
   /** Files with identical patches between compare-to and viewing version (full branch, no interdiff) */
   versionCompareNoChangeFiles: string[];
   /** File diff count between adjacent version pairs, e.g. "5-6": 3 */
@@ -729,6 +712,7 @@ export class PRReviewStore {
       compareToCommitSha: null,
       interdiffEnabled: false,
       interdiffLoadedDiffs: {},
+      interdiffError: null,
       versionCompareNoChangeFiles: [],
       versionDiffCounts: {},
       versionRebaseInfo: {},
@@ -851,6 +835,8 @@ export class PRReviewStore {
   }
 
   private set(partial: Partial<PRReviewState>) {
+    if ("interdiffLoadedDiffs" in partial && !("interdiffError" in partial))
+      partial.interdiffError = null;
     this.state = { ...this.state, ...partial };
     if ("files" in partial || "viewedFiles" in partial) {
       this.state.viewedFilenames = this.computeViewedFilenames();
@@ -1663,34 +1649,50 @@ export class PRReviewStore {
     const { owner, repo, pr } = this.state;
     const prKey = `${owner}/${repo}/${pr.number}`;
 
-    const [prevFiles, headFiles] = await Promise.all([
-      this.github
-        .getCommitFiles(owner, repo, baseCommitSha, prKey)
-        .catch(() => [] as PullRequestFile[]),
-      this.github
-        .getCommitFiles(owner, repo, headCommitSha, prKey)
-        .catch(() => [] as PullRequestFile[]),
-    ]);
-    if (version !== this.selectionVersion) return;
+    try {
+      const [prevFiles, headFiles] = await Promise.all([
+        this.github.getCommitFiles(owner, repo, baseCommitSha, prKey),
+        this.github.getCommitFiles(owner, repo, headCommitSha, prKey),
+      ]);
+      if (version !== this.selectionVersion) return;
 
-    const pairs = pairComparisonFiles(prevFiles, headFiles);
+      const pairs = pairComparisonFiles(prevFiles, headFiles);
 
-    const interdiffEntries = await Promise.all(
-      pairs.map(async ({ filename, previous, current }) => {
-        const diff = await diffService
-          .interdiff(previous?.patch ?? "", current?.patch ?? "", filename)
-          .catch(() => ({ hunks: [] as ParsedDiff["hunks"] }));
-        return [filename, diff] as const;
-      })
-    );
+      const interdiffEntries = await Promise.all(
+        pairs.map(async ({ filename, previous, current }) => {
+          if ([previous, current].some((f) => f && !f.patch && f.changes > 0))
+            return [
+              filename,
+              {
+                hunks: [],
+                error:
+                  "GitHub did not provide a complete text patch for this file.",
+              },
+            ] as const;
+          const diff = await diffService
+            .interdiff(previous?.patch ?? "", current?.patch ?? "", filename)
+            .catch(() => ({
+              hunks: [] as ParsedDiff["hunks"],
+              error: "Could not compute this comparison.",
+            }));
+          return [filename, diff] as const;
+        })
+      );
 
-    if (version !== this.selectionVersion) return;
-    this.set({
-      files: sortFilesLikeTree(comparisonFileList(pairs)),
-      interdiffLoadedDiffs: Object.fromEntries(interdiffEntries),
-      versionCompareNoChangeFiles: [],
-      loadedDiffs: {},
-    });
+      if (version !== this.selectionVersion) return;
+      this.set({
+        files: sortFilesLikeTree(comparisonFileList(pairs)),
+        interdiffLoadedDiffs: Object.fromEntries(interdiffEntries),
+        versionCompareNoChangeFiles: [],
+        loadedDiffs: {},
+      });
+    } catch {
+      if (version === this.selectionVersion)
+        this.set({
+          interdiffError:
+            "Could not load the files for this comparison. Select the comparison again to retry.",
+        });
+    }
   };
 
   private computeFullBranchInterdiff = async (
@@ -1701,34 +1703,64 @@ export class PRReviewStore {
     const { owner, repo, pr } = this.state;
     const prKey = `${owner}/${repo}/${pr.number}`;
 
-    const [prevFiles, headFiles] = await Promise.all([
-      this.github
-        .getPRFilesForRange(owner, repo, pr.base.sha, compareToSha, prKey)
-        .catch(() => [] as PullRequestFile[]),
-      this.github
-        .getPRFilesForRange(owner, repo, pr.base.sha, headSha, prKey)
-        .catch(() => [] as PullRequestFile[]),
-    ]);
-    if (version !== this.selectionVersion) return;
+    try {
+      const [prevFiles, headFiles] = await Promise.all([
+        this.github.getPRFilesForRange(
+          owner,
+          repo,
+          pr.base.sha,
+          compareToSha,
+          prKey
+        ),
+        this.github.getPRFilesForRange(
+          owner,
+          repo,
+          pr.base.sha,
+          headSha,
+          prKey
+        ),
+      ]);
+      if (version !== this.selectionVersion) return;
 
-    const pairs = pairComparisonFiles(prevFiles, headFiles);
+      const pairs = pairComparisonFiles(prevFiles, headFiles);
 
-    const interdiffEntries: Array<[string, ParsedDiff]> = [];
+      const interdiffEntries: Array<[string, ParsedDiff]> = [];
 
-    for (const { filename, previous, current } of pairs) {
-      const diff = await diffService
-        .interdiff(previous?.patch ?? "", current?.patch ?? "", filename)
-        .catch(() => ({ hunks: [] as ParsedDiff["hunks"] }));
-      interdiffEntries.push([filename, diff]);
+      for (const { filename, previous, current } of pairs) {
+        if ([previous, current].some((f) => f && !f.patch && f.changes > 0)) {
+          interdiffEntries.push([
+            filename,
+            {
+              hunks: [],
+              error:
+                "GitHub did not provide a complete text patch for this file.",
+            },
+          ]);
+          continue;
+        }
+        const diff = await diffService
+          .interdiff(previous?.patch ?? "", current?.patch ?? "", filename)
+          .catch(() => ({
+            hunks: [] as ParsedDiff["hunks"],
+            error: "Could not compute this comparison.",
+          }));
+        interdiffEntries.push([filename, diff]);
+      }
+
+      if (version !== this.selectionVersion) return;
+      this.set({
+        files: sortFilesLikeTree(comparisonFileList(pairs)),
+        interdiffLoadedDiffs: Object.fromEntries(interdiffEntries),
+        versionCompareNoChangeFiles: [],
+        loadedDiffs: {},
+      });
+    } catch {
+      if (version === this.selectionVersion)
+        this.set({
+          interdiffError:
+            "Could not load the files for this comparison. Select the comparison again to retry.",
+        });
     }
-
-    if (version !== this.selectionVersion) return;
-    this.set({
-      files: sortFilesLikeTree(comparisonFileList(pairs)),
-      interdiffLoadedDiffs: Object.fromEntries(interdiffEntries),
-      versionCompareNoChangeFiles: [],
-      loadedDiffs: {},
-    });
   };
 
   /**
