@@ -8,7 +8,7 @@ import React, {
   useState,
 } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { useVirtualizer } from "@tanstack/react-virtual";
+import { measureElement, useVirtualizer } from "@tanstack/react-virtual";
 
 import {
   Loader2,
@@ -2231,24 +2231,22 @@ const DiffViewer = memo(function DiffViewer({
     const placedThreadIds = new Set<string>();
 
     // File-level threads render at the top of the file, above any hunk.
-    if (!commentsHidden) {
-      for (const thread of fileLevelThreads) {
-        const threadId = thread[0]?.pull_request_review_thread_id;
-        if (threadId) placedThreadIds.add(threadId);
-        rows.push({
-          type: "comment-thread",
-          comments: thread,
-          lineNum: 0,
-          index: index++,
-        });
-      }
+    for (const thread of fileLevelThreads) {
+      const threadId = thread[0]?.pull_request_review_thread_id;
+      if (threadId) placedThreadIds.add(threadId);
+      rows.push({
+        type: "comment-thread",
+        comments: thread,
+        lineNum: 0,
+        index: index++,
+      });
     }
 
     const addPendingCommentsForLine = (
       lineNum: number | undefined,
       side: "old" | "new"
     ) => {
-      if (!lineNum || commentsHidden) return;
+      if (!lineNum) return;
 
       const linePending = pendingCommentsByLine.get(`${lineNum}:${side}`);
       if (!linePending) return;
@@ -2262,7 +2260,7 @@ const DiffViewer = memo(function DiffViewer({
     };
 
     const addCommentsForLine = (lineNum: number | undefined) => {
-      if (!lineNum || commentsHidden) return;
+      if (!lineNum) return;
 
       const threads = threadsByLine.get(lineNum);
       if (threads) {
@@ -2382,7 +2380,6 @@ const DiffViewer = memo(function DiffViewer({
     getExpandedLines,
     viewMode,
     convertToSplitPairs,
-    commentsHidden,
   ]);
 
   // Max character count across all lines — used for horizontal scroll sizing
@@ -2536,6 +2533,16 @@ const DiffViewer = memo(function DiffViewer({
     (index: number) => `${selectedFile}-${wordWrap ? "w" : "nw"}-${index}`,
     [selectedFile, wordWrap]
   );
+  const commentHeights = useMemo(
+    () => new Map<string | number | bigint, number>(),
+    [staticRows, selectedFile, wordWrap]
+  );
+  const commentScrollAnchor = useRef<{
+    index: number;
+    offset: number;
+    ready: boolean;
+  } | null>(null);
+  const [, restoreCommentScroll] = useState(0);
   const virtualizer = useVirtualizer({
     count: virtualRows.length,
     getScrollElement: () => parentRef.current,
@@ -2543,11 +2550,89 @@ const DiffViewer = memo(function DiffViewer({
     // Include selectedFile in key to force React to re-render when switching files
     // This fixes dangerouslySetInnerHTML not updating when DOM elements are reused
     getItemKey,
+    measureElement: (element, entry, instance) => {
+      const index = instance.indexFromElement(element);
+      const row = virtualRows[index];
+      const size = measureElement(element, entry, instance);
+      if (row?.type === "comment-thread" || row?.type === "pending-comment") {
+        if (commentsHidden) return 0;
+        commentHeights.set(getItemKey(index), size);
+      }
+      return size;
+    },
     // High overscan for smooth navigation - rows pre-rendered above/below viewport
     overscan: 100,
     // Add padding at the end so we can scroll the last line to center
     paddingEnd: 300,
   });
+  virtualizer.shouldAdjustScrollPositionOnItemSizeChange = (
+    item,
+    _,
+    instance
+  ) =>
+    !commentScrollAnchor.current && item.start < (instance.scrollOffset ?? 0);
+
+  // Capture the old viewport before React mounts the newly visible comments.
+  useLayoutEffect(() => {
+    let hidden = store.getSnapshot().commentsHidden;
+    return store.subscribe(() => {
+      const nextHidden = store.getSnapshot().commentsHidden;
+      if (hidden === nextHidden) return;
+      hidden = nextHidden;
+      const offset = parentRef.current?.scrollTop ?? 0;
+      const items = virtualizer.getVirtualItems();
+      const item =
+        items.find((item) => {
+          const row = virtualRows[item.index];
+          return (
+            item.end > offset &&
+            (row?.type === "line" || row?.type === "split-line")
+          );
+        }) ?? virtualizer.getVirtualItemForOffset(offset);
+      if (item) {
+        commentScrollAnchor.current = {
+          index: item.index,
+          offset: offset - item.start,
+          ready: false,
+        };
+      }
+    });
+  }, [store, virtualizer, virtualRows]);
+
+  // Wait for the resized list height to reach the DOM before scrolling. Earlier
+  // scrolls are clamped to the shorter, comments-hidden scroll height.
+  useLayoutEffect(() => {
+    const anchor = commentScrollAnchor.current;
+    if (!anchor?.ready) return;
+    const item = virtualizer.measurementsCache[anchor.index];
+    commentScrollAnchor.current = null;
+    if (item) virtualizer.scrollToOffset(item.start + anchor.offset);
+  });
+
+  // Offscreen comments also need resizing; ResizeObserver only sees mounted rows.
+  useLayoutEffect(() => {
+    virtualRows.forEach((row, index) => {
+      if (row?.type !== "comment-thread" && row?.type !== "pending-comment")
+        return;
+      virtualizer.resizeItem(
+        index,
+        commentsHidden
+          ? 0
+          : (commentHeights.get(getItemKey(index)) ?? estimateSize(index))
+      );
+    });
+    if (commentScrollAnchor.current) {
+      commentScrollAnchor.current.ready = true;
+      restoreCommentScroll((version) => version + 1);
+    }
+  }, [
+    commentsHidden,
+    commentHeights,
+    virtualRows,
+    estimateSize,
+    getItemKey,
+    virtualizer,
+  ]);
 
   // Scroll to top/bottom via gg/ge keyboard shortcuts
   useEffect(() => {
