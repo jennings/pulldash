@@ -35,7 +35,10 @@ export function pairComparisonFiles(
   return [
     ...pairs,
     ...Array.from(remaining, (file) => ({
-      filename: file.filename,
+      filename:
+        file.status === "renamed"
+          ? (file.previous_filename ?? file.filename)
+          : file.filename,
       previous: file,
       current: undefined,
     })),
@@ -43,17 +46,34 @@ export function pairComparisonFiles(
 }
 
 export function comparisonFileList(pairs: ComparisonFile[]): PullRequestFile[] {
-  return pairs.map(
-    ({ previous, current }) =>
-      current ?? {
-        ...previous!,
-        status:
-          previous!.status === "added"
-            ? "removed"
-            : previous!.status === "removed"
-              ? "added"
-              : "modified",
-      }
+  return pairs.map(({ filename, previous, current }) =>
+    current
+      ? previous &&
+        previous.status !== "removed" &&
+        current.status !== "removed" &&
+        previous.filename !== current.filename
+        ? {
+            ...current,
+            status: "renamed",
+            previous_filename: previous.filename,
+          }
+        : current
+      : {
+          ...previous!,
+          filename,
+          previous_filename:
+            previous!.status === "renamed"
+              ? previous!.filename
+              : previous!.previous_filename,
+          status:
+            previous!.status === "added"
+              ? "removed"
+              : previous!.status === "removed"
+                ? "added"
+                : previous!.status === "renamed"
+                  ? "renamed"
+                  : "modified",
+        }
   );
 }
 
