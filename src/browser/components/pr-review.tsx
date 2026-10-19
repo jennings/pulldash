@@ -4579,7 +4579,7 @@ const InlineCommentForm = memo(function InlineCommentForm({
   // Show sign-in prompt for read-only users
   if (!canWrite) {
     return (
-      <div className="mx-4 my-3 rounded-lg border border-amber-500/30 bg-amber-500/5 overflow-hidden shadow-sm">
+      <div className="mx-4 my-3 max-w-[912px] rounded-lg border border-amber-500/30 bg-amber-500/5 overflow-hidden shadow-sm">
         <div className="flex items-center justify-between px-4 py-3 border-b border-amber-500/20">
           <div className="flex items-center gap-2.5 text-sm font-medium text-amber-200">
             <MessageSquare className="w-4 h-4 text-amber-400" />
@@ -4611,7 +4611,7 @@ const InlineCommentForm = memo(function InlineCommentForm({
     <div
       ref={formRef}
       data-inline-comment-form
-      className="mx-4 my-3 rounded-lg border border-border bg-card overflow-hidden shadow-sm"
+      className="mx-4 my-3 max-w-[912px] rounded-lg border border-border bg-card overflow-hidden shadow-sm"
       style={{ fontFamily: "var(--font-sans)" }}
     >
       {/* Header with avatar and title */}
@@ -4784,7 +4784,7 @@ const CommentThread = memo(function CommentThread({
       data-comment-thread
       id={firstComment ? `reviewthread-comment-${firstComment.id}` : undefined}
       className={cn(
-        "mx-4 my-2 rounded-r-lg border-l-2",
+        "mx-4 my-2 max-w-[912px] rounded-r-lg border-l-2",
         isResolved
           ? "border-green-500/50 bg-green-500/5"
           : "border-blue-500/50 bg-card/80"
@@ -5384,7 +5384,7 @@ const PendingCommentItem = memo(function PendingCommentItem({
       ref={commentRef}
       data-comment-thread
       className={cn(
-        "border-l-2 border-yellow-500 bg-card/80 mx-4 my-2 rounded-r-lg",
+        "border-l-2 border-yellow-500 bg-card/80 mx-4 my-2 max-w-[912px] rounded-r-lg",
         isFocused && "ring-2 ring-blue-500 ring-inset"
       )}
     >
