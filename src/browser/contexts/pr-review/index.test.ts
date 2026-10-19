@@ -9,6 +9,7 @@ import {
   PRReviewStore,
   sortFilesLikeTree,
   extractMentionParticipants,
+  areLineCommentsHidden,
 } from "./index";
 import type {
   GitHubStore,
@@ -155,6 +156,28 @@ beforeEach(() => {
   storage.clear();
 });
 
+test("gutter comment toggles reveal only their line and file while comments are folded", () => {
+  const store = createStore();
+  store.selectFile("src/index.ts");
+  store.toggleComments();
+  store.toggleLineComments(449);
+  expect(store.getSnapshot().commentsHidden).toBe(true);
+  expect(areLineCommentsHidden(store.getSnapshot(), 449)).toBe(false);
+  expect(areLineCommentsHidden(store.getSnapshot(), 450)).toBe(true);
+
+  store.selectFile("src/utils.ts");
+  expect(areLineCommentsHidden(store.getSnapshot(), 449)).toBe(true);
+  store.selectFile("src/index.ts");
+  store.toggleLineComments(449);
+  expect(areLineCommentsHidden(store.getSnapshot(), 449)).toBe(true);
+
+  store.toggleLineComments(449);
+  store.showComments();
+  expect(areLineCommentsHidden(store.getSnapshot(), 450)).toBe(false);
+  store.toggleComments();
+  expect(areLineCommentsHidden(store.getSnapshot(), 449)).toBe(true);
+});
+
 test("line navigation skips outdated comments absent from the rendered diff", () => {
   const store = createStore({
     comments: [
@@ -241,6 +264,17 @@ test("line navigation enters and exits comments at their rendered position", () 
 
   store.toggleComments();
   store.setFocusedLine(450, "new");
+  store.navigateLine("down", false);
+  expect(store.getSnapshot().focusedLine).toBe(451);
+  expect(store.getSnapshot().focusedCommentId).toBeNull();
+
+  store.toggleLineComments(450);
+  store.setFocusedLine(450, "new");
+  store.navigateLine("down", false);
+  expect(store.getSnapshot().focusedCommentId).toBe(1);
+  store.navigateLine("up", false);
+  expect(store.getSnapshot().focusedLine).toBe(450);
+  store.toggleLineComments(450);
   store.navigateLine("down", false);
   expect(store.getSnapshot().focusedLine).toBe(451);
   expect(store.getSnapshot().focusedCommentId).toBeNull();

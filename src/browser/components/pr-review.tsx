@@ -71,6 +71,7 @@ import {
 import { useCanWrite, useAuth } from "../contexts/auth";
 import {
   PRReviewProvider,
+  areLineCommentsHidden,
   usePRReviewSelector,
   usePRReviewStore,
   useKeyboardNavigation,
@@ -1896,6 +1897,9 @@ const DiffViewer = memo(function DiffViewer({
   const conversationScrollTarget = usePRReviewSelector(
     (s) => s.conversationScrollTarget
   );
+  const expandedCommentLines = usePRReviewSelector(
+    (s) => s.expandedCommentLines
+  );
 
   // Helper to get expanded lines for a skip block
   const getExpandedLines = useCallback(
@@ -2501,6 +2505,25 @@ const DiffViewer = memo(function DiffViewer({
     [lineNumToRowIndex]
   );
 
+  const isCommentRowHidden = useCallback(
+    (row: VirtualRowType) => {
+      const line =
+        row.type === "comment-thread"
+          ? row.lineNum
+          : row.type === "pending-comment"
+            ? row.comment.line
+            : null;
+      return (
+        line !== null &&
+        areLineCommentsHidden(
+          { commentsHidden, expandedCommentLines, selectedFile },
+          line
+        )
+      );
+    },
+    [commentsHidden, expandedCommentLines, selectedFile]
+  );
+
   // Estimate row heights for the virtualizer
   const estimateSize = useCallback(
     (index: number) => {
@@ -2519,14 +2542,14 @@ const DiffViewer = memo(function DiffViewer({
         case "comment-form":
           return 180;
         case "pending-comment":
-          return commentsHidden ? 0 : 100;
+          return isCommentRowHidden(row) ? 0 : 100;
         case "comment-thread":
-          return commentsHidden ? 0 : 80 + row.comments.length * 60;
+          return isCommentRowHidden(row) ? 0 : 80 + row.comments.length * 60;
         default:
           return 20;
       }
     },
-    [virtualRows, commentsHidden, wordWrap]
+    [virtualRows, isCommentRowHidden, wordWrap]
   );
 
   const getItemKey = useCallback(
@@ -2555,7 +2578,7 @@ const DiffViewer = memo(function DiffViewer({
       const row = virtualRows[index];
       const size = measureElement(element, entry, instance);
       if (row?.type === "comment-thread" || row?.type === "pending-comment") {
-        if (commentsHidden) return 0;
+        if (isCommentRowHidden(row)) return 0;
         commentHeights.set(getItemKey(index), size);
       }
       return size;
@@ -2575,10 +2598,13 @@ const DiffViewer = memo(function DiffViewer({
   // Capture the old viewport before React mounts the newly visible comments.
   useLayoutEffect(() => {
     let hidden = store.getSnapshot().commentsHidden;
+    let expanded = store.getSnapshot().expandedCommentLines;
     return store.subscribe(() => {
       const nextHidden = store.getSnapshot().commentsHidden;
-      if (hidden === nextHidden) return;
+      const nextExpanded = store.getSnapshot().expandedCommentLines;
+      if (hidden === nextHidden && expanded === nextExpanded) return;
       hidden = nextHidden;
+      expanded = nextExpanded;
       const offset = parentRef.current?.scrollTop ?? 0;
       const items = virtualizer.getVirtualItems();
       const item =
@@ -2616,7 +2642,7 @@ const DiffViewer = memo(function DiffViewer({
         return;
       virtualizer.resizeItem(
         index,
-        commentsHidden
+        isCommentRowHidden(row)
           ? 0
           : (commentHeights.get(getItemKey(index)) ?? estimateSize(index))
       );
@@ -2626,7 +2652,7 @@ const DiffViewer = memo(function DiffViewer({
       restoreCommentScroll((version) => version + 1);
     }
   }, [
-    commentsHidden,
+    isCommentRowHidden,
     commentHeights,
     virtualRows,
     estimateSize,
@@ -3465,7 +3491,7 @@ const DiffViewer = memo(function DiffViewer({
                               }
                             : undefined
                         }
-                        commentsHidden={commentsHidden}
+                        commentsHidden={isCommentRowHidden(row)}
                         focusedSkipBlockIndex={focusedSkipBlockIndex}
                         focusedCommentId={focusedCommentId}
                         focusedPendingCommentId={focusedPendingCommentId}
@@ -3618,6 +3644,30 @@ const VirtualRowRenderer = memo(function VirtualRowRenderer({
 // ============================================================================
 // Diff Line Row (Virtualized - div-based)
 // ============================================================================
+
+function CommentAnchorDot({ line }: { line: number }) {
+  const store = usePRReviewStore();
+  const commentsHidden = usePRReviewSelector((s) => s.commentsHidden);
+  const expanded = usePRReviewSelector((s) => !areLineCommentsHidden(s, line));
+  if (!commentsHidden) return null;
+  const label = `${expanded ? "Fold" : "Unfold"} comments on line ${line}`;
+  return (
+    <button
+      type="button"
+      className="absolute left-0 top-1/2 -translate-y-1/2 w-4 h-5 flex items-center cursor-pointer z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+      aria-label={label}
+      aria-expanded={expanded}
+      title={label}
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation();
+        store.toggleLineComments(line);
+      }}
+    >
+      <span className="w-2 h-2 rounded-full bg-blue-500 ring-1 ring-background" />
+    </button>
+  );
+}
 
 interface DiffLineRowProps {
   line: DiffLine;
@@ -3787,7 +3837,6 @@ const DiffLineRow = memo(function DiffLineRow({
       );
     });
   });
-  const rowCommentsHidden = usePRReviewSelector((s) => s.commentsHidden);
 
   // Compute commenting range state from lifted parent state (Fix 1)
   const isInCommentingRange = useMemo(() => {
@@ -3930,11 +3979,8 @@ const DiffLineRow = memo(function DiffLineRow({
       data-line-side={lineSide}
     >
       {/* Comment indicator dot — left of both line numbers */}
-      {!hasDraft && rowCommentsHidden && hasCommentAnchor && (
-        <span
-          className="absolute left-0 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-blue-500 ring-1 ring-background z-10"
-          title="Has comment"
-        />
+      {!hasDraft && hasCommentAnchor && lineNum !== undefined && (
+        <CommentAnchorDot line={lineNum} />
       )}
       {/* Left border indicator */}
       <div
@@ -4107,8 +4153,6 @@ const SplitDiffLineRow = memo(function SplitDiffLineRow({
     return lineNum >= commentingRange.start && lineNum <= commentingRange.end;
   }, [lineNum, commentingRange]);
 
-  const rowCommentsHidden = usePRReviewSelector((s) => s.commentsHidden);
-
   // Render one side of the split view
   const renderSide = (
     line: DiffLine | null,
@@ -4240,12 +4284,9 @@ const SplitDiffLineRow = memo(function SplitDiffLineRow({
           <div className="w-0.5 shrink-0 border-l-2 border-dotted border-blue-500/50" />
         )}
         {/* Comment anchor dot — fixed */}
-        {rowCommentsHidden &&
+        {lineNumber !== undefined &&
           commentAnchorLookup?.has(`${lineNumber}:${side}`) && (
-            <span
-              className="absolute left-0 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-blue-500 ring-1 ring-background z-10"
-              title="Has comment"
-            />
+            <CommentAnchorDot line={lineNumber} />
           )}
         {/* Scrollable content: line number + code */}
         <div

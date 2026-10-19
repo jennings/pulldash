@@ -301,6 +301,7 @@ interface PRReviewState {
   conversationsSidebarOpen: boolean;
   /** Hide all comment threads in the diff view */
   commentsHidden: boolean;
+  expandedCommentLines: Set<string>;
   conversationsFilters: {
     showResolved: boolean;
     showOutdated: boolean;
@@ -574,6 +575,19 @@ function buildCommitVersionHistory(
   return map;
 }
 
+export function areLineCommentsHidden(
+  state: Pick<
+    PRReviewState,
+    "commentsHidden" | "expandedCommentLines" | "selectedFile"
+  >,
+  line: number
+) {
+  return (
+    state.commentsHidden &&
+    !state.expandedCommentLines.has(`${state.selectedFile}:${line}`)
+  );
+}
+
 export class PRReviewStore {
   private submittedActivity = new SubmittedActivityBuffer();
   private submissionVersion = 0;
@@ -746,6 +760,7 @@ export class PRReviewStore {
       overviewScrollTarget: null,
       conversationsSidebarOpen: false,
       commentsHidden: false,
+      expandedCommentLines: new Set(),
       conversationsFilters,
       conversationScrollTarget: null,
       viewedFiles,
@@ -977,12 +992,21 @@ export class PRReviewStore {
   toggleComments = () => {
     this.set({
       commentsHidden: !this.state.commentsHidden,
+      expandedCommentLines: new Set(),
     });
+  };
+
+  toggleLineComments = (line: number) => {
+    if (!this.state.selectedFile || !this.state.commentsHidden) return;
+    const key = `${this.state.selectedFile}:${line}`;
+    const expandedCommentLines = new Set(this.state.expandedCommentLines);
+    if (!expandedCommentLines.delete(key)) expandedCommentLines.add(key);
+    this.set({ expandedCommentLines });
   };
 
   showComments = () => {
     if (this.state.commentsHidden) {
-      this.set({ commentsHidden: false });
+      this.set({ commentsHidden: false, expandedCommentLines: new Set() });
     }
   };
 
@@ -2280,7 +2304,7 @@ export class PRReviewStore {
 
     // Helper to get all comments for a line (sorted for thread navigation)
     const getLineComments = (line: number) => {
-      if (this.state.commentsHidden) return [];
+      if (areLineCommentsHidden(this.state, line)) return [];
       const lineComments = comments.filter(
         (c) => commentLines.get(c.id) === line
       );
@@ -2294,7 +2318,7 @@ export class PRReviewStore {
 
     // Helper to get pending comments for a line
     const getLinePendingComments = (line: number) => {
-      if (this.state.commentsHidden) return [];
+      if (areLineCommentsHidden(this.state, line)) return [];
       return pendingComments.filter(
         (c) => c.path === selectedFile && c.line === line
       );
