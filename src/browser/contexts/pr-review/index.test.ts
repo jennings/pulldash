@@ -155,6 +155,110 @@ beforeEach(() => {
   storage.clear();
 });
 
+test("line navigation skips outdated comments absent from the rendered diff", () => {
+  const store = createStore({
+    comments: [
+      {
+        ...createMockComment(4143161712, "src/index.ts", 449),
+        line: undefined,
+        original_line: 449,
+        commit_id: "old-head",
+        diff_hunk: "@@ -0,0 +1,449 @@\n+removed text",
+      },
+    ],
+  });
+  store.selectFile("src/index.ts");
+  store.setLoadedDiff("src/index.ts", {
+    hunks: [
+      {
+        type: "hunk",
+        oldStart: 0,
+        newStart: 449,
+        lines: [449, 450].map((n) => ({
+          type: "insert",
+          newLineNumber: n,
+          content: [{ type: "normal", value: `line ${n}`, html: `line ${n}` }],
+        })),
+      },
+    ],
+  });
+  store.setFocusedLine(449, "new");
+  store.navigateLine("down", false);
+  expect(store.getSnapshot().focusedLine).toBe(450);
+  expect(store.getSnapshot().focusedCommentId).toBeNull();
+  store.navigateLine("up", false);
+  expect(store.getSnapshot().focusedLine).toBe(449);
+  expect(store.getSnapshot().focusedCommentId).toBeNull();
+});
+
+test("line navigation enters and exits comments at their rendered position", () => {
+  const store = createStore({
+    comments: [
+      {
+        ...createMockComment(1, "src/index.ts", 449),
+        original_line: 440,
+        commit_id: "old-head",
+        diff_hunk: "@@ -0,0 +1,449 @@\n+anchored text",
+      },
+    ],
+  });
+  store.selectFile("src/index.ts");
+  const diff = {
+    hunks: [
+      {
+        type: "hunk" as const,
+        oldStart: 0,
+        newStart: 449,
+        lines: [449, 450, 451].map((n) => ({
+          type: "insert" as const,
+          newLineNumber: n,
+          content: [
+            {
+              type: "normal" as const,
+              value: n === 450 ? "anchored text" : `line ${n}`,
+              html: "",
+            },
+          ],
+        })),
+      },
+    ],
+  };
+  store.setLoadedDiff("src/index.ts", diff);
+  store.setFocusedLine(449, "new");
+  store.navigateLine("down", false);
+  expect(store.getSnapshot().focusedLine).toBe(450);
+  store.navigateLine("down", false);
+  expect(store.getSnapshot().focusedCommentId).toBe(1);
+  store.navigateLine("up", false);
+  expect(store.getSnapshot().focusedLine).toBe(450);
+  store.navigateLine("down", false);
+  store.navigateLine("down", false);
+  expect(store.getSnapshot().focusedLine).toBe(451);
+  store.navigateLine("up", false);
+  expect(store.getSnapshot().focusedCommentId).toBe(1);
+  store.navigateLine("down", false);
+  expect(store.getSnapshot().focusedLine).toBe(451);
+
+  store.toggleComments();
+  store.setFocusedLine(450, "new");
+  store.navigateLine("down", false);
+  expect(store.getSnapshot().focusedLine).toBe(451);
+  expect(store.getSnapshot().focusedCommentId).toBeNull();
+
+  store.toggleComments();
+  store.setLoadedDiff("src/index.ts", {
+    ...diff,
+    hunks: diff.hunks.map((hunk) => ({
+      ...hunk,
+      lines: hunk.lines.map((line) => ({ ...line, content: [] })),
+    })),
+  });
+  store.setFocusedLine(450, "new");
+  store.navigateLine("down", false);
+  expect(store.getSnapshot().focusedLine).toBe(451);
+  expect(store.getSnapshot().focusedCommentId).toBeNull();
+});
+
 test("refresh preserves a selected commit and updates the latest baseline", async () => {
   const github = createMockGitHubStore();
   const historical = createMockFile("historical.ts");

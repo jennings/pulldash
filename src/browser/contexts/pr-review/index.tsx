@@ -36,6 +36,7 @@ import {
   groupCommitsIntoVersions,
 } from "@/browser/contexts/github";
 import { diffService } from "@/browser/lib/diff";
+import { resolveCommentLine } from "@/browser/lib/comment-anchor";
 import { queryClient } from "@/browser/lib/query-client";
 import { queries } from "@/browser/lib/queries";
 import { subscribePRRefresh } from "@/browser/lib/pr-refresh-bus";
@@ -588,6 +589,13 @@ export class PRReviewStore {
   private baseCommits: PRCommit[] = [];
   /** In-flight guard so concurrent callers share one loadVersionData run. */
   private versionDataPromise: Promise<void> | null = null;
+  private navigationCommentLines: {
+    comments: ReviewComment[];
+    diff: ParsedDiff;
+    filename: string;
+    sha: string;
+    lines: Map<number, number>;
+  } | null = null;
 
   constructor(
     github: GitHubStore,
@@ -2231,12 +2239,50 @@ export class PRReviewStore {
     );
     const commentableLines = navigableLines.map((n) => n.lineNum);
 
+    const viewedSha =
+      this.state.selectedCommitSha ??
+      this.state.selectedHeadSha ??
+      this.state.pr.head.sha;
+    if (
+      this.navigationCommentLines?.comments !== comments ||
+      this.navigationCommentLines.diff !== diff ||
+      this.navigationCommentLines.filename !== selectedFile ||
+      this.navigationCommentLines.sha !== viewedSha
+    ) {
+      const lines = new Map<number, number>();
+      for (const comment of comments) {
+        if (comment.path !== selectedFile || comment.subject_type === "file")
+          continue;
+        const line = resolveCommentLine(
+          {
+            commitId: comment.commit_id,
+            originalCommitId: comment.original_commit_id,
+            line: comment.line,
+            originalLine: comment.original_line,
+            side: comment.side,
+            startLine: comment.start_line,
+            diffHunk: comment.diff_hunk,
+          },
+          viewedSha,
+          diff
+        );
+        if (line != null) lines.set(comment.id, line);
+      }
+      this.navigationCommentLines = {
+        comments,
+        diff,
+        filename: selectedFile,
+        sha: viewedSha,
+        lines,
+      };
+    }
+    const commentLines = this.navigationCommentLines.lines;
+
     // Helper to get all comments for a line (sorted for thread navigation)
     const getLineComments = (line: number) => {
+      if (this.state.commentsHidden) return [];
       const lineComments = comments.filter(
-        (c) =>
-          c.path === selectedFile &&
-          (c.line === line || c.original_line === line)
+        (c) => commentLines.get(c.id) === line
       );
       // Sort: root comments first, then replies by ID
       return lineComments.sort((a, b) => {
@@ -2248,6 +2294,7 @@ export class PRReviewStore {
 
     // Helper to get pending comments for a line
     const getLinePendingComments = (line: number) => {
+      if (this.state.commentsHidden) return [];
       return pendingComments.filter(
         (c) => c.path === selectedFile && c.line === line
       );
@@ -2357,7 +2404,7 @@ export class PRReviewStore {
         return;
       }
 
-      const commentLine = focusedComment.line ?? focusedComment.original_line;
+      const commentLine = commentLines.get(focusedComment.id);
       const lineComments = commentLine ? getLineComments(commentLine) : [];
       const commentIdx = lineComments.findIndex(
         (c) => c.id === focusedCommentId
