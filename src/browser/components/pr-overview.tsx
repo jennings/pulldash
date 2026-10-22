@@ -1889,30 +1889,32 @@ export const PROverview = memo(function PROverview() {
                               <X className="w-3 h-3" />
                             </button>
                           )}
-                          <StaleHourglass
-                            stale={reviewer.stale}
-                            onStaleClick={
-                              reviewer.stale && reviewer.commitId
-                                ? () =>
-                                    showChangesSinceReview(
-                                      store,
-                                      reviewer.commitId!
-                                    )
-                                : undefined
-                            }
-                          />
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span className="cursor-default">
-                                <Clock className="w-3.5 h-3.5 text-yellow-500" />
-                              </span>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              {reviewer.isTeam
-                                ? "Awaiting review from this team"
-                                : "Awaiting review from this user"}
-                            </TooltipContent>
-                          </Tooltip>
+                          <span className="ml-auto inline-flex items-center gap-1 shrink-0">
+                            <StaleHourglass
+                              stale={reviewer.stale}
+                              onStaleClick={
+                                reviewer.stale && reviewer.commitId
+                                  ? () =>
+                                      showChangesSinceReview(
+                                        store,
+                                        reviewer.commitId!
+                                      )
+                                  : undefined
+                              }
+                            />
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="cursor-default">
+                                  <Clock className="w-4 h-4 text-yellow-500" />
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                {reviewer.isTeam
+                                  ? "Awaiting review from this team"
+                                  : "Awaiting review from this user"}
+                              </TooltipContent>
+                            </Tooltip>
+                          </span>
                         </>
                       ) : (
                         <>
@@ -3135,7 +3137,9 @@ function ReviewStateIcon({
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span className="ml-auto cursor-default">{content}</span>
+        <span className="ml-auto inline-flex items-center shrink-0 cursor-default">
+          {content}
+        </span>
       </TooltipTrigger>
       <TooltipContent>{tooltip}</TooltipContent>
     </Tooltip>
