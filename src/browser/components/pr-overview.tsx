@@ -52,6 +52,7 @@ import { Skeleton } from "../ui/skeleton";
 import { Checkbox } from "../ui/checkbox";
 import { cn } from "../cn";
 import { Markdown, MarkdownEditor } from "../ui/markdown";
+import { getReplyText } from "../lib/comment-reply";
 import { UserHoverCard, UserAvatar } from "../ui/user-hover-card";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 import { EmojiReactions } from "./emoji-reactions";
@@ -2633,6 +2634,7 @@ const CommentBox = memo(function CommentBox({
   return (
     <div
       id={id}
+      data-comment
       className={cn(
         "relative z-10 border border-border rounded-md overflow-hidden bg-card",
         isFocused && "ring-2 ring-blue-500"
@@ -2684,7 +2686,7 @@ const CommentBox = memo(function CommentBox({
         )}
       </div>
       {/* Body */}
-      <div className="p-4 bg-card">
+      <div className="p-4 bg-card" data-comment-body>
         {editing ? (
           <div className="space-y-3">
             <MarkdownEditor
@@ -2756,7 +2758,10 @@ const CommentBox = memo(function CommentBox({
             )}
             {onQuote && (
               <button
-                onClick={() => onQuote(body ?? "")}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={(e) =>
+                  onQuote(getReplyText(body ?? "", e.currentTarget))
+                }
                 className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
                 title="Reply"
               >
@@ -2909,7 +2914,7 @@ const ReviewBox = memo(function ReviewBox({
     }[review.state] || "";
 
   return (
-    <div id={`pullrequestreview-${review.id}`}>
+    <div id={`pullrequestreview-${review.id}`} data-comment>
       {/* Timeline header row - like GitHub's "Username reviewed yesterday" */}
       <div className="flex items-center gap-3 py-1.5 text-sm text-muted-foreground">
         <UserHoverCard login={review.user.login}>
@@ -2984,7 +2989,7 @@ const ReviewBox = memo(function ReviewBox({
               </a>
             )}
           </div>
-          <div className="p-4 bg-card">
+          <div className="p-4 bg-card" data-comment-body>
             <Markdown html={review.body_html}>{review.body}</Markdown>
           </div>
           {reactions.length > 0 || canWrite || onQuote ? (
@@ -2998,7 +3003,10 @@ const ReviewBox = memo(function ReviewBox({
               {onQuote && (
                 <div className="ml-auto flex items-center gap-3">
                   <button
-                    onClick={() => onQuote(review.body ?? "")}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={(e) =>
+                      onQuote(getReplyText(review.body ?? "", e.currentTarget))
+                    }
                     className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
                     title="Reply"
                   >
@@ -3572,6 +3580,7 @@ const ReviewThreadBox = memo(function ReviewThreadBox({
           return (
             <div
               key={comment.id}
+              data-comment
               id={
                 comment.databaseId
                   ? `discussion_r${comment.databaseId}`
@@ -3614,7 +3623,7 @@ const ReviewThreadBox = memo(function ReviewThreadBox({
                     </span>
                   )}
               </div>
-              <div className="mt-2">
+              <div className="mt-2" data-comment-body>
                 {isEditing ? (
                   <div className="space-y-3">
                     <MarkdownEditor
@@ -3688,12 +3697,16 @@ const ReviewThreadBox = memo(function ReviewThreadBox({
                   </a>
                   {canWrite && (
                     <button
-                      onClick={() =>
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={(e) =>
                         handleQuoteReply(
-                          stripReviewGroupMarker(
-                            isMetadataComment
-                              ? stripCommitMetadataPrefix(comment.body)
-                              : comment.body
+                          getReplyText(
+                            stripReviewGroupMarker(
+                              isMetadataComment
+                                ? stripCommitMetadataPrefix(comment.body)
+                                : comment.body
+                            ),
+                            e.currentTarget
                           )
                         )
                       }
