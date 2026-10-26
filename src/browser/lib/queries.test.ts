@@ -1,9 +1,9 @@
 import { test, expect } from "bun:test";
 import "fake-indexeddb/auto";
-import { queries } from "./queries";
+import { mergePRListPages, queries } from "./queries";
 import { setOctokit } from "./github-client";
 import type { Review } from "@/api/types";
-import { QueryClient } from "@tanstack/react-query";
+import { InfiniteQueryObserver, QueryClient } from "@tanstack/react-query";
 
 const review = (id: number): Review =>
   ({
@@ -12,7 +12,7 @@ const review = (id: number): Review =>
     state: "APPROVED",
   }) as unknown as Review;
 
-test("UPDATED candidates include later search pages and deduplicate overlapping filters", async () => {
+test("UPDATED searches load one page at a time and skip exhausted filters", async () => {
   const calls: Array<{ q: string; page: number; per_page: number }> = [];
   const batches: number[] = [];
   const item = (id: number) => ({
@@ -37,7 +37,7 @@ test("UPDATED candidates include later search pages and deduplicate overlapping 
                     ? Array.from({ length: 100 }, (_, i) => item(i + 1))
                     : [item(101)],
               }
-            : { total_count: 2, items: [item(101), item(102)] },
+            : { total_count: 2, items: [item(1), item(2)] },
       };
     },
     graphql: async (query: string) => {
@@ -61,20 +61,38 @@ test("UPDATED candidates include later search pages and deduplicate overlapping 
   } as never);
   const client = new QueryClient();
   try {
-    const result = await client.fetchQuery(
-      queries.prList(["involves", "team"], "all")
-    );
+    const options = queries.prListInfinite(["involves", "team"]);
+    const first = await client.fetchInfiniteQuery(options);
+    expect(calls.map(({ q, page }) => [q, page])).toEqual([
+      ["involves", 1],
+      ["team", 1],
+    ]);
+    expect(first.pages[0]!.nextQueries).toEqual(["involves"]);
+    expect(
+      mergePRListPages(first.pages).filter((pr) => !pr.isReadByViewer)
+    ).toHaveLength(0);
+
+    const observer = new InfiniteQueryObserver(client, options);
+    const result = await observer.fetchNextPage();
+    const items = mergePRListPages(result.data!.pages);
+    expect(result.hasNextPage).toBe(false);
+    expect(calls.filter((call) => call.q === "team")).toHaveLength(1);
     expect(
       calls.filter((call) => call.q === "involves").map((call) => call.page)
     ).toEqual([1, 2]);
     expect(calls.every((call) => call.per_page === 100)).toBe(true);
-    expect(result.items.map((pr) => pr.id)).toEqual(
-      Array.from({ length: 102 }, (_, i) => i + 1)
+    expect(items.map((pr) => pr.id)).toEqual(
+      Array.from({ length: 101 }, (_, i) => i + 1)
     );
-    expect(
-      result.items.filter((pr) => !pr.isReadByViewer).map((pr) => pr.id)
-    ).toEqual([101, 102]);
-    expect(batches).toEqual([30, 30, 30, 12]);
+    expect(items.filter((pr) => !pr.isReadByViewer).map((pr) => pr.id)).toEqual(
+      [101]
+    );
+    expect(batches).toEqual([30, 30, 30, 10, 1]);
+    const unsubscribe = observer.subscribe(() => {});
+    observer.setOptions({ ...options, enabled: false });
+    observer.setOptions(options);
+    expect(calls).toHaveLength(3);
+    unsubscribe();
   } finally {
     client.clear();
   }
@@ -94,11 +112,76 @@ test("ordinary PR lists fetch only the requested page and use a separate cache e
   const client = new QueryClient();
   try {
     await client.fetchQuery(queries.prList(["involves"], 2));
-    await client.fetchQuery(queries.prList(["involves"], "all"));
+    await client.fetchInfiniteQuery(queries.prListInfinite(["involves"]));
     expect(calls.map(({ page, per_page }) => [page, per_page])).toEqual([
       [2, 30],
       [1, 100],
     ]);
+  } finally {
+    client.clear();
+  }
+});
+
+test("a rate-limited next page preserves loaded PRs and is not automatically retried", async () => {
+  const calls: number[] = [];
+  const rateLimit = Object.assign(new Error("API rate limit exceeded"), {
+    status: 403,
+  });
+  let limited = true;
+  setOctokit({
+    request: async (_route: string, params: { page: number }) => {
+      calls.push(params.page);
+      if (params.page === 2 && limited) throw rateLimit;
+      return {
+        data: {
+          total_count: 2,
+          items: [{ id: params.page, updated_at: "2026-01-01" }],
+        },
+      };
+    },
+  } as never);
+  const client = new QueryClient();
+  try {
+    const options = queries.prListInfinite(["involves"], 1);
+    await client.fetchInfiniteQuery(options);
+    const observer = new InfiniteQueryObserver(client, options);
+    const failed = await observer.fetchNextPage();
+    expect(failed.error).toBe(rateLimit);
+    expect(failed.isFetchNextPageError).toBe(true);
+    expect(mergePRListPages(failed.data!.pages).map((pr) => pr.id)).toEqual([
+      1,
+    ]);
+    expect(calls).toEqual([1, 2]);
+
+    limited = false;
+    const recovered = await observer.fetchNextPage();
+    expect(recovered.error).toBeNull();
+    expect(mergePRListPages(recovered.data!.pages).map((pr) => pr.id)).toEqual([
+      1, 2,
+    ]);
+    expect(calls).toEqual([1, 2, 2]);
+  } finally {
+    client.clear();
+  }
+});
+
+test("an initial search rate limit is surfaced rather than returned as an empty list", async () => {
+  let calls = 0;
+  const rateLimit = Object.assign(new Error("API rate limit exceeded"), {
+    status: 403,
+  });
+  setOctokit({
+    request: async () => {
+      calls++;
+      throw rateLimit;
+    },
+  } as never);
+  const client = new QueryClient();
+  try {
+    await expect(
+      client.fetchInfiniteQuery(queries.prListInfinite(["involves"]))
+    ).rejects.toBe(rateLimit);
+    expect(calls).toBe(1);
   } finally {
     client.clear();
   }

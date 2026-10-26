@@ -7,8 +7,12 @@ import {
   useRef,
   useSyncExternalStore,
 } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { queries } from "../lib/queries";
+import {
+  useInfiniteQuery,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { mergePRListPages, queries } from "../lib/queries";
 import {
   Search,
   GitPullRequest,
@@ -847,26 +851,55 @@ export const Home = memo(function Home({ active }: { active: boolean }) {
   const previousFilter = useRef({ searchQueries, showUpdatedOnly });
 
   // PR list via React Query
+  const prListQuery = useQuery({
+    ...queries.prList(searchQueries, page, perPage),
+    placeholderData: undefined,
+    enabled: active && githubReady && !showUpdatedOnly,
+    subscribed: active,
+    refetchInterval: (query) => (active && !query.state.error ? 60_000 : false),
+  });
+  const updatedPRListQuery = useInfiniteQuery({
+    ...queries.prListInfinite(searchQueries),
+    enabled: active && githubReady && showUpdatedOnly,
+    subscribed: active,
+  });
   const {
-    data: prListData,
     isFetching: loadingPrs,
     isPending: prListPending,
     dataUpdatedAt,
-  } = useQuery({
-    ...queries.prList(searchQueries, showUpdatedOnly ? "all" : page, perPage),
-    placeholderData: undefined,
-    enabled: active && githubReady,
-    subscribed: active,
-    refetchInterval: active ? 60_000 : false,
-  });
+    error: prListError,
+  } = showUpdatedOnly ? updatedPRListQuery : prListQuery;
+  const hasOlderPRs = showUpdatedOnly && updatedPRListQuery.hasNextPage;
 
   const refreshPRList = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ["pr-list"] });
-  }, [queryClient]);
+    const queryKey = showUpdatedOnly
+      ? queries.prListInfinite(searchQueries).queryKey
+      : queries.prList(searchQueries, page, perPage).queryKey;
+    if (showUpdatedOnly) {
+      queryClient.setQueryData(
+        queries.prListInfinite(searchQueries).queryKey,
+        (data) =>
+          data && {
+            pages: data.pages.slice(0, 1),
+            pageParams: data.pageParams.slice(0, 1),
+          }
+      );
+    }
+    queryClient.invalidateQueries({ queryKey, exact: true });
+  }, [queryClient, showUpdatedOnly, searchQueries, page]);
 
   // Convenience accessors
-  const prs = prListData?.items ?? [];
-  const totalCount = prListData?.totalCount ?? 0;
+  const prs = useMemo(
+    () =>
+      showUpdatedOnly
+        ? mergePRListPages(updatedPRListQuery.data?.pages ?? [])
+        : (prListQuery.data?.items ?? []),
+    [showUpdatedOnly, updatedPRListQuery.data, prListQuery.data]
+  );
+  const totalCount =
+    (showUpdatedOnly
+      ? updatedPRListQuery.data?.pages[0]?.totalCount
+      : prListQuery.data?.totalCount) ?? 0;
 
   // Client-side filter for UPDATED PRs. Depends on the last-viewed version so
   // viewing a PR (which bumps it) immediately drops it from the list, matching
@@ -1101,10 +1134,20 @@ export const Home = memo(function Home({ active }: { active: boolean }) {
     ) {
       previousFilter.current = { searchQueries, showUpdatedOnly };
       setPage(1);
-    } else if (showUpdatedOnly && prListData && page > totalPages) {
+    } else if (
+      showUpdatedOnly &&
+      updatedPRListQuery.data &&
+      page > totalPages
+    ) {
       setPage(totalPages);
     }
-  }, [searchQueries, showUpdatedOnly, prListData, page, totalPages]);
+  }, [
+    searchQueries,
+    showUpdatedOnly,
+    updatedPRListQuery.data,
+    page,
+    totalPages,
+  ]);
 
   // Track which repo dropdown is open
   const [openRepoDropdown, setOpenRepoDropdown] = useState<string | null>(null);
@@ -1900,9 +1943,12 @@ export const Home = memo(function Home({ active }: { active: boolean }) {
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
-              {dataUpdatedAt > 0 && !loadingPrs && (
-                <RefreshCountdown lastFetchedAt={dataUpdatedAt} />
-              )}
+              {dataUpdatedAt > 0 &&
+                !loadingPrs &&
+                !showUpdatedOnly &&
+                !prListError && (
+                  <RefreshCountdown lastFetchedAt={dataUpdatedAt} />
+                )}
               <button
                 onClick={refreshPRList}
                 disabled={loadingPrs}
@@ -1921,9 +1967,40 @@ export const Home = memo(function Home({ active }: { active: boolean }) {
 
           {/* PR List */}
           <div className="flex-1 overflow-auto">
+            {prListError && (
+              <div
+                role="alert"
+                className="m-4 p-3 rounded-md border border-destructive/30 bg-destructive/10 text-sm"
+              >
+                <p className="font-medium">
+                  Couldn't load {prs.length > 0 ? "more " : ""}pull requests
+                </p>
+                <p className="mt-1 text-muted-foreground">
+                  {prListError.message}
+                </p>
+                <button
+                  className="mt-2 underline hover:no-underline"
+                  disabled={loadingPrs}
+                  onClick={() => {
+                    if (
+                      showUpdatedOnly &&
+                      updatedPRListQuery.isFetchNextPageError
+                    ) {
+                      updatedPRListQuery.fetchNextPage();
+                    } else {
+                      refreshPRList();
+                    }
+                  }}
+                >
+                  Retry
+                </button>
+              </div>
+            )}
             {config.repos.length > 0 && prListPending ? (
               <PRListSkeleton count={8} />
-            ) : filteredPrs.length === 0 && showStalledOnly ? (
+            ) : prListError &&
+              filteredPrs.length === 0 ? null : filteredPrs.length === 0 &&
+              showStalledOnly ? (
               <div className="flex flex-col items-center justify-center py-20 text-center">
                 <GitPullRequest className="w-12 h-12 text-muted-foreground/30 mb-4" />
                 <p className="text-lg font-medium text-muted-foreground">
@@ -1951,10 +2028,14 @@ export const Home = memo(function Home({ active }: { active: boolean }) {
               <div className="flex flex-col items-center justify-center py-20 text-center">
                 <GitPullRequest className="w-12 h-12 text-muted-foreground/30 mb-4" />
                 <p className="text-lg font-medium text-muted-foreground">
-                  No updated pull requests
+                  {hasOlderPRs
+                    ? "No updated pull requests in loaded results"
+                    : "No updated pull requests"}
                 </p>
                 <p className="text-sm text-muted-foreground/70 mt-1 max-w-md">
-                  All your PRs are up to date
+                  {hasOlderPRs
+                    ? "Load older pull requests to keep looking for unread activity."
+                    : "All your PRs are up to date"}
                 </p>
               </div>
             ) : (
@@ -1962,6 +2043,17 @@ export const Home = memo(function Home({ active }: { active: boolean }) {
                 {visiblePrs.map((pr) => (
                   <PRListItem key={pr.id} pr={pr} onSelect={handleOpenPR} />
                 ))}
+              </div>
+            )}
+            {hasOlderPRs && (
+              <div className="flex justify-center p-4">
+                <Button
+                  variant="outline"
+                  disabled={loadingPrs}
+                  onClick={() => updatedPRListQuery.fetchNextPage()}
+                >
+                  {loadingPrs ? "Loading..." : "Load older pull requests"}
+                </Button>
               </div>
             )}
           </div>

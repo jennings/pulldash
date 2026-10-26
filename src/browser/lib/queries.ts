@@ -24,7 +24,11 @@
 //       onSettled: () => queryClient.invalidateQueries({ queryKey: queries.foo(id).queryKey }),
 //     })
 
-import { keepPreviousData, queryOptions } from "@tanstack/react-query";
+import {
+  infiniteQueryOptions,
+  keepPreviousData,
+  queryOptions,
+} from "@tanstack/react-query";
 import { getOctokit } from "./github-client";
 import * as PersistentCache from "./persistent-cache";
 import type {
@@ -1052,103 +1056,107 @@ export const queries = {
       meta: { immutable: true },
     }),
 
-  prList: (queryStrings: string[], page: number | "all" = 1, perPage = 30) =>
+  prList: (queryStrings: string[], page = 1, perPage = 30) =>
     queryOptions({
       queryKey: ["pr-list", [...queryStrings].sort(), page, perPage],
-      queryFn: async ({ signal }) => {
-        if (queryStrings.length === 0) {
-          return { items: [] as PRSearchResult[], totalCount: 0 };
-        }
-
-        const results = await Promise.all(
-          queryStrings.map(async (q) => {
-            const items: PRSearchResult[] = [];
-            const pageSize = page === "all" ? 100 : perPage;
-            let searchPage = page === "all" ? 1 : page;
-            let totalCount = 0;
-            do {
-              const { data } = await getOctokit().request(
-                "GET /search/issues",
-                {
-                  q,
-                  sort: "updated",
-                  order: "desc",
-                  per_page: pageSize,
-                  page: searchPage,
-                  request: { signal },
-                }
-              );
-              totalCount = data.total_count;
-              items.push(...(data.items as PRSearchResult[]));
-              if (page !== "all" || data.items.length < pageSize) break;
-              searchPage++;
-              // GitHub search exposes at most 1,000 results per query.
-            } while (items.length < Math.min(totalCount, 1000));
-            return { items, total_count: totalCount };
-          })
-        );
-
-        const seen = new Set<number>();
-        const combined: PRSearchResult[] = [];
-        let totalCount = 0;
-
-        for (const data of results) {
-          totalCount += data.total_count ?? 0;
-          for (const pr of (data.items ?? []) as PRSearchResult[]) {
-            if (!seen.has(pr.id)) {
-              seen.add(pr.id);
-              combined.push(pr);
-            }
-          }
-        }
-
-        combined.sort(
-          (a, b) =>
-            new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
-        );
-
-        const prIdentifiers = combined
-          .map((item) => {
-            const match = item.repository_url?.match(/repos\/([^/]+)\/([^/]+)/);
-            if (match && item.number) {
-              return { owner: match[1], repo: match[2], number: item.number };
-            }
-            return null;
-          })
-          .filter(
-            (x): x is { owner: string; repo: string; number: number } =>
-              x !== null
-          );
-
-        for (let offset = 0; offset < prIdentifiers.length; offset += 30) {
-          signal?.throwIfAborted();
-          try {
-            const enrichmentMap = await _enrichPRs(
-              prIdentifiers.slice(offset, offset + 30),
-              signal
-            );
-            for (const item of combined) {
-              const match = item.repository_url?.match(
-                /repos\/([^/]+)\/([^/]+)/
-              );
-              if (match && item.number) {
-                const key = `${match[1]}/${match[2]}/${item.number}`;
-                const enrichment = enrichmentMap.get(key);
-                if (enrichment) Object.assign(item, enrichment);
-              }
-            }
-          } catch (e) {
-            signal?.throwIfAborted();
-            console.error("PR enrichment failed:", e);
-          }
-        }
-
-        return { items: combined, totalCount };
-      },
+      queryFn: ({ signal }) => fetchPRList(queryStrings, page, perPage, signal),
+      retry: retryPRSearch,
       staleTime: 30_000,
       placeholderData: keepPreviousData,
     }),
+
+  prListInfinite: (queryStrings: string[], perPage = 100) =>
+    infiniteQueryOptions({
+      queryKey: ["pr-list", "infinite", [...queryStrings].sort(), perPage],
+      initialPageParam: { page: 1, queries: queryStrings },
+      queryFn: ({ pageParam, signal }) =>
+        fetchPRList(pageParam.queries, pageParam.page, perPage, signal),
+      getNextPageParam: (lastPage, _pages, lastPageParam) =>
+        lastPage.nextQueries.length > 0
+          ? { page: lastPageParam.page + 1, queries: lastPage.nextQueries }
+          : undefined,
+      retry: retryPRSearch,
+      // Refetching an infinite query replays every loaded search page.
+      staleTime: Infinity,
+      refetchOnWindowFocus: false,
+      refetchOnMount: false,
+    }),
 };
+
+function retryPRSearch(failureCount: number, error: Error): boolean {
+  return (
+    failureCount < 1 &&
+    !("status" in error && [401, 403, 422, 429].includes(Number(error.status)))
+  );
+}
+
+export function mergePRListPages(pages: { items: PRSearchResult[] }[]) {
+  return [
+    ...new Map(
+      pages.flatMap((page) => page.items).map((pr) => [pr.id, pr])
+    ).values(),
+  ].sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at));
+}
+
+async function fetchPRList(
+  queryStrings: string[],
+  page: number,
+  perPage: number,
+  signal: AbortSignal
+) {
+  const results = await Promise.all(
+    queryStrings.map(async (q) => {
+      const { data } = await getOctokit().request("GET /search/issues", {
+        q,
+        sort: "updated",
+        order: "desc",
+        per_page: perPage,
+        page,
+        request: { signal },
+      });
+      return { ...data, items: data.items as PRSearchResult[] };
+    })
+  );
+  const combined = mergePRListPages(results);
+  const prIdentifiers = combined.flatMap((item) => {
+    const match = item.repository_url?.match(/repos\/([^/]+)\/([^/]+)/);
+    return match && item.number
+      ? [{ owner: match[1], repo: match[2], number: item.number }]
+      : [];
+  });
+
+  for (let offset = 0; offset < prIdentifiers.length; offset += 30) {
+    signal.throwIfAborted();
+    try {
+      const enrichmentMap = await _enrichPRs(
+        prIdentifiers.slice(offset, offset + 30),
+        signal
+      );
+      for (const item of combined) {
+        const match = item.repository_url?.match(/repos\/([^/]+)\/([^/]+)/);
+        if (match && item.number) {
+          const enrichment = enrichmentMap.get(
+            `${match[1]}/${match[2]}/${item.number}`
+          );
+          if (enrichment) Object.assign(item, enrichment);
+        }
+      }
+    } catch (e) {
+      signal.throwIfAborted();
+      console.error("PR enrichment failed:", e);
+    }
+  }
+
+  return {
+    items: combined,
+    totalCount: results.reduce((sum, result) => sum + result.total_count, 0),
+    nextQueries: queryStrings.filter(
+      (_, i) =>
+        results[i]!.items.length === perPage &&
+        page * perPage < Math.min(results[i]!.total_count, 1000)
+    ),
+  };
+}
 
 type CheckContext =
   | {
