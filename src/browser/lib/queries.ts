@@ -1052,7 +1052,7 @@ export const queries = {
       meta: { immutable: true },
     }),
 
-  prList: (queryStrings: string[], page = 1, perPage = 30) =>
+  prList: (queryStrings: string[], page: number | "all" = 1, perPage = 30) =>
     queryOptions({
       queryKey: ["pr-list", [...queryStrings].sort(), page, perPage],
       queryFn: async ({ signal }) => {
@@ -1061,18 +1061,31 @@ export const queries = {
         }
 
         const results = await Promise.all(
-          queryStrings.map((q) =>
-            getOctokit()
-              .request("GET /search/issues", {
-                q,
-                sort: "updated",
-                order: "desc",
-                per_page: perPage,
-                page,
-                request: { signal },
-              })
-              .then((r) => r.data)
-          )
+          queryStrings.map(async (q) => {
+            const items: PRSearchResult[] = [];
+            const pageSize = page === "all" ? 100 : perPage;
+            let searchPage = page === "all" ? 1 : page;
+            let totalCount = 0;
+            do {
+              const { data } = await getOctokit().request(
+                "GET /search/issues",
+                {
+                  q,
+                  sort: "updated",
+                  order: "desc",
+                  per_page: pageSize,
+                  page: searchPage,
+                  request: { signal },
+                }
+              );
+              totalCount = data.total_count;
+              items.push(...(data.items as PRSearchResult[]));
+              if (page !== "all" || data.items.length < pageSize) break;
+              searchPage++;
+              // GitHub search exposes at most 1,000 results per query.
+            } while (items.length < Math.min(totalCount, 1000));
+            return { items, total_count: totalCount };
+          })
         );
 
         const seen = new Set<number>();
@@ -1107,9 +1120,13 @@ export const queries = {
               x !== null
           );
 
-        if (prIdentifiers.length > 0 && !signal?.aborted) {
+        for (let offset = 0; offset < prIdentifiers.length; offset += 30) {
+          signal?.throwIfAborted();
           try {
-            const enrichmentMap = await _enrichPRs(prIdentifiers, signal);
+            const enrichmentMap = await _enrichPRs(
+              prIdentifiers.slice(offset, offset + 30),
+              signal
+            );
             for (const item of combined) {
               const match = item.repository_url?.match(
                 /repos\/([^/]+)\/([^/]+)/
@@ -1121,6 +1138,7 @@ export const queries = {
               }
             }
           } catch (e) {
+            signal?.throwIfAborted();
             console.error("PR enrichment failed:", e);
           }
         }

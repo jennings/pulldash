@@ -12,6 +12,98 @@ const review = (id: number): Review =>
     state: "APPROVED",
   }) as unknown as Review;
 
+test("UPDATED candidates include later search pages and deduplicate overlapping filters", async () => {
+  const calls: Array<{ q: string; page: number; per_page: number }> = [];
+  const batches: number[] = [];
+  const item = (id: number) => ({
+    id,
+    number: id,
+    repository_url: "https://api.github.com/repos/o/r",
+    updated_at: new Date(Date.UTC(2026, 0, 1, 0, 0, 200 - id)).toISOString(),
+  });
+  setOctokit({
+    request: async (
+      _route: string,
+      params: { q: string; page: number; per_page: number }
+    ) => {
+      calls.push(params);
+      return {
+        data:
+          params.q === "involves"
+            ? {
+                total_count: 101,
+                items:
+                  params.page === 1
+                    ? Array.from({ length: 100 }, (_, i) => item(i + 1))
+                    : [item(101)],
+              }
+            : { total_count: 2, items: [item(101), item(102)] },
+      };
+    },
+    graphql: async (query: string) => {
+      const matches = [
+        ...query.matchAll(/pr(\d+):[\s\S]*?pullRequest\(number: (\d+)\)/g),
+      ];
+      batches.push(matches.length);
+      return Object.fromEntries(
+        matches.map(([, alias, number]) => [
+          `pr${alias}`,
+          {
+            pullRequest: {
+              number: Number(number),
+              isReadByViewer: Number(number) <= 100,
+              commits: { nodes: [] },
+            },
+          },
+        ])
+      );
+    },
+  } as never);
+  const client = new QueryClient();
+  try {
+    const result = await client.fetchQuery(
+      queries.prList(["involves", "team"], "all")
+    );
+    expect(
+      calls.filter((call) => call.q === "involves").map((call) => call.page)
+    ).toEqual([1, 2]);
+    expect(calls.every((call) => call.per_page === 100)).toBe(true);
+    expect(result.items.map((pr) => pr.id)).toEqual(
+      Array.from({ length: 102 }, (_, i) => i + 1)
+    );
+    expect(
+      result.items.filter((pr) => !pr.isReadByViewer).map((pr) => pr.id)
+    ).toEqual([101, 102]);
+    expect(batches).toEqual([30, 30, 30, 12]);
+  } finally {
+    client.clear();
+  }
+});
+
+test("ordinary PR lists fetch only the requested page and use a separate cache entry", async () => {
+  const calls: Array<{ page: number; per_page: number }> = [];
+  setOctokit({
+    request: async (
+      _route: string,
+      params: { page: number; per_page: number }
+    ) => {
+      calls.push(params);
+      return { data: { total_count: 0, items: [] } };
+    },
+  } as never);
+  const client = new QueryClient();
+  try {
+    await client.fetchQuery(queries.prList(["involves"], 2));
+    await client.fetchQuery(queries.prList(["involves"], "all"));
+    expect(calls.map(({ page, per_page }) => [page, per_page])).toEqual([
+      [2, 30],
+      [1, 100],
+    ]);
+  } finally {
+    client.clear();
+  }
+});
+
 test("comparison consumers share one response for files and commits", async () => {
   let requests = 0;
   setOctokit({

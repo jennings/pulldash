@@ -825,17 +825,7 @@ export const Home = memo(function Home({ active }: { active: boolean }) {
     [config, stateFilter, teamsKey, stalledThreshold]
   );
 
-  // Reset page when the visible filter set changes
-  const previousFilter = useRef({ repos: config.repos, stateFilter });
-  useEffect(() => {
-    if (
-      previousFilter.current.repos === config.repos &&
-      previousFilter.current.stateFilter === stateFilter
-    )
-      return;
-    previousFilter.current = { repos: config.repos, stateFilter };
-    setPage(1);
-  }, [config.repos, stateFilter]);
+  const previousFilter = useRef({ searchQueries, showUpdatedOnly });
 
   // PR list via React Query
   const {
@@ -844,7 +834,8 @@ export const Home = memo(function Home({ active }: { active: boolean }) {
     isPending: prListPending,
     dataUpdatedAt,
   } = useQuery({
-    ...queries.prList(searchQueries, page, perPage),
+    ...queries.prList(searchQueries, showUpdatedOnly ? "all" : page, perPage),
+    placeholderData: undefined,
     enabled: active && githubReady,
     subscribed: active,
     refetchInterval: active ? 60_000 : false,
@@ -1080,6 +1071,21 @@ export const Home = memo(function Home({ active }: { active: boolean }) {
     1,
     Math.ceil((showUpdatedOnly ? filteredPrs.length : totalCount) / perPage)
   );
+  const currentPage = Math.min(page, totalPages);
+  const visiblePrs = showUpdatedOnly
+    ? filteredPrs.slice((currentPage - 1) * perPage, currentPage * perPage)
+    : filteredPrs;
+  useEffect(() => {
+    if (
+      previousFilter.current.searchQueries !== searchQueries ||
+      previousFilter.current.showUpdatedOnly !== showUpdatedOnly
+    ) {
+      previousFilter.current = { searchQueries, showUpdatedOnly };
+      setPage(1);
+    } else if (showUpdatedOnly && prListData && page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [searchQueries, showUpdatedOnly, prListData, page, totalPages]);
 
   // Track which repo dropdown is open
   const [openRepoDropdown, setOpenRepoDropdown] = useState<string | null>(null);
@@ -1894,7 +1900,7 @@ export const Home = memo(function Home({ active }: { active: boolean }) {
               </div>
             ) : (
               <div className="divide-y divide-border">
-                {filteredPrs.map((pr) => (
+                {visiblePrs.map((pr) => (
                   <PRListItem key={pr.id} pr={pr} onSelect={handleOpenPR} />
                 ))}
               </div>
