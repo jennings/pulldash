@@ -19,6 +19,7 @@ test("timeline navigation scrolls to mounted targets immediately and waits for l
   globalThis.MutationObserver = FakeObserver as never;
   const elements = new Map<string, HTMLElement>();
   const scrolled: string[] = [];
+  const scrollOptions: ScrollIntoViewOptions[] = [];
   const root = {
     ownerDocument: { getElementById: (id: string) => elements.get(id) ?? null },
     contains: (element: HTMLElement) =>
@@ -26,7 +27,10 @@ test("timeline navigation scrolls to mounted targets immediately and waits for l
   } as unknown as HTMLElement;
   const mount = (id: string) =>
     elements.set(id, {
-      scrollIntoView: () => scrolled.push(id),
+      scrollIntoView: (options: ScrollIntoViewOptions) => {
+        scrolled.push(id);
+        scrollOptions.push(options);
+      },
     } as unknown as HTMLElement);
   let acknowledged = 0;
   try {
@@ -35,7 +39,12 @@ test("timeline navigation scrolls to mounted targets immediately and waits for l
     expect(scrolled).toEqual(["present"]);
     expect(observers).toHaveLength(0);
 
-    const stop = scrollToTimelineTarget(root, "late", () => acknowledged++);
+    const stop = scrollToTimelineTarget(
+      root,
+      "late",
+      () => acknowledged++,
+      "instant"
+    );
     expect(observers[0]?.active).toBe(true);
     observers[0]!.callback();
     expect(acknowledged).toBe(1);
@@ -43,6 +52,10 @@ test("timeline navigation scrolls to mounted targets immediately and waits for l
     observers[0]!.callback();
     observers[0]!.callback();
     expect(scrolled).toEqual(["present", "late"]);
+    expect(scrollOptions).toEqual([
+      { behavior: "smooth", block: "start" },
+      { behavior: "instant", block: "start" },
+    ]);
     expect(acknowledged).toBe(2);
     expect(observers[0]?.active).toBe(false);
     stop();

@@ -120,6 +120,16 @@ import { IssueHoverCard } from "../ui/issue-hover-card";
 import { buildMetadataLines } from "../contexts/pr-review/useCurrentDiff";
 import { buildOverviewTimeline } from "../lib/overview-timeline";
 import { scrollToTimelineTarget } from "../lib/timeline-scroll";
+import {
+  getTimelineComments,
+  type TimelineComment,
+} from "../lib/timeline-read";
+import {
+  TimelineUnreadProvider,
+  TimelineUnreadControls,
+  TimelineCommentUnreadMarker,
+  TimelineThreadUnreadBadge,
+} from "./timeline-unread";
 
 // ============================================================================
 // Types
@@ -270,6 +280,13 @@ export const PROverview = memo(function PROverview() {
   const [replyingToOverviewItem, setReplyingToOverviewItem] = useState<
     string | null
   >(null);
+  const [unreadScrollTarget, setUnreadScrollTarget] = useState<string | null>(
+    null
+  );
+  const navigateUnread = useCallback((comment: TimelineComment) => {
+    setFocusedOverviewItemId(comment.threadId ?? comment.id);
+    setUnreadScrollTarget(comment.id);
+  }, []);
 
   // Repo permissions - use GraphQL viewerPermission as primary source
   const isArchived = pr.base?.repo?.archived ?? false;
@@ -331,6 +348,16 @@ export const PROverview = memo(function PROverview() {
       store.clearOverviewScrollTarget
     );
   }, [overviewScrollTarget, store, loading, overviewLoading]);
+  useLayoutEffect(() => {
+    const root = overviewRef.current;
+    if (!root || !unreadScrollTarget) return;
+    return scrollToTimelineTarget(
+      root,
+      unreadScrollTarget,
+      () => setUnreadScrollTarget(null),
+      "instant"
+    );
+  }, [unreadScrollTarget]);
 
   const handleNavigateChecks = useCallback(
     async (sha: string) => {
@@ -1200,6 +1227,10 @@ export const PROverview = memo(function PROverview() {
       commitsByVersion,
     ]
   );
+  const timelineComments = useMemo(
+    () => getTimelineComments(timelineEntries),
+    [timelineEntries]
+  );
 
   // Keyboard navigation for overview
   useEffect(() => {
@@ -1275,7 +1306,7 @@ export const PROverview = memo(function PROverview() {
     return <PROverviewSkeleton />;
   }
 
-  return (
+  const content = (
     <div
       ref={overviewRef}
       className="flex-1 overflow-auto themed-scrollbar bg-background"
@@ -1337,6 +1368,7 @@ export const PROverview = memo(function PROverview() {
           <div className="flex-1 min-w-0 space-y-4 order-2 md:order-1">
             {activeTab === "conversation" && (
               <>
+                <TimelineUnreadControls />
                 {/* PR Description */}
                 <CommentBox
                   id="pr-description"
@@ -1405,6 +1437,9 @@ export const PROverview = memo(function PROverview() {
                               <ReviewThreadBox
                                 key={`thread-${thread.id}`}
                                 thread={thread}
+                                revealCommentId={
+                                  unreadScrollTarget ?? overviewScrollTarget
+                                }
                                 owner={owner}
                                 repo={repo}
                                 prNumber={pr.number}
@@ -1476,6 +1511,9 @@ export const PROverview = memo(function PROverview() {
                         <ReviewThreadBox
                           key={`thread-${entry.data.id}`}
                           thread={entry.data}
+                          revealCommentId={
+                            unreadScrollTarget ?? overviewScrollTarget
+                          }
                           owner={owner}
                           repo={repo}
                           prNumber={pr.number}
@@ -2277,6 +2315,19 @@ export const PROverview = memo(function PROverview() {
       </div>
     </div>
   );
+  return (
+    <TimelineUnreadProvider
+      key={`${owner}/${repo}#${pr.number}`}
+      prId={`${owner}/${repo}#${pr.number}`}
+      comments={timelineComments}
+      currentUser={currentUser}
+      rootRef={overviewRef}
+      active={activeTab === "conversation"}
+      onNavigate={navigateUnread}
+    >
+      {content}
+    </TimelineUnreadProvider>
+  );
 });
 
 // ============================================================================
@@ -2636,7 +2687,7 @@ const CommentBox = memo(function CommentBox({
       id={id}
       data-comment
       className={cn(
-        "relative z-10 border border-border rounded-md overflow-hidden bg-card",
+        "relative z-10 border border-border rounded-md overflow-hidden bg-card scroll-mt-16",
         isFocused && "ring-2 ring-blue-500"
       )}
     >
@@ -2686,7 +2737,11 @@ const CommentBox = memo(function CommentBox({
         )}
       </div>
       {/* Body */}
-      <div className="p-4 bg-card" data-comment-body>
+      <div
+        className="p-4 bg-card has-[[data-timeline-unread]]:bg-blue-500/5"
+        data-comment-body
+      >
+        {id && <TimelineCommentUnreadMarker id={id} />}
         {editing ? (
           <div className="space-y-3">
             <MarkdownEditor
@@ -2914,7 +2969,11 @@ const ReviewBox = memo(function ReviewBox({
     }[review.state] || "";
 
   return (
-    <div id={`pullrequestreview-${review.id}`} data-comment>
+    <div
+      id={`pullrequestreview-${review.id}`}
+      data-comment
+      className="scroll-mt-16"
+    >
       {/* Timeline header row - like GitHub's "Username reviewed yesterday" */}
       <div className="flex items-center gap-3 py-1.5 text-sm text-muted-foreground">
         <UserHoverCard login={review.user.login}>
@@ -2989,7 +3048,13 @@ const ReviewBox = memo(function ReviewBox({
               </a>
             )}
           </div>
-          <div className="p-4 bg-card" data-comment-body>
+          <div
+            className="p-4 bg-card has-[[data-timeline-unread]]:bg-blue-500/5"
+            data-comment-body
+          >
+            <TimelineCommentUnreadMarker
+              id={`pullrequestreview-${review.id}`}
+            />
             <Markdown html={review.body_html}>{review.body}</Markdown>
           </div>
           {reactions.length > 0 || canWrite || onQuote ? (
@@ -3160,6 +3225,7 @@ function ReviewStateIcon({
 
 const ReviewThreadBox = memo(function ReviewThreadBox({
   thread,
+  revealCommentId,
   owner,
   repo,
   prNumber,
@@ -3178,6 +3244,7 @@ const ReviewThreadBox = memo(function ReviewThreadBox({
   onDeleteComment,
 }: {
   thread: ReviewThread;
+  revealCommentId?: string | null;
   owner: string;
   repo: string;
   prNumber: number;
@@ -3210,6 +3277,15 @@ const ReviewThreadBox = memo(function ReviewThreadBox({
   const [editText, setEditText] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
   const comments = thread.comments.nodes;
+  useEffect(() => {
+    if (
+      comments.some(
+        (comment) => `discussion_r${comment.databaseId}` === revealCommentId
+      )
+    ) {
+      setShowResolved(true);
+    }
+  }, [comments, revealCommentId]);
   const firstComment = comments[0];
   const filePath = firstComment?.path;
   const diffHunk = firstComment?.diffHunk;
@@ -3380,6 +3456,7 @@ const ReviewThreadBox = memo(function ReviewThreadBox({
           <span className="font-mono text-muted-foreground">
             {getCommentDisplayPath(firstComment)}
           </span>
+          <TimelineThreadUnreadBadge threadId={`reviewthread-${thread.id}`} />
           <span className="flex items-center gap-2 text-muted-foreground hover:text-foreground">
             <svg className="w-4 h-4" viewBox="0 0 16 16" fill="currentColor">
               <path d="M8 4a.5.5 0 01.5.5v3h3a.5.5 0 010 1h-3v3a.5.5 0 01-1 0v-3h-3a.5.5 0 010-1h3v-3A.5.5 0 018 4z" />
@@ -3451,6 +3528,7 @@ const ReviewThreadBox = memo(function ReviewThreadBox({
             <span className="border-l border-border pl-2">Hide resolved</span>
           </button>
         )}
+        <TimelineThreadUnreadBadge threadId={`reviewthread-${thread.id}`} />
       </div>
 
       {/* Commit metadata context */}
@@ -3587,7 +3665,7 @@ const ReviewThreadBox = memo(function ReviewThreadBox({
                   : undefined
               }
               className={cn(
-                "p-4",
+                "p-4 scroll-mt-16 has-[[data-timeline-unread]]:bg-blue-500/5",
                 idx < comments.length - 1 && "border-b border-border"
               )}
             >
@@ -3624,6 +3702,9 @@ const ReviewThreadBox = memo(function ReviewThreadBox({
                   )}
               </div>
               <div className="mt-2" data-comment-body>
+                <TimelineCommentUnreadMarker
+                  id={`discussion_r${comment.databaseId}`}
+                />
                 {isEditing ? (
                   <div className="space-y-3">
                     <MarkdownEditor

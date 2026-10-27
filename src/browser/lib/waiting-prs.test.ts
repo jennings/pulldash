@@ -6,6 +6,11 @@ import {
   getLastViewedVersion,
   subscribeLastViewed,
 } from "./waiting-prs";
+import {
+  initializeTimelineReadState,
+  markTimelineCommentsRead,
+  saveTimelineReadState,
+} from "./timeline-read";
 
 // Minimal in-memory localStorage stub (Bun has no localStorage)
 const store = new Map<string, string>();
@@ -40,4 +45,22 @@ test("version bumps and listeners fire on set/clear", () => {
   unsubscribe();
   setLastViewed("o/r#3");
   expect(events).toBe(2);
+});
+
+test("opening a PR preserves its previous timeline baseline and per-comment read state", () => {
+  const previous = "2026-01-01T00:00:00Z";
+  store.set("pulldash_viewed_prs", JSON.stringify({ "o/r#1": previous }));
+  setLastViewed("o/r#1");
+  const initial = initializeTimelineReadState("o/r#1", null);
+  expect(initial).toEqual({ baseline: previous, seen: {} });
+  const read = markTimelineCommentsRead(initial, [
+    {
+      id: "discussion_r1",
+      updatedAt: "2026-01-02T00:00:00Z",
+      author: "reviewer",
+    },
+  ]);
+  saveTimelineReadState("o/r#1", read);
+  setLastViewed("o/r#1");
+  expect(initializeTimelineReadState("o/r#1", null)).toEqual(read);
 });

@@ -1,7 +1,8 @@
 export function scrollToTimelineTarget(
   root: HTMLElement,
   id: string,
-  onFound: () => void
+  onFound: () => void,
+  behavior: ScrollBehavior = "smooth"
 ): () => void {
   let stopped = false;
   const reveal = () => {
@@ -9,7 +10,7 @@ export function scrollToTimelineTarget(
     const element = root.ownerDocument.getElementById(id);
     if (!element || !root.contains(element)) return false;
     stopped = true;
-    element.scrollIntoView({ behavior: "smooth", block: "start" });
+    element.scrollIntoView({ behavior, block: "start" });
     onFound();
     return true;
   };

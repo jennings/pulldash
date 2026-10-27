@@ -1,3 +1,5 @@
+import { initializeTimelineReadState } from "./timeline-read";
+
 const STORAGE_KEY = "pulldash_viewed_prs";
 const MAX_ENTRIES = 1000;
 const MAX_AGE_MS = 60 * 24 * 60 * 60 * 1000;
@@ -52,6 +54,7 @@ function notify() {
 
 export function setLastViewed(prId: string): void {
   const data = read();
+  initializeTimelineReadState(prId, data[prId] ?? null);
   data[prId] = new Date().toISOString();
   if (Object.keys(data).length > MAX_ENTRIES) {
     prune(data);
