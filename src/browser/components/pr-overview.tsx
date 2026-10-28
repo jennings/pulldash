@@ -127,7 +127,7 @@ import {
 import {
   TimelineUnreadProvider,
   TimelineUnreadControls,
-  TimelineCommentUnreadMarker,
+  TimelineCommentUnreadBadge,
   TimelineThreadUnreadBadge,
 } from "./timeline-unread";
 
@@ -2687,14 +2687,14 @@ const CommentBox = memo(function CommentBox({
       id={id}
       data-comment
       className={cn(
-        "relative z-10 border border-border rounded-md overflow-hidden bg-card scroll-mt-16",
+        "group/comment relative z-10 border border-border rounded-md overflow-hidden bg-card scroll-mt-16",
         isFocused && "ring-2 ring-blue-500"
       )}
     >
       {/* Header */}
       <div
         className={cn(
-          "flex items-center gap-2 px-4 py-2 text-sm border-b border-border bg-card",
+          "flex flex-wrap items-center gap-2 px-4 py-2 text-sm border-b border-border bg-card group-has-[[data-timeline-unread]]/comment:bg-blue-500/10",
           isAuthor && "bg-blue-500/10"
         )}
       >
@@ -2730,6 +2730,7 @@ const CommentBox = memo(function CommentBox({
             · edited <TimeAgo date={new Date(updatedAt)} />
           </span>
         )}
+        {id && <TimelineCommentUnreadBadge id={id} />}
         {isAuthor && (
           <span className="ml-auto px-1.5 py-0.5 text-xs border border-border rounded text-muted-foreground">
             Author
@@ -2737,11 +2738,7 @@ const CommentBox = memo(function CommentBox({
         )}
       </div>
       {/* Body */}
-      <div
-        className="p-4 bg-card has-[[data-timeline-unread]]:bg-blue-500/5"
-        data-comment-body
-      >
-        {id && <TimelineCommentUnreadMarker id={id} />}
+      <div className="p-4 bg-card" data-comment-body>
         {editing ? (
           <div className="space-y-3">
             <MarkdownEditor
@@ -2792,7 +2789,7 @@ const CommentBox = memo(function CommentBox({
       onQuote ||
       onGitHubUrl ||
       (isAuthor && (onEdit || onDelete)) ? (
-        <div className="px-4 py-2 border-t border-border bg-card flex items-center gap-1">
+        <div className="px-4 py-2 border-t border-border bg-card flex items-center gap-1 group-has-[[data-timeline-unread]]/comment:bg-blue-500/10">
           <EmojiReactions
             reactions={reactions || []}
             onAddReaction={onAddReaction}
@@ -2972,7 +2969,7 @@ const ReviewBox = memo(function ReviewBox({
     <div
       id={`pullrequestreview-${review.id}`}
       data-comment
-      className="scroll-mt-16"
+      className="group/comment scroll-mt-16"
     >
       {/* Timeline header row - like GitHub's "Username reviewed yesterday" */}
       <div className="flex items-center gap-3 py-1.5 text-sm text-muted-foreground">
@@ -3003,6 +3000,7 @@ const ReviewBox = memo(function ReviewBox({
               <TimeAgo date={new Date(review.submitted_at)} />
             )}
           </span>
+          <TimelineCommentUnreadBadge id={`pullrequestreview-${review.id}`} />
         </div>
       </div>
 
@@ -3018,7 +3016,7 @@ const ReviewBox = memo(function ReviewBox({
         >
           <div
             className={cn(
-              "flex items-center gap-2 px-4 py-2 text-sm border-b border-border bg-card",
+              "flex items-center gap-2 px-4 py-2 text-sm border-b border-border bg-card group-has-[[data-timeline-unread]]/comment:bg-blue-500/10",
               stateHeaderBg
             )}
           >
@@ -3048,17 +3046,11 @@ const ReviewBox = memo(function ReviewBox({
               </a>
             )}
           </div>
-          <div
-            className="p-4 bg-card has-[[data-timeline-unread]]:bg-blue-500/5"
-            data-comment-body
-          >
-            <TimelineCommentUnreadMarker
-              id={`pullrequestreview-${review.id}`}
-            />
+          <div className="p-4 bg-card" data-comment-body>
             <Markdown html={review.body_html}>{review.body}</Markdown>
           </div>
           {reactions.length > 0 || canWrite || onQuote ? (
-            <div className="px-4 pb-3 bg-card flex items-center gap-1">
+            <div className="px-4 py-2 bg-card flex items-center gap-1 group-has-[[data-timeline-unread]]/comment:bg-blue-500/10">
               <EmojiReactions
                 reactions={reactions}
                 onAddReaction={canWrite ? handleAddReaction : undefined}
@@ -3665,11 +3657,11 @@ const ReviewThreadBox = memo(function ReviewThreadBox({
                   : undefined
               }
               className={cn(
-                "p-4 scroll-mt-16 has-[[data-timeline-unread]]:bg-blue-500/5",
+                "group/comment scroll-mt-16",
                 idx < comments.length - 1 && "border-b border-border"
               )}
             >
-              <div className="flex items-center gap-2 mb-2 text-sm">
+              <div className="flex flex-wrap items-center gap-2 px-4 py-2 text-sm group-has-[[data-timeline-unread]]/comment:bg-blue-500/10">
                 {comment.author && (
                   <>
                     <UserHoverCard login={comment.author.login}>
@@ -3700,11 +3692,11 @@ const ReviewThreadBox = memo(function ReviewThreadBox({
                       · edited <TimeAgo date={new Date(comment.updatedAt)} />
                     </span>
                   )}
-              </div>
-              <div className="mt-2" data-comment-body>
-                <TimelineCommentUnreadMarker
+                <TimelineCommentUnreadBadge
                   id={`discussion_r${comment.databaseId}`}
                 />
+              </div>
+              <div className="px-4 py-3" data-comment-body>
                 {isEditing ? (
                   <div className="space-y-3">
                     <MarkdownEditor
@@ -3748,7 +3740,7 @@ const ReviewThreadBox = memo(function ReviewThreadBox({
                 )}
               </div>
               {/* Emoji reactions + actions */}
-              <div className="mt-3 flex items-center gap-1">
+              <div className="flex items-center gap-1 px-4 py-2 group-has-[[data-timeline-unread]]/comment:bg-blue-500/10">
                 <EmojiReactions
                   reactions={
                     reactions?.[`review-comment-${comment.databaseId}`] || []

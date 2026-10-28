@@ -24,7 +24,6 @@ interface UnreadContext {
   unreadIds: ReadonlySet<string>;
   highlightedIds: ReadonlySet<string>;
   counts: ReadonlyMap<string, number>;
-  firstNew: ReadonlyMap<string, string>;
   commentsById: ReadonlyMap<string, TimelineComment>;
   next: () => void;
   markAllRead: () => void;
@@ -75,18 +74,10 @@ export function TimelineUnreadProvider({
     [comments]
   );
   const counts = new Map<string, number>();
-  const firstNew = new Map<string, string>();
   for (const comment of comments) {
     if (!comment.threadId) continue;
     if (unreadIds.has(comment.id)) {
       counts.set(comment.threadId, (counts.get(comment.threadId) ?? 0) + 1);
-    }
-    if (
-      comment.reply &&
-      highlighted.current.has(comment.id) &&
-      !firstNew.has(comment.threadId)
-    ) {
-      firstNew.set(comment.threadId, comment.id);
     }
   }
 
@@ -110,7 +101,6 @@ export function TimelineUnreadProvider({
         unreadIds,
         highlightedIds: highlighted.current,
         counts,
-        firstNew,
         commentsById,
         next: () => {
           const target = nextUnreadTimelineComment(
@@ -160,22 +150,17 @@ export function TimelineUnreadControls() {
   );
 }
 
-export function TimelineCommentUnreadMarker({ id }: { id: string }) {
+export function TimelineCommentUnreadBadge({ id }: { id: string }) {
   const unread = useContext(TimelineUnreadContext);
   if (!unread?.highlightedIds.has(id)) return null;
   const comment = unread.commentsById.get(id);
   return (
-    <div
+    <span
       data-timeline-unread={id}
-      className="mb-2 flex select-none items-center gap-2 rounded bg-blue-500/10 px-2 py-1 text-xs font-medium text-blue-500"
+      className="inline-flex shrink-0 select-none rounded-full border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-xs font-medium text-blue-500"
     >
-      {comment?.reply
-        ? unread.firstNew.get(comment.threadId!) === id
-          ? "New replies"
-          : "New reply"
-        : "New comment"}
-      <span className="h-px flex-1 bg-blue-500/20" />
-    </div>
+      {comment?.reply ? "New reply" : "New comment"}
+    </span>
   );
 }
 
