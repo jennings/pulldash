@@ -2738,7 +2738,10 @@ const CommentBox = memo(function CommentBox({
         )}
       </div>
       {/* Body */}
-      <div className="p-4 bg-card" data-comment-body>
+      <div
+        className="p-4 bg-card group-has-[[data-timeline-unread]]/comment:bg-blue-500/5"
+        data-comment-body
+      >
         {editing ? (
           <div className="space-y-3">
             <MarkdownEditor
@@ -3046,7 +3049,10 @@ const ReviewBox = memo(function ReviewBox({
               </a>
             )}
           </div>
-          <div className="p-4 bg-card" data-comment-body>
+          <div
+            className="p-4 bg-card group-has-[[data-timeline-unread]]/comment:bg-blue-500/5"
+            data-comment-body
+          >
             <Markdown html={review.body_html}>{review.body}</Markdown>
           </div>
           {reactions.length > 0 || canWrite || onQuote ? (
@@ -3696,7 +3702,10 @@ const ReviewThreadBox = memo(function ReviewThreadBox({
                   id={`discussion_r${comment.databaseId}`}
                 />
               </div>
-              <div className="px-4 py-3" data-comment-body>
+              <div
+                className="px-4 py-3 group-has-[[data-timeline-unread]]/comment:bg-blue-500/5"
+                data-comment-body
+              >
                 {isEditing ? (
                   <div className="space-y-3">
                     <MarkdownEditor
