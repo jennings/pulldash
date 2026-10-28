@@ -1061,7 +1061,10 @@ export const queries = {
       queryKey: ["pr-list", [...queryStrings].sort(), page, perPage],
       queryFn: ({ signal }) => fetchPRList(queryStrings, page, perPage, signal),
       retry: retryPRSearch,
-      staleTime: 30_000,
+      staleTime: Infinity,
+      gcTime: Infinity,
+      refetchOnWindowFocus: false,
+      refetchOnMount: false,
       placeholderData: keepPreviousData,
     }),
 
@@ -1078,6 +1081,7 @@ export const queries = {
       retry: retryPRSearch,
       // Refetching an infinite query replays every loaded search page.
       staleTime: Infinity,
+      gcTime: Infinity,
       refetchOnWindowFocus: false,
       refetchOnMount: false,
     }),
@@ -1091,11 +1095,21 @@ function retryPRSearch(failureCount: number, error: Error): boolean {
 }
 
 export function mergePRListPages(pages: { items: PRSearchResult[] }[]) {
-  return [
-    ...new Map(
-      pages.flatMap((page) => page.items).map((pr) => [pr.id, pr])
-    ).values(),
-  ].sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at));
+  const items = new Map<number, PRSearchResult>();
+  for (const page of pages) {
+    for (const pr of page.items) {
+      const previous = items.get(pr.id);
+      if (
+        !previous ||
+        Date.parse(pr.updated_at) > Date.parse(previous.updated_at)
+      ) {
+        items.set(pr.id, pr);
+      }
+    }
+  }
+  return [...items.values()].sort(
+    (a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at)
+  );
 }
 
 async function fetchPRList(

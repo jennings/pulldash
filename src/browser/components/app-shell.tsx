@@ -6,6 +6,7 @@ import {
   useEffect,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useParams, useNavigate } from "react-router-dom";
@@ -33,6 +34,7 @@ import { parsePRUrl } from "../lib/pr-url";
 import { notifyPRRefresh } from "../lib/pr-refresh-bus";
 import {
   getEnabled as notifsEnabled,
+  subscribeEnabled,
   sendNotification,
   NotificationBatch,
 } from "../lib/notifications";
@@ -48,66 +50,6 @@ import {
   HoverCardContent,
 } from "../ui/hover-card";
 import { version } from "../../../package.json";
-
-// ============================================================================
-// Home Page Filter Matching (for triggering a refresh when a notification fires)
-// ============================================================================
-
-const ALL_REPOS_KEY = "__all_repos__";
-const ORG_FILTER_PREFIX = "__org__:";
-const FILTER_GROUPS_KEY = "pulldash_filter_groups";
-const STATE_FILTER_KEY = "pulldash_filter_state";
-
-interface RepoFilter {
-  name: string;
-  mode: string;
-  authoredBy?: string;
-  enabled?: boolean;
-}
-
-interface FilterGroup {
-  id: string;
-  name: string;
-  repos: RepoFilter[];
-}
-
-interface FilterGroupsStorage {
-  groups: FilterGroup[];
-  selectedGroupId: string;
-}
-
-function getHomeFilterMatcher() {
-  let enabledRepos: RepoFilter[] = [];
-  let stateFilter = "open";
-  try {
-    const stored = localStorage.getItem(FILTER_GROUPS_KEY);
-    const parsed = JSON.parse(stored ?? "null") as FilterGroupsStorage | null;
-    const group = parsed?.groups.find((g) => g.id === parsed.selectedGroupId);
-    enabledRepos = group?.repos.filter((r) => r.enabled !== false) ?? [];
-    stateFilter = localStorage.getItem(STATE_FILTER_KEY) ?? "open";
-  } catch {
-    // ignore
-  }
-  return (owner: string, repo: string, prState?: string): boolean => {
-    if (enabledRepos.length === 0) return false;
-
-    // Check state filter — only when we know the PR's state
-    if (prState) {
-      if (stateFilter === "open" && prState !== "open") return false;
-      if (stateFilter === "closed" && prState !== "closed") return false;
-    }
-
-    const fullName = `${owner}/${repo}`;
-
-    for (const filter of enabledRepos) {
-      if (filter.name === ALL_REPOS_KEY) return true;
-      if (filter.name.startsWith(ORG_FILTER_PREFIX)) return true;
-      if (filter.name === fullName) return true;
-    }
-
-    return false;
-  };
-}
 
 // ============================================================================
 // App Shell - Tab-based Layout
@@ -138,6 +80,10 @@ export function AppShell() {
   const githubStore = useGitHubStore();
   const openPRReviewTab = useOpenPRReviewTab();
   const currentUserLogin = useCurrentUser()?.login ?? null;
+  const notificationsEnabled = useSyncExternalStore(
+    subscribeEnabled,
+    notifsEnabled
+  );
 
   useEffect(() => {
     githubStore.setPRCheckPollingTargets(
@@ -378,7 +324,6 @@ export function AppShell() {
   const checkPRs = useCallback(async () => {
     if (!notifsEnabled()) return;
     const notifications = new NotificationBatch();
-    let refreshHome = false;
     try {
       const prTabs = tabs.filter(
         (t): t is Tab & { owner: string; repo: string; number: number } =>
@@ -412,7 +357,6 @@ export function AppShell() {
         prTabs.map((t) => `${t.owner}/${t.repo}#${t.number}`)
       );
       const notifiedThisCycle = new Set<string>();
-      const isRepoInHomeFilters = getHomeFilterMatcher();
 
       const notifyMerged = (
         owner: string,
@@ -500,9 +444,6 @@ export function AppShell() {
                 `https://avatars.githubusercontent.com/${tab.owner}`
               );
             }
-            if (isRepoInHomeFilters(tab.owner, tab.repo)) {
-              refreshHome = true;
-            }
           }
         }
       }
@@ -551,9 +492,6 @@ export function AppShell() {
           queryClient.invalidateQueries({
             queryKey: ["pull-request", owner, repo, number],
           });
-          if (isRepoInHomeFilters(owner, repo, pr.state)) {
-            refreshHome = true;
-          }
         }
       }
     } catch (e) {
@@ -562,7 +500,6 @@ export function AppShell() {
       console.warn("PR activity poll failed", e);
     } finally {
       notifications.flush();
-      if (refreshHome) queryClient.invalidateQueries({ queryKey: ["pr-list"] });
     }
   }, [
     tabs,
@@ -583,10 +520,11 @@ export function AppShell() {
   });
 
   useEffect(() => {
+    if (!notificationsEnabled || !isAuthenticated) return;
     checkPRsRef.current();
     const interval = setInterval(() => checkPRsRef.current(), 60000);
     return () => clearInterval(interval);
-  }, []);
+  }, [notificationsEnabled, isAuthenticated]);
 
   // Fire due PR reminders every 30s (+ on startup, catching reminders that
   // came due while the app was closed). Stable-ref pattern as above so tab
@@ -737,12 +675,26 @@ export function AppShell() {
         </div>
       </div>
 
-      {/* Content Area - Only render active tab to avoid parallel data fetching */}
+      {/* Content Area */}
       <div className="flex-1 overflow-hidden relative">
-        {/* Preserve Home's filters and scroll position, but suspend its effects while reviewing. */}
-        <Activity mode={activeTabId === "home" ? "visible" : "hidden"}>
-          <div className="absolute inset-0">
-            <Home active={activeTabId === "home"} />
+        {/* Keep Home's polling alive while notifications are enabled. */}
+        <Activity
+          mode={
+            activeTabId === "home" || notificationsEnabled
+              ? "visible"
+              : "hidden"
+          }
+        >
+          <div
+            className={cn(
+              "absolute inset-0",
+              activeTabId !== "home" && "hidden"
+            )}
+          >
+            <Home
+              active={activeTabId === "home"}
+              notificationsEnabled={notificationsEnabled}
+            />
           </div>
         </Activity>
 

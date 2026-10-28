@@ -13,6 +13,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { mergePRListPages, queries } from "../lib/queries";
+import { pollHomePRList, refreshHomePRList } from "../lib/home-pr-list";
 import {
   Search,
   GitPullRequest,
@@ -613,7 +614,13 @@ const STATE_OPTIONS = [
 // Main Component
 // ============================================================================
 
-export const Home = memo(function Home({ active }: { active: boolean }) {
+export const Home = memo(function Home({
+  active,
+  notificationsEnabled,
+}: {
+  active: boolean;
+  notificationsEnabled: boolean;
+}) {
   const openPRReviewTab = useOpenPRReviewTab();
   const { ready: githubReady, error: githubError } = useGitHubReady();
   const github = useGitHubStore();
@@ -854,14 +861,14 @@ export const Home = memo(function Home({ active }: { active: boolean }) {
   const prListQuery = useQuery({
     ...queries.prList(searchQueries, page, perPage),
     placeholderData: undefined,
-    enabled: active && githubReady && !showUpdatedOnly,
-    subscribed: active,
-    refetchInterval: (query) => (active && !query.state.error ? 60_000 : false),
+    enabled:
+      (active || notificationsEnabled) && githubReady && !showUpdatedOnly,
+    subscribed: active || notificationsEnabled,
   });
   const updatedPRListQuery = useInfiniteQuery({
     ...queries.prListInfinite(searchQueries),
-    enabled: active && githubReady && showUpdatedOnly,
-    subscribed: active,
+    enabled: (active || notificationsEnabled) && githubReady && showUpdatedOnly,
+    subscribed: active || notificationsEnabled,
   });
   const {
     isFetching: loadingPrs,
@@ -872,21 +879,30 @@ export const Home = memo(function Home({ active }: { active: boolean }) {
   const hasOlderPRs = showUpdatedOnly && updatedPRListQuery.hasNextPage;
 
   const refreshPRList = useCallback(() => {
-    const queryKey = showUpdatedOnly
-      ? queries.prListInfinite(searchQueries).queryKey
-      : queries.prList(searchQueries, page, perPage).queryKey;
-    if (showUpdatedOnly) {
-      queryClient.setQueryData(
-        queries.prListInfinite(searchQueries).queryKey,
-        (data) =>
-          data && {
-            pages: data.pages.slice(0, 1),
-            pageParams: data.pageParams.slice(0, 1),
-          }
-      );
-    }
-    queryClient.invalidateQueries({ queryKey, exact: true });
+    refreshHomePRList(queryClient, searchQueries, page, showUpdatedOnly).catch(
+      () => {}
+    );
   }, [queryClient, showUpdatedOnly, searchQueries, page]);
+  useEffect(() => {
+    if (!notificationsEnabled || !githubReady) return;
+    const interval = setInterval(() => {
+      pollHomePRList(
+        queryClient,
+        searchQueries,
+        page,
+        showUpdatedOnly,
+        notificationsEnabled
+      ).catch(() => {});
+    }, 60_000);
+    return () => clearInterval(interval);
+  }, [
+    notificationsEnabled,
+    githubReady,
+    queryClient,
+    searchQueries,
+    page,
+    showUpdatedOnly,
+  ]);
 
   // Convenience accessors
   const prs = useMemo(
@@ -1943,9 +1959,10 @@ export const Home = memo(function Home({ active }: { active: boolean }) {
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
-              {dataUpdatedAt > 0 &&
+              {active &&
+                notificationsEnabled &&
+                dataUpdatedAt > 0 &&
                 !loadingPrs &&
-                !showUpdatedOnly &&
                 !prListError && (
                   <RefreshCountdown lastFetchedAt={dataUpdatedAt} />
                 )}

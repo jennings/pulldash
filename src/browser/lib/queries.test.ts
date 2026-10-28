@@ -3,7 +3,11 @@ import "fake-indexeddb/auto";
 import { mergePRListPages, queries } from "./queries";
 import { setOctokit } from "./github-client";
 import type { Review } from "@/api/types";
-import { InfiniteQueryObserver, QueryClient } from "@tanstack/react-query";
+import {
+  InfiniteQueryObserver,
+  QueryClient,
+  QueryObserver,
+} from "@tanstack/react-query";
 
 const review = (id: number): Review =>
   ({
@@ -117,6 +121,44 @@ test("ordinary PR lists fetch only the requested page and use a separate cache e
       [2, 30],
       [1, 100],
     ]);
+  } finally {
+    client.clear();
+  }
+});
+
+test("returning to Home reuses cached PR results without refetching or expiring them", async () => {
+  let calls = 0;
+  setOctokit({
+    request: async () => {
+      calls++;
+      return { data: { items: [], total_count: 0 } };
+    },
+  } as never);
+  const client = new QueryClient({
+    defaultOptions: {
+      queries: {
+        staleTime: 0,
+        refetchOnMount: true,
+        refetchOnWindowFocus: true,
+      },
+    },
+  });
+  try {
+    const options = queries.prList(["involves"]);
+    const first = await client.fetchQuery(options);
+    const observer = new QueryObserver(client, { ...options, enabled: false });
+    const unsubscribe = observer.subscribe(() => {});
+    observer.setOptions(options);
+    expect(observer.getCurrentResult().data).toBe(first);
+    expect(calls).toBe(1);
+    unsubscribe();
+    const remounted = new QueryObserver(client, options);
+    const stop = remounted.subscribe(() => {});
+    expect(remounted.getCurrentResult().data).toBe(first);
+    expect(calls).toBe(1);
+    expect(client.getQueryCache().find(options)?.gcTime).toBe(Infinity);
+    expect(options.refetchOnWindowFocus).toBe(false);
+    stop();
   } finally {
     client.clear();
   }
