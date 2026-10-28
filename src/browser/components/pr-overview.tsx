@@ -1368,7 +1368,6 @@ export const PROverview = memo(function PROverview() {
           <div className="flex-1 min-w-0 space-y-4 order-2 md:order-1">
             {activeTab === "conversation" && (
               <>
-                <TimelineUnreadControls />
                 {/* PR Description */}
                 <CommentBox
                   id="pr-description"
@@ -2310,6 +2309,8 @@ export const PROverview = memo(function PROverview() {
                 View on GitHub
               </a>
             </div>
+
+            {activeTab === "conversation" && <TimelineUnreadControls />}
           </div>
         </div>
       </div>

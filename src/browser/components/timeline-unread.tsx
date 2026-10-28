@@ -128,7 +128,7 @@ export function TimelineUnreadControls() {
   if (!unread || unread.commentsById.size === 0) return null;
   const count = unread.unreadIds.size;
   return (
-    <div className="sticky top-2 z-20 flex flex-wrap items-center gap-3 rounded-md border border-border bg-background/95 px-3 py-2 text-sm shadow-sm">
+    <div className="flex flex-wrap items-center gap-3 rounded-md border border-border bg-background/95 px-3 py-2 text-sm shadow-sm">
       <span className="text-muted-foreground" aria-live="polite">
         {count} unread
       </span>
