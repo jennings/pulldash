@@ -1,10 +1,8 @@
 import type { Review } from "@/api/types";
 
 /**
- * Latest non-dismissed review per user — the badge state GitHub shows next to
- * each reviewer (its `latestReviews` field): a later COMMENTED review
- * overrides an earlier decision in the reviewer list, even though the
- * decision still counts for merge readiness.
+ * Reviewer badge state: keep the latest approval or change request, falling
+ * back to the latest comment-only review when there is no decision.
  */
 export function getLatestReviewByUser(reviews: Review[]): Map<string, Review> {
   const sorted = reviews
@@ -20,7 +18,12 @@ export function getLatestReviewByUser(reviews: Review[]): Map<string, Review> {
     if (!review.user) continue;
     if (review.state === "DISMISSED") {
       byUser.delete(review.user.login);
-    } else {
+    } else if (
+      review.state !== "COMMENTED" ||
+      !["APPROVED", "CHANGES_REQUESTED"].includes(
+        byUser.get(review.user.login)?.state ?? ""
+      )
+    ) {
       byUser.set(review.user.login, review);
     }
   }

@@ -44,6 +44,10 @@ test("comment reviews after an approval do not mask it", () => {
     "rzr",
   ]);
   expect(decisions.every((r) => r.state === "APPROVED")).toBe(true);
+  const badges = getLatestReviewByUser(fixture);
+  for (const decision of decisions) {
+    expect(badges.get(decision.user!.login)).toBe(decision);
+  }
 });
 
 test("comment-only reviewers fall back to their latest comment", () => {
@@ -52,18 +56,20 @@ test("comment-only reviewers fall back to their latest comment", () => {
   expect(byUser.get("glehmann")?.id).toBe(8);
 });
 
-// xcp-ng-tests#709: glehmann approved, the author re-requested, then glehmann
-// left a comment review — GitHub's reviewer badge shows COMMENTED while the
-// approval still counts for merge readiness.
+// xcp-ng/xcp-ng-tests#714: rzr's later comment must not mask his approval.
 const badgeFixture: Review[] = [
-  review("glehmann", "APPROVED", "2026-09-18T12:38:47Z", 1),
-  review("glehmann", "COMMENTED", "2026-09-23T07:55:49Z", 2),
+  {
+    ...review("rzr", "COMMENTED", "2026-10-28T11:28:20Z", 5681882000),
+    commit_id: "78b743b7a663ae65006df76b23b9b46ba9569c0b",
+  },
+  {
+    ...review("rzr", "APPROVED", "2026-10-28T09:02:14Z", 5680114036),
+    commit_id: "6ba86a176a6983100dfbe40162b89af1f138285b",
+  },
 ];
 
-test("comment review downgrades the badge but not the merge decision", () => {
-  expect(getLatestReviewByUser(badgeFixture).get("glehmann")?.state).toBe(
-    "COMMENTED"
-  );
+test("reviewer badge retains the approval and its reviewed commit after a later comment", () => {
+  expect(getLatestReviewByUser(badgeFixture).get("rzr")).toBe(badgeFixture[1]);
   expect(getLatestReviewsByUser(badgeFixture)[0].state).toBe("APPROVED");
 });
 
@@ -97,8 +103,15 @@ test("requesting changes overrides an earlier approval", () => {
   const reviews = [
     review("a", "APPROVED", "2026-01-01T00:00:00Z", 1),
     review("a", "CHANGES_REQUESTED", "2026-01-02T00:00:00Z", 2),
+    review("a", "COMMENTED", "2026-01-03T00:00:00Z", 3),
+    review("b", "CHANGES_REQUESTED", "2026-01-01T00:00:00Z", 4),
+    review("b", "APPROVED", "2026-01-02T00:00:00Z", 5),
+    review("b", "COMMENTED", "2026-01-03T00:00:00Z", 6),
   ];
   expect(getLatestReviewsByUser(reviews)[0].state).toBe("CHANGES_REQUESTED");
+  const badges = getLatestReviewByUser(reviews);
+  expect(badges.get("a")?.state).toBe("CHANGES_REQUESTED");
+  expect(badges.get("b")?.state).toBe("APPROVED");
 });
 
 test("dismissed reviews are not treated as decisions", () => {
@@ -108,6 +121,12 @@ test("dismissed reviews are not treated as decisions", () => {
   ];
   expect(getLatestReviewsByUser(reviews)).toEqual([]);
   expect(getLatestReviewByUser(reviews).has("a")).toBe(false);
+  const afterComment = [
+    ...reviews,
+    review("a", "COMMENTED", "2026-01-03T00:00:00Z", 3),
+  ];
+  expect(getLatestReviewsByUser(afterComment)).toEqual([]);
+  expect(getLatestReviewByUser(afterComment).get("a")?.state).toBe("COMMENTED");
 });
 
 // Three hunks with gaps at lines 5-26 and 34-56 — the shape of a PR whose

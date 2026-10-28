@@ -650,6 +650,7 @@
 /* Strikethrough */
 .markdown-body del {
   color: var(--muted-foreground);
+  text-decoration: line-through;
 }
 
 /* Strong and emphasis */
