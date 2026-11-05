@@ -7,7 +7,7 @@ import {
   type LoadedDiff,
 } from ".";
 import type { PRCommit } from "@/browser/contexts/github";
-import { escapeHtml } from "@/shared/diff-utils";
+import { escapeHtml } from "@/shared/html";
 import { formatDateTime } from "@/browser/lib/dates";
 import {
   contextOnlyFileDiff,

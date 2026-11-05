@@ -89,7 +89,7 @@ export function useKeyboardNavigation() {
       if (e.key === "Enter" && state.focusedGapIndex !== null) {
         e.preventDefault();
         // Dispatch event to expand the gap (handled by the diff viewer)
-        const event = new CustomEvent("pr-review:expand-skip-block", {
+        const event = new CustomEvent("pr-review:expand-gap", {
           detail: { hunkIndex: state.focusedGapIndex },
         });
         window.dispatchEvent(event);

@@ -2562,7 +2562,7 @@ function createGitHubStore() {
     );
 
     // GitHub silently returns a null thread when the line is not part of the
-    // diff (e.g. context revealed by expanding a skip block).
+    // diff (e.g. context revealed by expanding a collapsed gap).
     const comment =
       data.addPullRequestReviewThread?.thread?.comments.nodes[0] ?? null;
     if (!comment) {

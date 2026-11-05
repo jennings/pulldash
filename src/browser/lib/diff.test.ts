@@ -21,21 +21,9 @@ class FakeWorker {
 
   postMessage(data: any) {
     this.messages.push(data);
-    // By default, echo back a successful parse-diff-result on next microtask
+    // By default, echo back a successful interdiff-result on next microtask
     queueMicrotask(() => {
-      if (this.onmessage && data?.type === "parse-diff") {
-        this.onmessage({
-          data: {
-            type: "parse-diff-result",
-            id: data.id,
-            result: { hunks: [] },
-          },
-        });
-      } else if (this.onmessage && data?.type === "highlight-lines") {
-        this.onmessage({
-          data: { type: "highlight-lines-result", id: data.id, result: [] },
-        });
-      } else if (this.onmessage && data?.type === "interdiff") {
+      if (this.onmessage && data?.type === "interdiff") {
         this.onmessage({
           data: {
             type: "interdiff-result",
@@ -82,14 +70,14 @@ describe("pool initialization", () => {
 
   test("workers are created on first use", async () => {
     const pool = new DiffWorkerPool();
-    await pool.parseDiff("", "test.ts");
+    await pool.interdiff("", "");
     expect(FakeWorker.instances).toHaveLength(1);
   });
 
   test("concurrent work grows the pool only up to the core-aware cap", async () => {
     const pool = new DiffWorkerPool();
-    await pool.parseDiffBatch(
-      Array.from({ length: 12 }, (_, i) => ({ patch: "", filename: `${i}.ts` }))
+    await Promise.all(
+      Array.from({ length: 12 }, (_, i) => pool.interdiff("", `${i}`))
     );
     expect(FakeWorker.instances).toHaveLength(
       Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 2) - 1))
@@ -102,15 +90,15 @@ describe("pool initialization", () => {
 
   test("second call does not create additional workers (already initialized)", async () => {
     const pool = new DiffWorkerPool();
-    await pool.parseDiff("", "test.ts");
+    await pool.interdiff("", "");
     const countAfterFirst = FakeWorker.instances.length;
-    await pool.parseDiff("", "test.ts");
+    await pool.interdiff("", "");
     expect(FakeWorker.instances.length).toBe(countAfterFirst);
   });
 
   test("terminate clears all workers", async () => {
     const pool = new DiffWorkerPool();
-    await pool.parseDiff("", "test.ts");
+    await pool.interdiff("", "");
     expect(FakeWorker.instances.length).toBeGreaterThan(0);
     pool.terminate();
     expect(FakeWorker.instances).toHaveLength(0);
@@ -122,26 +110,6 @@ describe("pool initialization", () => {
 // ============================================================================
 
 describe("request dispatch", () => {
-  test("parseDiff sends parse-diff message to a worker", async () => {
-    const pool = new DiffWorkerPool();
-    await pool.parseDiff("", "test.ts");
-    const allMessages = FakeWorker.instances.flatMap((w) => w.messages);
-    const msg = allMessages.find((m) => m.type === "parse-diff");
-    expect(msg).toBeDefined();
-    expect(msg.filename).toBe("test.ts");
-  });
-
-  test("highlightLines sends highlight-lines message to a worker", async () => {
-    const pool = new DiffWorkerPool();
-    await pool.highlightLines("content", "test.ts", 10, 7, 5);
-    const allMessages = FakeWorker.instances.flatMap((w) => w.messages);
-    const msg = allMessages.find((m) => m.type === "highlight-lines");
-    expect(msg).toBeDefined();
-    expect(msg.startLine).toBe(10);
-    expect(msg.oldStartLine).toBe(7);
-    expect(msg.count).toBe(5);
-  });
-
   test("interdiff sends interdiff message to a worker", async () => {
     const pool = new DiffWorkerPool();
     await pool.interdiff("patch1", "patch2");
@@ -152,26 +120,12 @@ describe("request dispatch", () => {
     expect(msg.patch2).toBe("patch2");
   });
 
-  test("parseDiffBatch dispatches one message per item", async () => {
-    const pool = new DiffWorkerPool();
-    await pool.parseDiffBatch([
-      { patch: "", filename: "a.ts" },
-      { patch: "", filename: "b.ts" },
-    ]);
-    const allMessages = FakeWorker.instances.flatMap((w) => w.messages);
-    const msgs = allMessages.filter((m) => m.type === "parse-diff");
-    expect(msgs).toHaveLength(2);
-    const filenames = msgs.map((m) => m.filename);
-    expect(filenames).toContain("a.ts");
-    expect(filenames).toContain("b.ts");
-  });
-
   test("concurrent requests get unique IDs", async () => {
     const pool = new DiffWorkerPool();
     await Promise.all([
-      pool.parseDiff("", "a.ts"),
-      pool.parseDiff("", "b.ts"),
-      pool.parseDiff("", "c.ts"),
+      pool.interdiff("", "a"),
+      pool.interdiff("", "b"),
+      pool.interdiff("", "c"),
     ]);
     const allMessages = FakeWorker.instances.flatMap((w) => w.messages);
     const ids = allMessages.map((m) => m.id);
@@ -193,7 +147,7 @@ describe("error propagation", () => {
     }
     (globalThis as any).Worker = PendingWorker;
     const pool = new DiffWorkerPool();
-    const request = pool.parseDiff("", "test.ts");
+    const request = pool.interdiff("", "");
     const failed = FakeWorker.instances.find(
       (worker) => worker.messages.length
     )!;
@@ -211,10 +165,7 @@ describe("error propagation", () => {
     }
     (globalThis as any).Worker = PendingWorker;
     const pool = new DiffWorkerPool();
-    const requests = [
-      pool.parseDiff("", "a.ts"),
-      pool.highlightLines("", "b.ts", 1, 1, 1),
-    ];
+    const requests = [pool.interdiff("", "a"), pool.interdiff("", "b")];
     const settled = Promise.allSettled(requests);
     pool.terminate();
     for (const result of await settled) {
@@ -223,11 +174,11 @@ describe("error propagation", () => {
         expect(result.reason.message).toContain("terminated");
     }
     (globalThis as any).Worker = FakeWorker;
-    expect(await pool.parseDiff("", "c.ts")).toEqual({ hunks: [] });
+    expect(await pool.interdiff("", "c")).toBe("");
     pool.terminate();
   });
 
-  test("parseDiff rejects when worker posts error response", async () => {
+  test("interdiff rejects when worker posts error response", async () => {
     class ErrorWorker extends FakeWorker {
       postMessage(data: any) {
         this.messages.push(data);
@@ -241,6 +192,6 @@ describe("error propagation", () => {
     (globalThis as any).Worker = ErrorWorker;
 
     const pool = new DiffWorkerPool();
-    await expect(pool.parseDiff("", "test.ts")).rejects.toThrow("parse failed");
+    await expect(pool.interdiff("", "")).rejects.toThrow("parse failed");
   });
 });
