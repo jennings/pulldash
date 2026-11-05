@@ -3,10 +3,10 @@ import {
   comparisonCommentSide,
   comparisonCommentTarget,
 } from "./comparison-comments";
-import type { ParsedDiff } from "./diff-parser";
+import { fileDiffFromPatch, type LoadedDiff } from "./file-diff";
 
-const diff: ParsedDiff = {
-  hunks: [],
+const diff: LoadedDiff = {
+  fileDiff: fileDiffFromPatch({ patch: "", filename: "after.ts" }),
   sources: {
     old: { sha: "old", path: "before.ts" },
     new: { sha: "new", path: "after.ts" },

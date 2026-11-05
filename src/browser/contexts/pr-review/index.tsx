@@ -112,18 +112,27 @@ export interface LocalPendingComment extends PendingReviewComment {
   anchoredFrom?: string;
 }
 
-import type {
-  DiffLine,
-  DiffHunk,
-  DiffSkipBlock,
-  ParsedDiff,
-} from "@/browser/lib/diff-parser";
+import {
+  comparisonLoadedDiff,
+  diffRows,
+  emptyLoadedDiff,
+  type DiffExpansion,
+  type DiffRow,
+  type LoadedDiff,
+} from "@/browser/lib/file-diff";
+import {
+  gotoLineTarget,
+  navItems,
+  splitItems,
+  type NavItem,
+  type SplitItem,
+} from "@/browser/lib/diff-navigation";
 export type {
-  DiffLine,
-  DiffHunk,
-  DiffSkipBlock,
-  ParsedDiff,
-} from "@/browser/lib/diff-parser";
+  DiffExpansion,
+  DiffRow,
+  DiffSources,
+  LoadedDiff,
+} from "@/browser/lib/file-diff";
 
 export interface CommentingOnLine {
   line: number;
@@ -134,15 +143,6 @@ export interface CommentingOnLine {
 // ============================================================================
 // Store State
 // ============================================================================
-
-// Pre-computed navigable item for O(1) navigation lookup
-export interface NavigableItem {
-  type: "line" | "skip";
-  lineNum?: number;
-  side?: "old" | "new";
-  skipIndex?: number;
-  rowIndex: number;
-}
 
 export type DiffViewMode = "unified" | "split";
 
@@ -224,8 +224,8 @@ interface PRReviewState {
   compareToCommitSha: string | null;
   /** Whether interdiff mode is active (compareToSha set + both commits resolved) */
   interdiffEnabled: boolean;
-  /** Interdiff ParsedDiff results per file (populated when interdiffEnabled) */
-  interdiffLoadedDiffs: Record<string, ParsedDiff>;
+  /** Interdiff results per file (populated when interdiffEnabled) */
+  interdiffLoadedDiffs: Record<string, LoadedDiff>;
   interdiffError: string | null;
   /** Files with identical patches between compare-to and viewing version (full branch, no interdiff) */
   versionCompareNoChangeFiles: string[];
@@ -312,16 +312,15 @@ interface PRReviewState {
   hideViewed: boolean;
 
   // Diffs
-  loadedDiffs: Record<string, ParsedDiff>;
+  loadedDiffs: Record<string, LoadedDiff>;
   loadingFiles: Set<string>;
-  // Map of "filename:skipIndex" -> expanded lines content
-  expandedSkipBlocks: Record<string, DiffLine[]>;
-  expandingSkipBlocks: Set<string>;
-  // Pre-computed navigation arrays per file (Fix 2)
-  navigableItems: Record<string, NavigableItem[]>;
-  // Pre-computed comment range lookup per file (Fix 3)
-  commentRangeLookup: Record<string, Set<number>>;
-  commentAnchorLookup: Record<string, Set<number>>;
+  /**
+   * Hunk expansion Pierre reports for the diff being shown, per file (see
+   * `syncDiffView`). Only meaningful for the file's current diff.
+   */
+  diffExpansion: Record<string, DiffExpansion>;
+  /** Whether Pierre has hydrated the file's diff with its full contents. */
+  diffHydrated: Record<string, boolean>;
 
   // Line selection
   focusedLine: number | null;
@@ -331,7 +330,8 @@ interface PRReviewState {
   focusSource: "mouse" | "keyboard";
   selectionAnchor: number | null;
   selectionAnchorSide: "old" | "new" | null;
-  focusedSkipBlockIndex: number | null; // Index of focused skip block for keyboard navigation
+  /** `hunkIndex` of the collapsed gap focused for keyboard navigation. */
+  focusedGapIndex: number | null;
   commentingOnLine: CommentingOnLine | null;
   gotoLineMode: boolean;
   gotoLineInput: string;
@@ -582,13 +582,34 @@ export function areLineCommentsHidden(
   );
 }
 
+const EMPTY_ROWS: DiffRow[] = [];
+
+function sameExpansion(
+  a: DiffExpansion | undefined,
+  b: DiffExpansion
+): boolean {
+  if (!a) return b.size === 0;
+  if (a.size !== b.size) return false;
+  for (const [index, region] of a) {
+    const other = b.get(index);
+    if (
+      !other ||
+      other.fromStart !== region.fromStart ||
+      other.fromEnd !== region.fromEnd
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export function getLoadedFileDiff(
   state: Pick<
     PRReviewState,
     "interdiffEnabled" | "interdiffLoadedDiffs" | "loadedDiffs"
   >,
   filename: string | null
-): ParsedDiff | null {
+): LoadedDiff | null {
   if (!filename) return null;
   return (
     (state.interdiffEnabled ? state.interdiffLoadedDiffs : state.loadedDiffs)[
@@ -615,11 +636,31 @@ export class PRReviewStore {
   private versionDataPromise: Promise<void> | null = null;
   private navigationCommentLines: {
     comments: ReviewComment[];
-    diff: ParsedDiff;
+    diff: LoadedDiff;
     filename: string;
     sha: string;
     lines: Map<number, number>;
   } | null = null;
+  /**
+   * The `fileDiff` each file's `diffExpansion` was reported for. Expansion
+   * only applies to that diff, not to another one of the same file (e.g. the
+   * interdiff of a file that was expanded in the normal view).
+   */
+  private diffExpansionOwner = new Map<string, LoadedDiff["fileDiff"]>();
+  /** Rows derived from the current diff + expansion, per file. */
+  private rowsCache = new Map<
+    string,
+    {
+      fileDiff: LoadedDiff["fileDiff"];
+      expansion: DiffExpansion | undefined;
+      hydrated: boolean;
+      rows: DiffRow[];
+    }
+  >();
+  private navCache = new WeakMap<
+    DiffRow[],
+    { nav?: NavItem[]; split?: SplitItem[] }
+  >();
 
   constructor(
     github: GitHubStore,
@@ -781,16 +822,13 @@ export class PRReviewStore {
       wordWrap: false,
       loadedDiffs: {},
       loadingFiles: new Set(),
-      expandedSkipBlocks: {},
-      expandingSkipBlocks: new Set(),
-      navigableItems: {},
-      commentRangeLookup: {},
-      commentAnchorLookup: {},
+      diffExpansion: {},
+      diffHydrated: {},
       focusedLine: null,
       focusedLineSide: null,
       selectionAnchor: null,
       selectionAnchorSide: null,
-      focusedSkipBlockIndex: null,
+      focusedGapIndex: null,
       commentingOnLine: null,
       gotoLineMode: false,
       gotoLineInput: "",
@@ -845,6 +883,19 @@ export class PRReviewStore {
   private set(partial: Partial<PRReviewState>) {
     if ("interdiffLoadedDiffs" in partial && !("interdiffError" in partial))
       partial.interdiffError = null;
+    // Expansion belongs to the diffs being shown: once they are dropped, a new
+    // view of the same file starts collapsed again.
+    if (
+      ("loadedDiffs" in partial &&
+        Object.keys(partial.loadedDiffs!).length === 0) ||
+      ("interdiffLoadedDiffs" in partial &&
+        Object.keys(partial.interdiffLoadedDiffs!).length === 0)
+    ) {
+      partial.diffExpansion = {};
+      partial.diffHydrated = {};
+      this.diffExpansionOwner.clear();
+      this.rowsCache.clear();
+    }
     this.state = { ...this.state, ...partial };
     if ("files" in partial || "viewedFiles" in partial) {
       this.state.viewedFilenames = this.computeViewedFilenames();
@@ -879,8 +930,6 @@ export class PRReviewStore {
     const resetBase = {
       loadedDiffs: {},
       loadingFiles: new Set<string>(),
-      expandedSkipBlocks: {},
-      expandingSkipBlocks: new Set<string>(),
     };
 
     if (compareToSha) {
@@ -1087,7 +1136,7 @@ export class PRReviewStore {
     } = this.state;
     if (!interdiffEnabled) return false;
     if (versionCompareNoChangeFiles.includes(filename)) return true;
-    return interdiffLoadedDiffs[filename]?.hunks.length === 0;
+    return interdiffLoadedDiffs[filename]?.fileDiff.hunks.length === 0;
   };
 
   navigateToFile = (direction: "next" | "prev") => {
@@ -1342,46 +1391,9 @@ export class PRReviewStore {
     this.set({ loadingFiles: next });
   };
 
-  setLoadedDiff = (filename: string, diff: ParsedDiff) => {
-    // Pre-compute navigable items for O(1) navigation (Fix 2)
-    const navigableItems: NavigableItem[] = [];
-    let rowIndex = 0;
-    let skipIndex = 0;
-
-    for (const hunk of diff.hunks) {
-      if (hunk.type === "skip") {
-        navigableItems.push({
-          type: "skip",
-          skipIndex: skipIndex++,
-          rowIndex: rowIndex++,
-        });
-      } else if (hunk.type === "hunk") {
-        for (const line of hunk.lines) {
-          if (line.type === "delete" && line.oldLineNumber) {
-            navigableItems.push({
-              type: "line",
-              lineNum: line.oldLineNumber,
-              side: "old",
-              rowIndex: rowIndex++,
-            });
-          } else if (line.newLineNumber) {
-            navigableItems.push({
-              type: "line",
-              lineNum: line.newLineNumber,
-              side: "new",
-              rowIndex: rowIndex++,
-            });
-          }
-        }
-      }
-    }
-
+  setLoadedDiff = (filename: string, diff: LoadedDiff) => {
     this.set({
       loadedDiffs: { ...this.state.loadedDiffs, [filename]: diff },
-      navigableItems: {
-        ...this.state.navigableItems,
-        [filename]: navigableItems,
-      },
     });
   };
 
@@ -1403,8 +1415,6 @@ export class PRReviewStore {
         commits: this.baseCommits,
         loadedDiffs: {},
         loadingFiles: new Set(),
-        expandedSkipBlocks: {},
-        expandingSkipBlocks: new Set(),
       });
       const { compareToSha, selectedCommitSha } = this.state;
       if (compareToSha && selectedCommitSha === null) {
@@ -1435,8 +1445,6 @@ export class PRReviewStore {
       commits: versionCommits ?? this.baseCommits,
       loadedDiffs: {},
       loadingFiles: new Set(),
-      expandedSkipBlocks: {},
-      expandingSkipBlocks: new Set(),
     });
 
     await this.refreshFiles();
@@ -1480,8 +1488,6 @@ export class PRReviewStore {
       interdiffEnabled: false,
       interdiffLoadedDiffs: {},
       loadingFiles: new Set<string>(),
-      expandedSkipBlocks: {},
-      expandingSkipBlocks: new Set<string>(),
     };
 
     if (sha === null) {
@@ -1649,6 +1655,34 @@ export class PRReviewStore {
     this.set({ files: sortFilesLikeTree(mergeFiles), loadedDiffs: {} });
   };
 
+  /** The diff of one file between two versions of the PR, from their patches. */
+  private compareFilePatches = async (
+    pair: Parameters<typeof comparisonSources>[0],
+    oldSha: string,
+    newSha: string
+  ): Promise<LoadedDiff> => {
+    const { filename, previous, current } = pair;
+    const sources = comparisonSources(pair, oldSha, newSha);
+    if ([previous, current].some((f) => f && !f.patch && f.changes > 0)) {
+      return emptyLoadedDiff(filename, {
+        error: "GitHub did not provide a complete text patch for this file.",
+        sources,
+      });
+    }
+    try {
+      const patch = await diffService.interdiff(
+        previous?.patch ?? "",
+        current?.patch ?? ""
+      );
+      return comparisonLoadedDiff(patch, filename, sources);
+    } catch {
+      return emptyLoadedDiff(filename, {
+        error: "Could not compute this comparison.",
+        sources,
+      });
+    }
+  };
+
   private computeInterdiff = async (
     baseCommitSha: string,
     headCommitSha: string
@@ -1667,34 +1701,13 @@ export class PRReviewStore {
       const pairs = pairComparisonFiles(prevFiles, headFiles);
 
       const interdiffEntries = await Promise.all(
-        pairs.map(async ({ filename, previous, current }) => {
-          if ([previous, current].some((f) => f && !f.patch && f.changes > 0))
-            return [
-              filename,
-              {
-                hunks: [],
-                error:
-                  "GitHub did not provide a complete text patch for this file.",
-              },
-            ] as const;
-          const diff = await diffService
-            .interdiff(previous?.patch ?? "", current?.patch ?? "", filename)
-            .catch(() => ({
-              hunks: [] as ParsedDiff["hunks"],
-              error: "Could not compute this comparison.",
-            }));
-          return [
-            filename,
-            {
-              ...diff,
-              sources: comparisonSources(
-                { filename, previous, current },
-                baseCommitSha,
-                headCommitSha
-              ),
-            },
-          ] as const;
-        })
+        pairs.map(
+          async (pair) =>
+            [
+              pair.filename,
+              await this.compareFilePatches(pair, baseCommitSha, headCommitSha),
+            ] as const
+        )
       );
 
       if (version !== this.selectionVersion) return;
@@ -1742,36 +1755,12 @@ export class PRReviewStore {
 
       const pairs = pairComparisonFiles(prevFiles, headFiles);
 
-      const interdiffEntries: Array<[string, ParsedDiff]> = [];
+      const interdiffEntries: Array<[string, LoadedDiff]> = [];
 
-      for (const { filename, previous, current } of pairs) {
-        if ([previous, current].some((f) => f && !f.patch && f.changes > 0)) {
-          interdiffEntries.push([
-            filename,
-            {
-              hunks: [],
-              error:
-                "GitHub did not provide a complete text patch for this file.",
-            },
-          ]);
-          continue;
-        }
-        const diff = await diffService
-          .interdiff(previous?.patch ?? "", current?.patch ?? "", filename)
-          .catch(() => ({
-            hunks: [] as ParsedDiff["hunks"],
-            error: "Could not compute this comparison.",
-          }));
+      for (const pair of pairs) {
         interdiffEntries.push([
-          filename,
-          {
-            ...diff,
-            sources: comparisonSources(
-              { filename, previous, current },
-              compareToSha,
-              headSha
-            ),
-          },
+          pair.filename,
+          await this.compareFilePatches(pair, compareToSha, headSha),
         ]);
       }
 
@@ -2022,8 +2011,6 @@ export class PRReviewStore {
       commits: this.baseCommits,
       loadedDiffs: {},
       loadingFiles: new Set(),
-      expandedSkipBlocks: {},
-      expandingSkipBlocks: new Set(),
       focusedLine: null,
       focusedLineSide: null,
       selectionAnchor: null,
@@ -2041,45 +2028,105 @@ export class PRReviewStore {
   };
 
   // ---------------------------------------------------------------------------
-  // Skip Block Expansion Actions
+  // Diff View Sync (hunk expansion and hydration live in Pierre)
   // ---------------------------------------------------------------------------
 
-  getSkipBlockKey = (filename: string, skipIndex: number): string => {
-    return `${filename}:${skipIndex}`;
-  };
-
-  setSkipBlockExpanding = (key: string, expanding: boolean) => {
-    const next = new Set(this.state.expandingSkipBlocks);
-    if (expanding) {
-      next.add(key);
-    } else {
-      next.delete(key);
+  /**
+   * Rows of `filename`'s current diff as Pierre shows them in unified mode
+   * (honoring the expansion last reported through `syncDiffView`). The array
+   * is reused until the diff, its expansion, or its hydration changes.
+   */
+  getDiffRows = (filename: string | null): DiffRow[] => {
+    const diff = getLoadedFileDiff(this.state, filename);
+    if (!filename || !diff) return EMPTY_ROWS;
+    const { fileDiff } = diff;
+    const expansion =
+      this.diffExpansionOwner.get(filename) === fileDiff
+        ? this.state.diffExpansion[filename]
+        : undefined;
+    const hydrated = !fileDiff.isPartial;
+    const cached = this.rowsCache.get(filename);
+    if (
+      cached &&
+      cached.fileDiff === fileDiff &&
+      cached.expansion === expansion &&
+      cached.hydrated === hydrated
+    ) {
+      return cached.rows;
     }
-    this.set({ expandingSkipBlocks: next });
+    const rows = diffRows(fileDiff, expansion);
+    this.rowsCache.set(filename, { fileDiff, expansion, hydrated, rows });
+    return rows;
   };
 
-  setExpandedSkipBlock = (key: string, lines: DiffLine[]) => {
+  private getNavItems = (filename: string | null): NavItem[] => {
+    const rows = this.getDiffRows(filename);
+    const cached = this.navCache.get(rows) ?? {};
+    this.navCache.set(rows, cached);
+    return (cached.nav ??= navItems(rows));
+  };
+
+  private getSplitItems = (filename: string | null): SplitItem[] => {
+    const rows = this.getDiffRows(filename);
+    const cached = this.navCache.get(rows) ?? {};
+    this.navCache.set(rows, cached);
+    return (cached.split ??= splitItems(rows));
+  };
+
+  /**
+   * Record what Pierre currently shows for `filename`: which regions are
+   * expanded, and (through `fileDiff.isPartial`, which Pierre flips in place)
+   * whether the full file has been loaded. Everything derived from the rows
+   * (navigation, search) follows. A no-op when nothing changed.
+   */
+  syncDiffView = (filename: string, expansion: DiffExpansion) => {
+    const diff = getLoadedFileDiff(this.state, filename);
+    if (!diff) return;
+    const hydrated = !diff.fileDiff.isPartial;
+    const previous = this.state.diffExpansion[filename];
+    if (
+      this.diffExpansionOwner.get(filename) === diff.fileDiff &&
+      this.state.diffHydrated[filename] === hydrated &&
+      sameExpansion(previous, expansion)
+    ) {
+      return;
+    }
+    this.diffExpansionOwner.set(filename, diff.fileDiff);
     this.set({
-      expandedSkipBlocks: { ...this.state.expandedSkipBlocks, [key]: lines },
+      diffExpansion: { ...this.state.diffExpansion, [filename]: expansion },
+      diffHydrated: { ...this.state.diffHydrated, [filename]: hydrated },
     });
-  };
 
-  isSkipBlockExpanded = (filename: string, skipIndex: number): boolean => {
-    const key = this.getSkipBlockKey(filename, skipIndex);
-    return key in this.state.expandedSkipBlocks;
-  };
-
-  isSkipBlockExpanding = (filename: string, skipIndex: number): boolean => {
-    const key = this.getSkipBlockKey(filename, skipIndex);
-    return this.state.expandingSkipBlocks.has(key);
-  };
-
-  getExpandedSkipBlockLines = (
-    filename: string,
-    skipIndex: number
-  ): DiffLine[] | null => {
-    const key = this.getSkipBlockKey(filename, skipIndex);
-    return this.state.expandedSkipBlocks[key] ?? null;
+    // A focused gap that was expanded away (or turned into lines once the
+    // file loaded) hands focus to the first line it revealed, so the keyboard
+    // can carry on from there. Pierre redraws the expansion before the file
+    // arrives, so this cannot be decided from what changed in this sync: the
+    // focused gap simply no longer exists.
+    const { focusedGapIndex } = this.state;
+    if (focusedGapIndex === null || filename !== this.state.selectedFile)
+      return;
+    const after = this.getDiffRows(filename);
+    if (
+      after.some(
+        (row) => row.kind === "gap" && row.hunkIndex === focusedGapIndex
+      )
+    ) {
+      return;
+    }
+    // The rows of a region belong to the hunk that follows it, starting with
+    // what was revealed at its top.
+    const revealed = after.find(
+      (row) => row.kind === "line" && row.hunkIndex === focusedGapIndex
+    );
+    if (revealed?.kind === "line") {
+      const side = revealed.type === "deletion" ? "old" : "new";
+      this.setFocusedLine(
+        side === "old" ? revealed.oldLine : revealed.newLine,
+        side
+      );
+    } else {
+      this.set({ focusedGapIndex: null });
+    }
   };
 
   // ---------------------------------------------------------------------------
@@ -2095,7 +2142,7 @@ export class PRReviewStore {
       focusedLine: line,
       focusedLineSide: line !== null ? side : null,
       focusSource: source,
-      focusedSkipBlockIndex: null, // Clear skip block focus when focusing a line
+      focusedGapIndex: null, // Clear gap focus when focusing a line
     });
   };
 
@@ -2109,10 +2156,10 @@ export class PRReviewStore {
     });
   };
 
-  setFocusedSkipBlock = (index: number | null) => {
+  setFocusedGap = (hunkIndex: number | null) => {
     this.set({
-      focusedSkipBlockIndex: index,
-      focusedLine: null, // Clear line focus when focusing a skip block
+      focusedGapIndex: hunkIndex,
+      focusedLine: null, // Clear line focus when focusing a gap
       focusedLineSide: null,
       selectionAnchor: null,
       selectionAnchorSide: null,
@@ -2122,14 +2169,8 @@ export class PRReviewStore {
   // Switch between left (old) and right (new) sides in split view
   // This uses the same split-pair logic as the UI to navigate like a grid
   navigateSide = (direction: "left" | "right") => {
-    const {
-      focusedLine,
-      focusedLineSide,
-      selectedFile,
-      loadedDiffs,
-      diffViewMode,
-      expandedSkipBlocks,
-    } = this.state;
+    const { focusedLine, focusedLineSide, selectedFile, diffViewMode } =
+      this.state;
 
     // Only works in split view when a line is focused
     if (diffViewMode !== "split") return;
@@ -2138,94 +2179,21 @@ export class PRReviewStore {
     const targetSide = direction === "left" ? "old" : "new";
     if (focusedLineSide === targetSide) return; // Already on target side
 
-    const diff = getLoadedFileDiff(this.state, selectedFile);
-    if (!diff?.hunks) return;
-
-    // Collect all lines from hunks, substituting expanded skip blocks
-    const allLines: DiffLine[] = [];
-    let skipIndex = 0;
-    for (const hunk of diff.hunks) {
-      if (hunk.type === "skip") {
-        const key = `${selectedFile}:${skipIndex}`;
-        const expandedLines = expandedSkipBlocks[key];
-        if (expandedLines) {
-          allLines.push(...expandedLines);
-        }
-        skipIndex++;
-      } else if (hunk.type === "hunk") {
-        allLines.push(...hunk.lines);
+    // Find the visual row containing the focused line and switch to its other
+    // side if that side has a line.
+    for (const item of this.getSplitItems(selectedFile)) {
+      if (item.type !== "pair") continue;
+      const matches =
+        focusedLineSide === "old"
+          ? item.oldLine === focusedLine
+          : item.newLine === focusedLine;
+      if (!matches) continue;
+      const targetLine = direction === "left" ? item.oldLine : item.newLine;
+      if (targetLine !== null) {
+        this.setFocusedLine(targetLine, targetSide);
+        this.setSelectionAnchor(null, null);
       }
-    }
-
-    // Convert to split pairs (same logic as convertToSplitPairs in pr-review.tsx)
-    type SplitPair = {
-      left: DiffLine | null;
-      right: DiffLine | null;
-    };
-    const pairs: SplitPair[] = [];
-    let i = 0;
-
-    while (i < allLines.length) {
-      const line = allLines[i];
-
-      if (line.type === "normal") {
-        // Context line - show on both sides
-        pairs.push({ left: line, right: line });
-        i++;
-      } else if (line.type === "delete") {
-        // Collect consecutive deletes
-        const deletes: DiffLine[] = [];
-        while (i < allLines.length && allLines[i].type === "delete") {
-          deletes.push(allLines[i]);
-          i++;
-        }
-
-        // Collect consecutive inserts that follow
-        const inserts: DiffLine[] = [];
-        while (i < allLines.length && allLines[i].type === "insert") {
-          inserts.push(allLines[i]);
-          i++;
-        }
-
-        // Pair them up
-        const maxLen = Math.max(deletes.length, inserts.length);
-        for (let j = 0; j < maxLen; j++) {
-          pairs.push({
-            left: deletes[j] || null,
-            right: inserts[j] || null,
-          });
-        }
-      } else if (line.type === "insert") {
-        // Standalone insert (no preceding delete)
-        pairs.push({ left: null, right: line });
-        i++;
-      }
-    }
-
-    // Find the pair containing our currently focused line
-    for (const pair of pairs) {
-      const matchesLeft =
-        focusedLineSide === "old" && pair.left?.oldLineNumber === focusedLine;
-      const matchesRight =
-        focusedLineSide === "new" && pair.right?.newLineNumber === focusedLine;
-
-      if (matchesLeft || matchesRight) {
-        // Found the pair - switch to the other side if it exists
-        if (direction === "left" && pair.left) {
-          const targetLineNum = pair.left.oldLineNumber;
-          if (targetLineNum !== undefined) {
-            this.setFocusedLine(targetLineNum, "old");
-            this.setSelectionAnchor(null, null);
-          }
-        } else if (direction === "right" && pair.right) {
-          const targetLineNum = pair.right.newLineNumber;
-          if (targetLineNum !== undefined) {
-            this.setFocusedLine(targetLineNum, "new");
-            this.setSelectionAnchor(null, null);
-          }
-        }
-        return;
-      }
+      return;
     }
   };
 
@@ -2240,106 +2208,22 @@ export class PRReviewStore {
       selectionAnchor,
       selectionAnchorSide,
       selectedFile,
-      loadedDiffs,
-      expandedSkipBlocks,
-      navigableItems: precomputedItems,
       comments,
       pendingComments,
       focusedCommentId,
       focusedPendingCommentId,
-      focusedSkipBlockIndex,
+      focusedGapIndex,
     } = this.state;
 
     if (!selectedFile) return;
     const diff = getLoadedFileDiff(this.state, selectedFile);
-    if (!diff?.hunks) return;
+    if (!diff) return;
 
-    // Use pre-computed navigable items (Fix 2)
-    // But we need to account for expanded skip blocks dynamically
-    type NavLine = { type: "line"; lineNum: number; side: "old" | "new" };
-    type NavSkip = { type: "skip"; skipIndex: number };
-    type NavItem = NavLine | NavSkip;
-
-    // Check if we can use pre-computed items (no expanded skip blocks)
-    const hasExpandedSkipBlocks = Object.keys(expandedSkipBlocks).some((key) =>
-      key.startsWith(`${selectedFile}:`)
-    );
-
-    let navigableItems: NavItem[];
-
-    if (
-      !this.state.interdiffEnabled &&
-      !hasExpandedSkipBlocks &&
-      precomputedItems[selectedFile]
-    ) {
-      // Fast path: use pre-computed items
-      navigableItems = precomputedItems[selectedFile].map(
-        (item: NavigableItem) => {
-          if (item.type === "skip") {
-            return { type: "skip" as const, skipIndex: item.skipIndex! };
-          }
-          return {
-            type: "line" as const,
-            lineNum: item.lineNum!,
-            side: item.side!,
-          };
-        }
-      );
-    } else {
-      // Slow path: rebuild with expanded skip blocks
-      navigableItems = [];
-      let skipIndex = 0;
-
-      for (const hunk of diff.hunks) {
-        if (hunk.type === "skip") {
-          const currentSkipIndex = skipIndex++;
-          // Check if this skip block is expanded
-          const key = `${selectedFile}:${currentSkipIndex}`;
-          const expandedLines = expandedSkipBlocks[key];
-
-          if (expandedLines && expandedLines.length > 0) {
-            // Skip block is expanded - add its lines
-            for (const line of expandedLines) {
-              if (line.type === "delete" && line.oldLineNumber) {
-                navigableItems.push({
-                  type: "line",
-                  lineNum: line.oldLineNumber,
-                  side: "old",
-                });
-              } else if (line.newLineNumber) {
-                navigableItems.push({
-                  type: "line",
-                  lineNum: line.newLineNumber,
-                  side: "new",
-                });
-              }
-            }
-          } else {
-            // Skip block is collapsed - add it as navigable
-            navigableItems.push({ type: "skip", skipIndex: currentSkipIndex });
-          }
-        } else if (hunk.type === "hunk") {
-          for (const line of hunk.lines) {
-            if (line.type === "delete" && line.oldLineNumber) {
-              navigableItems.push({
-                type: "line",
-                lineNum: line.oldLineNumber,
-                side: "old",
-              });
-            } else if (line.newLineNumber) {
-              navigableItems.push({
-                type: "line",
-                lineNum: line.newLineNumber,
-                side: "new",
-              });
-            }
-          }
-        }
-      }
-    }
+    type NavLine = Extract<NavItem, { type: "line" }>;
+    const navigableItems = this.getNavItems(selectedFile);
     if (navigableItems.length === 0) return;
 
-    // Build line-only list for backwards compatibility with comment lookups
+    // Line-only list for the comment lookups below
     const navigableLines = navigableItems.filter(
       (n): n is NavLine => n.type === "line"
     );
@@ -2406,10 +2290,10 @@ export class PRReviewStore {
       );
     };
 
-    // Handle navigation when focused on a skip block
-    if (focusedSkipBlockIndex !== null) {
+    // Handle navigation when focused on a collapsed gap
+    if (focusedGapIndex !== null) {
       const currentIdx = navigableItems.findIndex(
-        (n) => n.type === "skip" && n.skipIndex === focusedSkipBlockIndex
+        (n) => n.type === "gap" && n.hunkIndex === focusedGapIndex
       );
 
       if (currentIdx !== -1) {
@@ -2421,14 +2305,14 @@ export class PRReviewStore {
         }
 
         const nextItem = navigableItems[nextIdx];
-        if (nextItem.type === "skip") {
-          this.set({ focusedSkipBlockIndex: nextItem.skipIndex });
+        if (nextItem.type === "gap") {
+          this.set({ focusedGapIndex: nextItem.hunkIndex });
         } else {
           this.set({
             focusedLine: nextItem.lineNum,
             focusedLineSide: nextItem.side,
             focusSource: "keyboard",
-            focusedSkipBlockIndex: null,
+            focusedGapIndex: null,
             selectionAnchor: null,
             selectionAnchorSide: null,
           });
@@ -2596,99 +2480,16 @@ export class PRReviewStore {
     // In split view, navigate through visual rows while staying on the same side
     const { diffViewMode } = this.state;
     if (diffViewMode === "split" && focusedLine !== null && focusedLineSide) {
-      // Collect all lines for split pair computation
-      const allLines: DiffLine[] = [];
-      let skipIdx = 0;
-      const skipBlockIndices: { pairIdx: number; skipIndex: number }[] = [];
-
-      for (const hunk of diff.hunks) {
-        if (hunk.type === "skip") {
-          const key = `${selectedFile}:${skipIdx}`;
-          const expandedLines = expandedSkipBlocks[key];
-          if (expandedLines) {
-            allLines.push(...expandedLines);
-          } else {
-            // Mark where skip block would appear in pairs
-            skipBlockIndices.push({
-              pairIdx: allLines.length, // Will be adjusted after pair conversion
-              skipIndex: skipIdx,
-            });
-          }
-          skipIdx++;
-        } else if (hunk.type === "hunk") {
-          allLines.push(...hunk.lines);
-        }
-      }
-
-      // Convert to split pairs
-      type SplitPair = {
-        type: "pair";
-        left: DiffLine | null;
-        right: DiffLine | null;
-      };
-      type SplitSkip = { type: "skip"; skipIndex: number };
-      type SplitItem = SplitPair | SplitSkip;
-
-      const pairs: SplitItem[] = [];
-      let i = 0;
-
-      // Insert skip blocks at correct positions
-      const getSkipAtLineIdx = (idx: number) =>
-        skipBlockIndices.find((s) => s.pairIdx === idx);
-
-      while (i < allLines.length) {
-        // Check if there's a skip block before this line
-        const skipHere = getSkipAtLineIdx(i);
-        if (skipHere) {
-          pairs.push({ type: "skip", skipIndex: skipHere.skipIndex });
-          // Remove from tracking
-          skipBlockIndices.splice(skipBlockIndices.indexOf(skipHere), 1);
-        }
-
-        const line = allLines[i];
-
-        if (line.type === "normal") {
-          pairs.push({ type: "pair", left: line, right: line });
-          i++;
-        } else if (line.type === "delete") {
-          const deletes: DiffLine[] = [];
-          while (i < allLines.length && allLines[i].type === "delete") {
-            deletes.push(allLines[i]);
-            i++;
-          }
-          const inserts: DiffLine[] = [];
-          while (i < allLines.length && allLines[i].type === "insert") {
-            inserts.push(allLines[i]);
-            i++;
-          }
-          const maxLen = Math.max(deletes.length, inserts.length);
-          for (let j = 0; j < maxLen; j++) {
-            pairs.push({
-              type: "pair",
-              left: deletes[j] || null,
-              right: inserts[j] || null,
-            });
-          }
-        } else if (line.type === "insert") {
-          pairs.push({ type: "pair", left: null, right: line });
-          i++;
-        }
-      }
-
-      // Add any remaining skip blocks at the end
-      for (const skip of skipBlockIndices) {
-        pairs.push({ type: "skip", skipIndex: skip.skipIndex });
-      }
+      const pairs = this.getSplitItems(selectedFile);
 
       // Find current pair index
-      const currentPairIdx = pairs.findIndex((item) => {
-        if (item.type === "skip") return false;
-        if (focusedLineSide === "old") {
-          return item.left?.oldLineNumber === focusedLine;
-        } else {
-          return item.right?.newLineNumber === focusedLine;
-        }
-      });
+      const currentPairIdx = pairs.findIndex(
+        (item) =>
+          item.type === "pair" &&
+          (focusedLineSide === "old"
+            ? item.oldLine === focusedLine
+            : item.newLine === focusedLine)
+      );
 
       if (currentPairIdx !== -1) {
         let nextPairIdx: number;
@@ -2700,10 +2501,10 @@ export class PRReviewStore {
 
         const nextPair = pairs[nextPairIdx];
 
-        // If next is a skip block, focus it
-        if (nextPair.type === "skip") {
+        // If next is a gap, focus it
+        if (nextPair.type === "gap") {
           this.set({
-            focusedSkipBlockIndex: nextPair.skipIndex,
+            focusedGapIndex: nextPair.hunkIndex,
             focusedLine: null,
             focusedLineSide: null,
             focusSource: "keyboard",
@@ -2719,17 +2520,17 @@ export class PRReviewStore {
         let nextLine: number | undefined;
         let nextSide = focusedLineSide;
 
-        if (focusedLineSide === "old" && nextPair.left) {
-          nextLine = nextPair.left.oldLineNumber;
-        } else if (focusedLineSide === "new" && nextPair.right) {
-          nextLine = nextPair.right.newLineNumber;
-        } else if (nextPair.left) {
+        if (focusedLineSide === "old" && nextPair.oldLine !== null) {
+          nextLine = nextPair.oldLine;
+        } else if (focusedLineSide === "new" && nextPair.newLine !== null) {
+          nextLine = nextPair.newLine;
+        } else if (nextPair.oldLine !== null) {
           // Fallback to left side if preferred side not available
-          nextLine = nextPair.left.oldLineNumber;
+          nextLine = nextPair.oldLine;
           nextSide = "old";
-        } else if (nextPair.right) {
+        } else if (nextPair.newLine !== null) {
           // Fallback to right side
-          nextLine = nextPair.right.newLineNumber;
+          nextLine = nextPair.newLine;
           nextSide = "new";
         }
 
@@ -2746,7 +2547,7 @@ export class PRReviewStore {
                   targetLineComments[targetLineComments.length - 1].id,
                 focusedLine: null,
                 focusedLineSide: null,
-                focusedSkipBlockIndex: null,
+                focusedGapIndex: null,
                 selectionAnchor: null,
                 selectionAnchorSide: null,
               });
@@ -2759,7 +2560,7 @@ export class PRReviewStore {
                   targetLinePending[targetLinePending.length - 1].id,
                 focusedLine: null,
                 focusedLineSide: null,
-                focusedSkipBlockIndex: null,
+                focusedGapIndex: null,
                 selectionAnchor: null,
                 selectionAnchorSide: null,
               });
@@ -2775,7 +2576,7 @@ export class PRReviewStore {
               selectionAnchor: selectionAnchor ?? focusedLine ?? nextLine,
               selectionAnchorSide:
                 selectionAnchorSide ?? focusedLineSide ?? nextSide,
-              focusedSkipBlockIndex: null,
+              focusedGapIndex: null,
               focusedCommentId: null,
               focusedPendingCommentId: null,
             });
@@ -2786,7 +2587,7 @@ export class PRReviewStore {
               focusSource: "keyboard",
               selectionAnchor: null,
               selectionAnchorSide: null,
-              focusedSkipBlockIndex: null,
+              focusedGapIndex: null,
               focusedCommentId: null,
               focusedPendingCommentId: null,
             });
@@ -2796,7 +2597,7 @@ export class PRReviewStore {
       }
     }
 
-    // Normal line/skip navigation (unified view or fallback)
+    // Normal line/gap navigation (unified view or fallback)
     const currentIdx =
       focusedLine !== null
         ? navigableItems.findIndex(
@@ -2822,10 +2623,10 @@ export class PRReviewStore {
 
     const nextItem = navigableItems[nextIdx];
 
-    // If next item is a skip block, focus it
-    if (nextItem.type === "skip") {
+    // If next item is a gap, focus it
+    if (nextItem.type === "gap") {
       this.set({
-        focusedSkipBlockIndex: nextItem.skipIndex,
+        focusedGapIndex: nextItem.hunkIndex,
         focusedLine: null,
         focusedLineSide: null,
         selectionAnchor: null,
@@ -2853,7 +2654,7 @@ export class PRReviewStore {
             targetLineComments[targetLineComments.length - 1].id,
           focusedLine: null,
           focusedLineSide: null,
-          focusedSkipBlockIndex: null,
+          focusedGapIndex: null,
           selectionAnchor: null,
           selectionAnchorSide: null,
         });
@@ -2868,7 +2669,7 @@ export class PRReviewStore {
             targetLinePending[targetLinePending.length - 1].id,
           focusedLine: null,
           focusedLineSide: null,
-          focusedSkipBlockIndex: null,
+          focusedGapIndex: null,
           selectionAnchor: null,
           selectionAnchorSide: null,
         });
@@ -2883,7 +2684,7 @@ export class PRReviewStore {
         focusSource: "keyboard",
         selectionAnchor: selectionAnchor ?? focusedLine ?? nextLine,
         selectionAnchorSide: selectionAnchorSide ?? focusedLineSide ?? nextSide,
-        focusedSkipBlockIndex: null,
+        focusedGapIndex: null,
         focusedCommentId: null,
         focusedPendingCommentId: null,
       });
@@ -2894,7 +2695,7 @@ export class PRReviewStore {
         focusSource: "keyboard",
         selectionAnchor: null,
         selectionAnchorSide: null,
-        focusedSkipBlockIndex: null,
+        focusedGapIndex: null,
         focusedCommentId: null,
         focusedPendingCommentId: null,
       });
@@ -3001,89 +2802,27 @@ export class PRReviewStore {
   };
 
   executeGotoLine = () => {
-    const {
-      gotoLineInput,
-      gotoLineSide,
-      selectedFile,
-      loadedDiffs,
-      diffViewMode,
-    } = this.state;
+    const { gotoLineInput, gotoLineSide, selectedFile, diffViewMode } =
+      this.state;
     const targetLine = parseInt(gotoLineInput, 10);
     if (isNaN(targetLine)) {
       this.exitGotoMode();
       return;
     }
 
-    const diff = getLoadedFileDiff(this.state, selectedFile);
-    if (!diff?.hunks) {
-      this.exitGotoMode();
-      return;
-    }
-
-    // Build navigable lines with the line number to use for focusing
-    // In unified view: delete lines → "old" side, insert/context → "new" side
-    // In split view: respect the user's column choice since both sides are visible
-    type NavLine = {
-      searchNum: number; // The number in the column the user selected
-      focusNum: number; // The line number to use for focusing
-      focusSide: "old" | "new"; // The side to use for focusing
-    };
-    const navigableLines: NavLine[] = [];
-
-    for (const hunk of diff.hunks) {
-      if (hunk.type === "hunk") {
-        for (const line of hunk.lines) {
-          if (gotoLineSide === "old") {
-            // User wants to jump to a line number in the "old" column (left side in split)
-            if (line.oldLineNumber !== undefined) {
-              if (line.type === "delete") {
-                // Delete lines: focus with old side and oldLineNumber
-                navigableLines.push({
-                  searchNum: line.oldLineNumber,
-                  focusNum: line.oldLineNumber,
-                  focusSide: "old",
-                });
-              } else if (diffViewMode === "split") {
-                // Split view: context lines can be focused on either side
-                // User chose "old" so focus on the left side with oldLineNumber
-                navigableLines.push({
-                  searchNum: line.oldLineNumber,
-                  focusNum: line.oldLineNumber,
-                  focusSide: "old",
-                });
-              } else {
-                // Unified view: context lines are focused with new side
-                navigableLines.push({
-                  searchNum: line.oldLineNumber,
-                  focusNum: line.newLineNumber!,
-                  focusSide: "new",
-                });
-              }
-            }
-          } else {
-            // User wants to jump to a line number in the "new" column (right side in split)
-            if (line.newLineNumber !== undefined) {
-              navigableLines.push({
-                searchNum: line.newLineNumber,
-                focusNum: line.newLineNumber,
-                focusSide: line.type === "delete" ? "old" : "new",
-              });
-            }
-          }
-        }
-      }
-    }
-
-    if (navigableLines.length > 0) {
-      const closest = navigableLines.reduce((best, current) =>
-        Math.abs(current.searchNum - targetLine) <
-        Math.abs(best.searchNum - targetLine)
-          ? current
-          : best
-      );
+    // In unified view a deleted line is focused on the old side and every
+    // other line on the new side; in split view the user's column choice is
+    // respected since both sides are visible.
+    const closest = gotoLineTarget(
+      this.getDiffRows(selectedFile),
+      targetLine,
+      gotoLineSide,
+      diffViewMode
+    );
+    if (closest) {
       this.set({
-        focusedLine: closest.focusNum,
-        focusedLineSide: closest.focusSide,
+        focusedLine: closest.line,
+        focusedLineSide: closest.side,
         selectionAnchor: null,
         selectionAnchorSide: null,
         gotoLineMode: false,
@@ -3101,7 +2840,7 @@ export class PRReviewStore {
       focusedLineSide: null,
       selectionAnchor: null,
       selectionAnchorSide: null,
-      focusedSkipBlockIndex: null,
+      focusedGapIndex: null,
       commentingOnLine: null,
       gotoLineMode: false,
       gotoLineInput: "",
@@ -3111,61 +2850,6 @@ export class PRReviewStore {
   // ---------------------------------------------------------------------------
   // Comment Actions
   // ---------------------------------------------------------------------------
-
-  // Recompute comment range lookup for O(1) line lookup (Fix 3)
-  private recomputeCommentRangeLookup = () => {
-    const lookup: Record<string, Set<number>> = {};
-    const anchorLookup: Record<string, Set<number>> = {};
-    const { comments, pendingComments } = this.state;
-
-    // Process regular comments
-    for (const comment of comments) {
-      if (!comment.path) continue;
-      // File-level comments aren't anchored to a real diff line.
-      if (comment.subject_type === "file") continue;
-      if (!lookup[comment.path]) lookup[comment.path] = new Set();
-      if (!anchorLookup[comment.path]) anchorLookup[comment.path] = new Set();
-
-      if (comment.start_line && comment.line) {
-        for (let i = comment.start_line; i <= comment.line; i++) {
-          lookup[comment.path].add(i);
-        }
-      } else if (comment.line) {
-        lookup[comment.path].add(comment.line);
-      } else if (comment.original_line) {
-        lookup[comment.path].add(comment.original_line);
-      }
-
-      // Anchor lookup only includes the anchor line
-      if (comment.line) {
-        anchorLookup[comment.path].add(comment.line);
-      } else if (comment.original_line) {
-        anchorLookup[comment.path].add(comment.original_line);
-      }
-    }
-
-    // Process pending comments
-    for (const comment of pendingComments) {
-      if (!comment.path) continue;
-      if (!lookup[comment.path]) lookup[comment.path] = new Set();
-      if (!anchorLookup[comment.path]) anchorLookup[comment.path] = new Set();
-
-      if (comment.start_line && comment.line) {
-        for (let i = comment.start_line; i <= comment.line; i++) {
-          lookup[comment.path].add(i);
-        }
-      } else if (comment.line) {
-        lookup[comment.path].add(comment.line);
-      }
-
-      // Anchor lookup only includes the anchor line
-      if (comment.line) {
-        anchorLookup[comment.path].add(comment.line);
-      }
-    }
-
-    this.set({ commentRangeLookup: lookup, commentAnchorLookup: anchorLookup });
-  };
 
   private enrichCommentsFromThreads(
     comments: ReviewComment[],
@@ -3237,7 +2921,6 @@ export class PRReviewStore {
       this.state.reviewThreads
     );
     this.set({ comments: enriched });
-    this.recomputeCommentRangeLookup();
   };
 
   setReviews = (reviews: Review[]) => {
@@ -3275,7 +2958,6 @@ export class PRReviewStore {
       overviewLoading: false,
       loading: false,
     });
-    this.recomputeCommentRangeLookup();
   };
 
   refreshSubmittedActivity = async () => {
@@ -3330,10 +3012,7 @@ export class PRReviewStore {
         pr,
         files: sorted,
         loadedDiffs: {},
-        navigableItems: {},
         loadingFiles: new Set(),
-        expandedSkipBlocks: {},
-        expandingSkipBlocks: new Set(),
       });
     }
     if (changed && compareToSha && !selectedHeadSha && !selectedCommitSha) {
@@ -3416,7 +3095,6 @@ export class PRReviewStore {
       focusedPendingCommentId: comment.id,
       focusedCommentId: null,
     });
-    this.recomputeCommentRangeLookup();
   };
 
   removePendingComment = (id: string) => {
@@ -3436,7 +3114,6 @@ export class PRReviewStore {
       focusedLineSide: commentLine ? "new" : null,
       focusSource: "keyboard",
     });
-    this.recomputeCommentRangeLookup();
   };
 
   updatePendingCommentWithGitHubIds = (
@@ -3502,7 +3179,6 @@ export class PRReviewStore {
       this.state.comments,
       this.state.reviewThreads
     );
-    this.recomputeCommentRangeLookup();
   };
 
   deleteComment = (commentId: number) => {
@@ -3532,7 +3208,6 @@ export class PRReviewStore {
       this.state.comments,
       this.state.reviewThreads
     );
-    this.recomputeCommentRangeLookup();
   };
 
   addReply = (reply: ReviewComment) => {
@@ -3585,7 +3260,6 @@ export class PRReviewStore {
       this.state.comments,
       this.state.reviewThreads
     );
-    this.recomputeCommentRangeLookup();
   };
 
   // ---------------------------------------------------------------------------
@@ -3868,7 +3542,7 @@ export class PRReviewStore {
           focusSource: "keyboard",
           selectionAnchor: start,
           selectionAnchorSide: "new",
-          focusedSkipBlockIndex: null,
+          focusedGapIndex: null,
           focusedCommentId: null,
           focusedPendingCommentId: null,
         });
@@ -3881,7 +3555,7 @@ export class PRReviewStore {
             focusSource: "keyboard",
             selectionAnchor: null,
             selectionAnchorSide: null,
-            focusedSkipBlockIndex: null,
+            focusedGapIndex: null,
             focusedCommentId: null,
             focusedPendingCommentId: null,
           });
@@ -3979,7 +3653,6 @@ export class PRReviewStore {
         prInMergeQueue: reviewThreadsResult.isInMergeQueue,
         loading: false,
       });
-      this.recomputeCommentRangeLookup();
 
       // If compareToSha was restored from the URL before commit history was
       // available, auto-match or compute branch interdiff now that we have the data.
@@ -4771,7 +4444,6 @@ export class PRReviewStore {
       rewritten
     );
     this.set({ reviewThreads: rewritten, comments: enrichedComments });
-    this.recomputeCommentRangeLookup();
   };
 
   updateReviewThread = (
@@ -4790,7 +4462,6 @@ export class PRReviewStore {
       this.state.comments,
       this.state.reviewThreads
     );
-    this.recomputeCommentRangeLookup();
   };
 }
 
@@ -5037,19 +4708,15 @@ export { useIsLineInSelection } from "./useIsLineInSelection";
 export { useSelectionBoundary } from "./useSelectionBoundary";
 export { useIsLineCommenting } from "./useIsLineCommenting";
 export { useIsLineInCommentingRange } from "./useIsLineInCommentingRange";
-export { useIsLineInCommentRange } from "./useIsLineInCommentRange";
 export { useSelectionState, type SelectionState } from "./useSelectionState";
 export { useCommentingRange } from "./useCommentingRange";
-export { useCommentRangeLookup } from "./useCommentRangeLookup";
-export { useCommentAnchorLookup } from "./useCommentAnchorLookup";
 export { useKeyboardNavigation } from "./useKeyboardNavigation";
 export { useHashNavigation } from "./useHashNavigation";
 export { useRouteNavigation } from "./useRouteNavigation";
-export { useDiffLoader } from "./useDiffLoader";
+export { useDiffLoader, useDiffFilesLoader } from "./useDiffLoader";
 export { useCurrentUserLoader } from "./useCurrentUserLoader";
 export { usePendingReviewLoader } from "./usePendingReviewLoader";
 export { useThreadActions } from "./useThreadActions";
 export { useCommentActions } from "./useCommentActions";
 export { useReviewActions } from "./useReviewActions";
-export { useSkipBlockExpansion } from "./useSkipBlockExpansion";
 export { useFileCopyActions } from "./useFileCopyActions";

@@ -5,6 +5,7 @@ import {
   type WorkerPoolOptions,
 } from "@pierre/diffs/react";
 import type { FileDiffOptions } from "@pierre/diffs/react";
+import type { ExpansionDirections, HunkExpansionRegion } from "@pierre/diffs";
 import { useTheme } from "../contexts/theme";
 
 /** Pierre's built-in themes; the app toggles between them with its own theme. */
@@ -88,4 +89,43 @@ export function useSnippetDiffOptions(): FileDiffOptions<undefined, undefined> {
     }),
     [themeType]
   );
+}
+
+/** What the diff viewer uses of the per-file instance Pierre's `CodeView` passes to `onPostRender`. */
+export interface DiffInstance {
+  expandHunk(
+    hunkIndex: number,
+    direction: ExpansionDirections,
+    expansionLineCountOverride?: number
+  ): void;
+}
+
+/** CodeView also renders files; only diff instances can expand hunks. */
+export function isDiffInstance(instance: object): instance is DiffInstance {
+  return "expandHunk" in instance;
+}
+
+/**
+ * The hunk-expansion state of a rendered diff, keyed by hunk index (see
+ * `DiffExpansion` in file-diff.ts).
+ *
+ * Pierre keeps this map inside the instance's `hunksRenderer`, which its
+ * typings mark `protected`, and exposes no public way to read it. Expansion
+ * happens inside Pierre (separator buttons, `expandHunk`), so this is the only
+ * place to learn about it. `@pierre/diffs` is therefore pinned to an exact
+ * version: re-check this accessor when upgrading.
+ *
+ * Returns Pierre's live map; copy it before keeping it.
+ */
+export function readDiffExpansion(
+  instance: DiffInstance
+): ReadonlyMap<number, HunkExpansionRegion> {
+  const renderer = (
+    instance as unknown as {
+      hunksRenderer: {
+        getExpandedHunksMap(): Map<number, HunkExpansionRegion>;
+      };
+    }
+  ).hunksRenderer;
+  return renderer.getExpandedHunksMap();
 }
