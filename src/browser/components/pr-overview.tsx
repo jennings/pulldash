@@ -63,7 +63,7 @@ import {
   type PRReviewStore,
 } from "../contexts/pr-review";
 import { TimeAgo } from "../ui/time-ago";
-import { parseDiffCached, type ParsedDiff } from "../lib/diff";
+import { DiffSnippet } from "./diff-snippet";
 import { discussionUrl } from "../lib/pr-url";
 import {
   getLatestReviewsByUser,
@@ -3205,7 +3205,6 @@ const ReviewThreadBox = memo(function ReviewThreadBox({
   const [showReplyBox, setShowReplyBox] = useState(false);
   const [showResolved, setShowResolved] = useState(false);
   const expanded = !thread.isResolved || showResolved;
-  const [parsedDiff, setParsedDiff] = useState<ParsedDiff | null>(null);
   const [editingCommentId, setEditingCommentId] = useState<number | null>(null);
   const [editText, setEditText] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
@@ -3267,8 +3266,8 @@ const ReviewThreadBox = memo(function ReviewThreadBox({
     const contextStart = Math.max(1, outOfDiff.startLine ?? outOfDiff.line);
     const contextEnd = Math.min(lines.length, outOfDiff.line);
     const count = contextEnd - contextStart + 1;
-    // Synthesize an all-context hunk; parseDiffCached numbers old and new
-    // sides identically, matching file coordinates.
+    // Synthesize an all-context hunk; old and new sides are numbered
+    // identically, matching file coordinates.
     return [
       `@@ -${contextStart},${count} +${contextStart},${count} @@`,
       ...lines.slice(contextStart - 1, contextEnd).map((l) => ` ${l}`),
@@ -3299,59 +3298,9 @@ const ReviewThreadBox = memo(function ReviewThreadBox({
     }
   }, [autoFocusReply, canWrite]);
 
-  // Parse diff hunk with syntax highlighting using the worker
-  // Note: The worker already adds git diff headers, so we pass diffHunk directly
-  useEffect(() => {
-    const text = outOfDiffHunk ?? diffHunk;
-    if (!expanded || isMetadataComment || !text || !filePath) {
-      setParsedDiff(null);
-      return;
-    }
-
-    let cancelled = false;
-    parseDiffCached(text, filePath)
-      .then((parsed) => {
-        if (!cancelled) setParsedDiff(parsed);
-      })
-      .catch(console.error);
-    return () => {
-      cancelled = true;
-    };
-  }, [expanded, isMetadataComment, diffHunk, outOfDiffHunk, filePath]);
-
-  // Get diff lines from parsed diff (first hunk), filtered to show only relevant lines
-  // GitHub's UI shows ~10 lines of context around the comment, not the entire diff hunk
-  const diffHunkData = useMemo(() => {
-    const hunk = parsedDiff?.hunks.find((h) => h.type === "hunk");
-    if (!hunk || hunk.type !== "hunk" || !firstComment) return null;
-
-    const commentLine = firstComment.line;
-    const commentStartLine = firstComment.startLine;
-
-    // If no line info, show all (fallback)
-    if (!commentLine) return hunk;
-
-    // Filter lines to show only those around the comment range
-    // Show ~4 lines of context before the comment start
-    const CONTEXT_LINES = 4;
-    const rangeStart = (commentStartLine ?? commentLine) - CONTEXT_LINES;
-    const rangeEnd = commentLine;
-
-    const filteredLines = hunk.lines.filter((line) => {
-      // Use newLineNumber for additions, oldLineNumber for deletions/context
-      const lineNum = line.newLineNumber ?? line.oldLineNumber;
-      if (!lineNum) return false;
-      return lineNum >= rangeStart && lineNum <= rangeEnd;
-    });
-
-    // If filter is too aggressive and removes everything, show original
-    if (filteredLines.length === 0) return hunk;
-
-    return {
-      ...hunk,
-      lines: filteredLines,
-    };
-  }, [parsedDiff, firstComment]);
+  // GitHub's UI shows ~10 lines of context around the comment rather than the
+  // entire diff hunk; DiffSnippet windows the hunk around the commented lines.
+  const snippetPatch = expanded ? (outOfDiffHunk ?? diffHunk) : null;
 
   const handleQuoteReply = useCallback((body: string) => {
     const quoted =
@@ -3483,68 +3432,13 @@ const ReviewThreadBox = memo(function ReviewThreadBox({
       )}
 
       {/* Code context (diff hunk) with syntax highlighting */}
-      {diffHunkData && diffHunkData.type === "hunk" && !isMetadataComment && (
-        <div className="bg-[var(--code-bg)] border-b border-border overflow-x-auto">
-          <table className="w-full text-xs font-mono">
-            <tbody>
-              {diffHunkData.lines.map((line, i) => (
-                <tr
-                  key={i}
-                  className={cn(
-                    line.type === "insert" && "bg-green-500/15",
-                    line.type === "delete" && "bg-red-500/15"
-                  )}
-                >
-                  <td className="w-10 text-right px-2 py-0.5 text-muted-foreground select-none border-r border-border/50">
-                    {line.type !== "insert" ? line.oldLineNumber : ""}
-                  </td>
-                  <td className="w-10 text-right px-2 py-0.5 text-muted-foreground select-none border-r border-border/50">
-                    {line.type !== "delete" ? line.newLineNumber : ""}
-                  </td>
-                  <td className="px-2 py-0.5 whitespace-pre">
-                    <span
-                      className={cn(
-                        "select-none mr-1",
-                        line.type === "insert" && "text-green-400",
-                        line.type === "delete" && "text-red-400"
-                      )}
-                    >
-                      {line.type === "insert"
-                        ? "+"
-                        : line.type === "delete"
-                          ? "-"
-                          : " "}
-                    </span>
-                    {line.content.map((seg, j) => {
-                      // Mirror the main diff view's inline word-diff styling
-                      // so merged -/+ rows are readable here too
-                      const isTinyChange =
-                        seg.type !== "normal" && seg.value.length <= 2;
-                      return (
-                        <span
-                          key={j}
-                          className={cn(
-                            seg.type === "insert" &&
-                              "bg-[var(--code-added)]/20 text-[var(--diff-insert-fg)]",
-                            seg.type === "delete" &&
-                              "bg-[var(--code-removed)]/20 text-[var(--diff-delete-fg)] line-through decoration-orange-500/50",
-                            isTinyChange &&
-                              seg.type === "insert" &&
-                              "bg-[var(--code-added)]/40 font-semibold",
-                            isTinyChange &&
-                              seg.type === "delete" &&
-                              "bg-[var(--code-removed)]/40 font-semibold"
-                          )}
-                          dangerouslySetInnerHTML={{ __html: seg.html }}
-                        />
-                      );
-                    })}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      {snippetPatch && filePath && !isMetadataComment && (
+        <DiffSnippet
+          patch={snippetPatch}
+          filename={filePath}
+          line={firstComment.line}
+          startLine={firstComment.startLine}
+        />
       )}
 
       {/* All comments in thread (no nesting - all at same level) */}
