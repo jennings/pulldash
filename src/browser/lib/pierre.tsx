@@ -1,11 +1,11 @@
-import { useMemo, type ReactNode } from "react";
-import {
-  WorkerPoolContextProvider,
-  type WorkerInitializationRenderOptions,
-  type WorkerPoolOptions,
-} from "@pierre/diffs/react";
+import { useMemo } from "react";
+import { canUseWASM, preloadHighlighter } from "@pierre/diffs";
 import type { FileDiffOptions } from "@pierre/diffs/react";
-import type { ExpansionDirections, HunkExpansionRegion } from "@pierre/diffs";
+import type {
+  ExpansionDirections,
+  HighlighterTypes,
+  HunkExpansionRegion,
+} from "@pierre/diffs";
 import { useTheme } from "../contexts/theme";
 
 /** Pierre's built-in themes; the app toggles between them with its own theme. */
@@ -26,49 +26,55 @@ export function useDiffThemeType(): DiffThemeType {
 }
 
 /**
- * Pierre's highlighter runs in a pool of module workers. The worker is bundled
- * by `scripts/build-browser.ts`, which injects its URL; the fallback only
- * matters when the sources are served without that build step.
+ * `highlights` (WebAssembly lexers, bundled in @pierre/highlights) wherever the
+ * browser can run its WASM, Shiki's JS engine otherwise: Safari before 16.4
+ * lacks the SIMD instructions Highlights needs, and a Content Security Policy
+ * without `wasm-unsafe-eval` blocks it. `canUseWASM()` probes both.
+ *
+ * Highlighting runs on the main thread, deliberately without Pierre's worker
+ * pool. Highlights tokenizes a 5,000-line file in a couple of milliseconds, far
+ * less than a worker round trip (message copy of the rendered lines, plain text
+ * painted first), and Pierre's own docs recommend against a pool for it. The
+ * work is O(file) and covers the whole file, not just the visible lines, as
+ * does the word diff (measured: ~63 ms for a 4.7k-line full rewrite, ~176 ms for
+ * a 47k-line half-changed file); that is accepted. Only the Shiki fallback is
+ * slow enough to want a worker, and it is rare enough not to justify a worker
+ * build that every user would download and cache; `HIGHLIGHTER_OPTIONS`
+ * bounds its main-thread work instead. Pierre keeps one backend per page; every
+ * component passes this same value.
  */
-function createPierreWorker(): Worker {
-  return new Worker(
-    typeof __PIERRE_WORKER_URL__ === "undefined"
-      ? "/pierre/worker.js"
-      : __PIERRE_WORKER_URL__,
-    { type: "module" }
-  );
-}
-
-const POOL_SIZE = Math.max(
-  1,
-  Math.min(4, (navigator.hardwareConcurrency || 2) - 1)
-);
-
-export const pierrePoolOptions: WorkerPoolOptions = {
-  workerFactory: createPierreWorker,
-  poolSize: POOL_SIZE,
-};
+export const PREFERRED_HIGHLIGHTER: HighlighterTypes = canUseWASM()
+  ? "highlights"
+  : "shiki-js";
 
 /**
- * With a worker pool, `theme` and `lineDiffType` are owned by the pool, not
- * the individual components.
+ * Shiki's JS engine takes ~350 ms for a 4,700-line file, so on the fallback
+ * path files longer than this many lines render as plain text instead of
+ * blocking the main thread. (Pierre's default limit is 100,000 lines.)
  */
-export const pierreHighlighterOptions: WorkerInitializationRenderOptions = {
-  theme: DIFF_THEMES,
-  lineDiffType: "word-alt",
-};
+const SHIKI_FALLBACK_MAX_LINES = 5_000;
 
-/** Mount once near the app root; all Pierre components below share the pool. */
-export function PierreProvider({ children }: { children: ReactNode }) {
-  return (
-    <WorkerPoolContextProvider
-      poolOptions={pierrePoolOptions}
-      highlighterOptions={pierreHighlighterOptions}
-    >
-      {children}
-    </WorkerPoolContextProvider>
-  );
-}
+/** Backend options every Pierre component takes; spread into its `options`. */
+export const HIGHLIGHTER_OPTIONS: {
+  preferredHighlighter: HighlighterTypes;
+  tokenizeMaxLength?: number;
+} =
+  PREFERRED_HIGHLIGHTER === "shiki-js"
+    ? {
+        preferredHighlighter: PREFERRED_HIGHLIGHTER,
+        tokenizeMaxLength: SHIKI_FALLBACK_MAX_LINES,
+      }
+    : { preferredHighlighter: PREFERRED_HIGHLIGHTER };
+
+// Initialize the highlighter and load both themes as soon as the PR view's
+// code is loaded, in parallel with the PR data fetch, so the first diff to
+// render is usually already highlighted. Components retry and report failures
+// themselves, so a failure here is not surfaced twice.
+void preloadHighlighter({
+  themes: [DIFF_THEMES.light, DIFF_THEMES.dark],
+  langs: [],
+  preferredHighlighter: PREFERRED_HIGHLIGHTER,
+}).catch(() => {});
 
 /**
  * Options for the small read-only diff snippets shown outside the diff panel
@@ -86,6 +92,7 @@ export function useSnippetDiffOptions(): FileDiffOptions<undefined, undefined> {
       hunkSeparators: "simple",
       overflow: "scroll",
       lineDiffType: "word-alt",
+      ...HIGHLIGHTER_OPTIONS,
     }),
     [themeType]
   );
