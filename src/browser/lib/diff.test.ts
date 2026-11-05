@@ -1,5 +1,5 @@
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
-import { DiffWorkerPool, clearDiffCache } from "./diff";
+import { DiffWorkerPool } from "./diff";
 
 // ============================================================================
 // Fake Worker
@@ -64,7 +64,6 @@ const originalWorker = (globalThis as any).Worker;
 beforeEach(() => {
   FakeWorker.instances = [];
   (globalThis as any).Worker = FakeWorker;
-  clearDiffCache();
 });
 
 afterEach(() => {

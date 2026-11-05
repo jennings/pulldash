@@ -221,6 +221,14 @@
   height: 2px;
 }
 
+/* @pierre/diffs renders inside shadow DOM; these inherit through it. */
+:root {
+  --diffs-font-family: var(--font-mono);
+  --diffs-header-font-family: var(--font-sans);
+  --diffs-font-size: 0.8rem;
+  --diffs-line-height: 1.5;
+}
+
 /* Diff content styling */
 .diff-content table {
   font-family: var(--font-mono);

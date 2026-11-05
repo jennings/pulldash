@@ -6,6 +6,11 @@ const CACHE = "pulldash-v2";
 
 const precached = new Set(PRECACHE);
 
+// Code-split chunks that are only reached through dynamic import() (Shiki
+// grammars/themes for the diff highlighter) are deliberately not precached -
+// there are hundreds. They are hashed too, so they are cached on first use.
+const LAZY_CHUNK = /^\/(?:pierre\/|chunk-)[^/]+\.js$/;
+
 self.addEventListener("install", (e) => {
   e.waitUntil(
     (async () => {
@@ -64,13 +69,21 @@ self.addEventListener("fetch", (e) => {
   // cache and never touch the network. The old handler was network-first with
   // a cache fallback for every request, which meant a request that failed
   // because it was *absent* got an empty 503 body rather than a real asset.
-  if (precached.has(new URL(req.url).pathname)) {
+  const path = new URL(req.url).pathname;
+  if (precached.has(path) || LAZY_CHUNK.test(path)) {
     e.respondWith(
       caches.open(CACHE).then(async (cache) => {
         const hit = await cache.match(req);
         if (hit) return hit;
         const res = await fetch(req);
-        if (res.ok) cache.put(req, res.clone());
+        // Never store HTML under a .js URL. A server that answers a missing
+        // file with the SPA fallback returns 200 HTML there; caching it would
+        // break that module until the cache name changes.
+        const cacheable =
+          res.ok &&
+          (!path.endsWith(".js") ||
+            res.headers.get("content-type")?.includes("javascript"));
+        if (cacheable) cache.put(req, res.clone());
         return res;
       })
     );

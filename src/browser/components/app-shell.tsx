@@ -42,6 +42,26 @@ import { Home } from "./home";
 const PRReviewContent = lazy(() =>
   import("./pr-review").then((module) => ({ default: module.PRReviewContent }))
 );
+// Pierre (Shiki, worker pool) is only needed by the PR view, so it stays out of
+// the entry bundle. Starting the PR chunk here too loads both in parallel
+// rather than one after the other.
+const PierreProvider = lazy(() => {
+  void import("./pr-review");
+  return import("../lib/pierre").then((module) => ({
+    default: module.PierreProvider,
+  }));
+});
+
+function PRLoadingFallback() {
+  return (
+    <div
+      role="status"
+      className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground"
+    >
+      Loading pull request...
+    </div>
+  );
+}
 import { UserMenuButton } from "./welcome-dialog";
 import { useAuth } from "../contexts/auth";
 import {
@@ -108,6 +128,21 @@ export function AppShell() {
     kind: "warn" | "success";
   } | null>(null);
   const [hintClosing, setHintClosing] = useState(false);
+  const prTab =
+    activeTab?.type === "pr-review" &&
+    activeTab.owner &&
+    activeTab.repo &&
+    activeTab.number
+      ? {
+          tab: activeTab,
+          owner: activeTab.owner,
+          repo: activeTab.repo,
+          number: activeTab.number,
+        }
+      : null;
+  // Latches on the first PR view; see the PierreProvider mount below.
+  const [prRouteOpened, setPrRouteOpened] = useState(false);
+  if (prTab && !prRouteOpened) setPrRouteOpened(true);
 
   const updateScrollArrows = useCallback(() => {
     const el = tabScrollRef.current;
@@ -698,36 +733,35 @@ export function AppShell() {
           </div>
         </Activity>
 
-        {/* PR Review - only render active tab */}
-        {activeTab?.type === "pr-review" &&
-          activeTab.owner &&
-          activeTab.repo &&
-          activeTab.number && (
-            <div key={activeTab.id} className="absolute inset-0">
-              <Suspense
-                fallback={
-                  <div
-                    role="status"
-                    className="h-full flex items-center justify-center text-sm text-muted-foreground"
-                  >
-                    Loading pull request...
-                  </div>
-                }
-              >
-                <PRReviewContent
-                  owner={activeTab.owner}
-                  repo={activeTab.repo}
-                  number={activeTab.number}
-                  tabId={activeTab.id}
-                  cachedPr={
-                    activeTab.prTitle && activeTab.prAuthor
-                      ? { title: activeTab.prTitle, user: activeTab.prAuthor }
-                      : null
-                  }
-                />
-              </Suspense>
-            </div>
-          )}
+        {/* PR Review - only render active tab. Pierre's worker pool is mounted
+            once the first PR opens and then stays, so switching PRs or going
+            Home and back does not tear it down and re-create it. */}
+        {prRouteOpened && (
+          <Suspense fallback={prTab ? <PRLoadingFallback /> : null}>
+            <PierreProvider>
+              {prTab && (
+                <div key={prTab.tab.id} className="absolute inset-0">
+                  <Suspense fallback={<PRLoadingFallback />}>
+                    <PRReviewContent
+                      owner={prTab.owner}
+                      repo={prTab.repo}
+                      number={prTab.number}
+                      tabId={prTab.tab.id}
+                      cachedPr={
+                        prTab.tab.prTitle && prTab.tab.prAuthor
+                          ? {
+                              title: prTab.tab.prTitle,
+                              user: prTab.tab.prAuthor,
+                            }
+                          : null
+                      }
+                    />
+                  </Suspense>
+                </div>
+              )}
+            </PierreProvider>
+          </Suspense>
+        )}
       </div>
 
       {hint && (
