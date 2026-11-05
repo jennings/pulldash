@@ -530,11 +530,11 @@ export const DiffViewer = memo(function DiffViewer({
     };
     window.addEventListener("pr-review:scroll-to-top", onTop);
     window.addEventListener("pr-review:scroll-to-bottom", onBottom);
-    window.addEventListener("pr-review:expand-skip-block", onExpand);
+    window.addEventListener("pr-review:expand-gap", onExpand);
     return () => {
       window.removeEventListener("pr-review:scroll-to-top", onTop);
       window.removeEventListener("pr-review:scroll-to-bottom", onBottom);
-      window.removeEventListener("pr-review:expand-skip-block", onExpand);
+      window.removeEventListener("pr-review:expand-gap", onExpand);
     };
   }, [expandGap]);
 

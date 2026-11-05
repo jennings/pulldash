@@ -149,7 +149,7 @@ function rangeIndex(line: number, ranges: Array<[number, number]>): number {
 /**
  * GitHub rejects review comments anchored to lines outside the diff with
  * "Line could not be resolved" (e.g. comments on context revealed by expanding
- * a skip block). Snap such comments to the nearest line that is part of the
+ * a collapsed gap). Snap such comments to the nearest line that is part of the
  * patch so submission succeeds. Comments already inside the diff are returned
  * unchanged.
  */

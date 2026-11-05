@@ -159,16 +159,6 @@ function baseLineMapper(from: PatchLineEntry[], to: PatchLineEntry[]) {
   };
 }
 
-/**
- * Extract the post-image lines from a unified-diff patch string.
- * Returns only the lines that survive into the new file (context + inserts).
- */
-export function buildPostImageLines(patch: string): string[] {
-  return buildPatchEntries(patch)
-    .filter((e) => e.kind !== "delete")
-    .map((e) => e.content);
-}
-
 function orderChangeGroups<T extends { type: string }>(lines: T[]) {
   for (let start = 0; start < lines.length; ) {
     if (lines[start].type !== "delete" && lines[start].type !== "insert") {
