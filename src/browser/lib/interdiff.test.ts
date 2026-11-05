@@ -2,24 +2,8 @@ import { test, expect, describe } from "bun:test";
 import { structuredPatch } from "diff";
 import { computeInterdiff, buildPostImageLines } from "./interdiff";
 import { escapeHtml, hastToHtml } from "../../shared/diff-utils";
-import type { DiffHunk, DiffSkipBlock, DiffLine } from "./diff-worker";
+import { diffRows, fileDiffFromPatch, type DiffRow } from "./file-diff";
 import type { RootContent } from "hast";
-
-function changedContents(lines: DiffLine[], type: "delete" | "insert") {
-  return lines
-    .filter(
-      (line) =>
-        line.type === type ||
-        (line.type === "normal" &&
-          line.content.some((seg) => seg.type !== "normal"))
-    )
-    .map((line) =>
-      line.content
-        .filter((seg) => seg.type !== (type === "delete" ? "insert" : "delete"))
-        .map((seg) => seg.value)
-        .join("")
-    );
-}
 
 describe("escapeHtml", () => {
   test("escapes ampersands", () => {
@@ -124,6 +108,25 @@ describe("buildPostImageLines", () => {
   });
 });
 
+function interdiff(patch1: string, patch2: string) {
+  const patch = computeInterdiff(patch1, patch2);
+  const fileDiff = fileDiffFromPatch({ patch, filename: "f.ts" });
+  const rows = diffRows(fileDiff);
+  const lines = rows.filter(
+    (row): row is Extract<DiffRow, { kind: "line" }> => row.kind === "line"
+  );
+  const texts = (type: "addition" | "deletion") =>
+    lines.filter((row) => row.type === type).map((row) => row.text);
+  return {
+    patch,
+    fileDiff,
+    rows,
+    lines,
+    inserts: texts("addition"),
+    deletes: texts("deletion"),
+  };
+}
+
 describe("computeInterdiff", () => {
   test("sparse patch windows retain gaps and source coordinates, including after a rebase", () => {
     const base = Array.from({ length: 110 }, (_, index) =>
@@ -167,49 +170,46 @@ describe("computeInterdiff", () => {
         (_, index) => `rebase line ${index}`
       );
       const sources = [oldLines, [...prefix, ...newLines]];
-      const result = computeInterdiff(
+      const { fileDiff, rows, lines } = interdiff(
         patch(base, oldLines),
-        patch([...prefix, ...base], sources[1]),
-        "host.py"
+        patch([...prefix, ...base], sources[1])
       );
-      const hunks = result.hunks.filter((hunk) => hunk.type === "hunk");
-      expect(hunks.map((hunk) => [hunk.oldStart, hunk.newStart])).toEqual([
+      expect(
+        fileDiff.hunks.map((hunk) => [hunk.deletionStart, hunk.additionStart])
+      ).toEqual([
         [37, 37 + offset],
         [47, 47 + offset],
         [84, 84 + offset],
       ]);
-      expect(result.hunks[0]).toMatchObject({
-        type: "skip",
+      expect(rows[0]).toMatchObject({
+        kind: "gap",
+        hunkIndex: 0,
         count: 36 + offset,
       });
-      expect(result.hunks[2]).toMatchObject({ type: "skip", count: 3 });
-      for (const [side, number, excluded] of [
-        [0, "oldLineNumber", "insert"],
-        [1, "newLineNumber", "delete"],
+      const gaps = rows.filter((row) => row.kind === "gap");
+      expect(gaps[1]).toMatchObject({ hunkIndex: 1, count: 3 });
+      for (const [side, number] of [
+        [0, "oldLine"],
+        [1, "newLine"],
       ] as const) {
         let previous = 0;
-        for (const hunk of hunks) {
-          let previousInHunk: number | undefined;
-          for (const line of hunk.lines) {
-            const n = line[number];
-            if (n == null) continue;
-            expect(n).toBeGreaterThan(previous);
-            if (previousInHunk !== undefined)
-              expect(n).toBe(previousInHunk + 1);
-            expect(
-              line.content
-                .filter((seg) => seg.type !== excluded)
-                .map((seg) => seg.value)
-                .join("")
-            ).toBe(sources[side][n - 1]);
-            previous = previousInHunk = n;
-          }
+        let previousInHunk: number | undefined;
+        let hunkOfPrevious = -1;
+        for (const line of lines) {
+          const n = line[number];
+          if (n == null) continue;
+          if (line.hunkIndex !== hunkOfPrevious) previousInHunk = undefined;
+          hunkOfPrevious = line.hunkIndex;
+          expect(n).toBeGreaterThan(previous);
+          if (previousInHunk !== undefined) expect(n).toBe(previousInHunk + 1);
+          expect(line.text).toBe(sources[side][n - 1]);
+          previous = previousInHunk = n;
         }
       }
     }
   });
 
-  test("reverted typing import changes use inline highlighting in both directions", () => {
+  test("reverted typing import changes show as a replacement in both directions", () => {
     const patch = `@@ -37,7 +37,7 @@
  from lib.vm import VM
  from lib.xo import xo_cli, xo_object_exists
@@ -219,44 +219,18 @@ describe("computeInterdiff", () => {
  
  if TYPE_CHECKING:
      from lib.pool import Pool`;
-    for (const [before, after, type] of [
-      [patch, "", "delete"],
-      ["", patch, "insert"],
+    const plain = "from typing import TYPE_CHECKING, Literal, overload";
+    const withAny = "from typing import TYPE_CHECKING, Any, Literal, overload";
+    for (const [before, after, removed, added] of [
+      [patch, "", withAny, plain],
+      ["", patch, plain, withAny],
     ] as const) {
-      const result = computeInterdiff(before, after, "lib/host.py");
-      const lines = result.hunks.flatMap((h) =>
-        h.type === "hunk" ? h.lines : []
-      );
-      const line = lines.find((line) => line.newLineNumber === 40)!;
-      expect(line.type).toBe("normal");
-      expect(line.oldLineNumber).toBe(40);
-      expect(
-        line.content
-          .filter((segment) => segment.type === type)
-          .map((segment) => segment.value)
-          .join("")
-      ).toBe("Any, ");
-      expect(
-        line.content
-          .filter((segment) => segment.type !== "insert")
-          .map((segment) => segment.value)
-          .join("")
-      ).toBe(
-        before
-          ? "from typing import TYPE_CHECKING, Any, Literal, overload"
-          : "from typing import TYPE_CHECKING, Literal, overload"
-      );
-      expect(
-        line.content
-          .filter((segment) => segment.type !== "delete")
-          .map((segment) => segment.value)
-          .join("")
-      ).toBe(
-        after
-          ? "from typing import TYPE_CHECKING, Any, Literal, overload"
-          : "from typing import TYPE_CHECKING, Literal, overload"
-      );
-      expect(lines.filter((line) => line.type !== "normal")).toEqual([]);
+      const { lines } = interdiff(before, after);
+      const deletion = lines.find((line) => line.type === "deletion")!;
+      const addition = lines.find((line) => line.type === "addition")!;
+      expect([deletion.oldLine, deletion.text]).toEqual([40, removed]);
+      expect([addition.newLine, addition.text]).toEqual([40, added]);
+      expect(lines.filter((line) => line.type !== "context")).toHaveLength(2);
     }
   });
 
@@ -266,20 +240,12 @@ describe("computeInterdiff", () => {
 -pear
 +socket
 +server`;
-    const result = computeInterdiff(patch, "");
-    const lines = result.hunks.flatMap((h) =>
-      h.type === "hunk" ? h.lines : []
-    );
-    expect(
-      lines.map((line) => [
-        line.type,
-        line.content.map((seg) => seg.value).join(""),
-      ])
-    ).toEqual([
-      ["delete", "socket"],
-      ["delete", "server"],
-      ["insert", "apple"],
-      ["insert", "pear"],
+    const { lines } = interdiff(patch, "");
+    expect(lines.map((line) => [line.type, line.text])).toEqual([
+      ["deletion", "socket"],
+      ["deletion", "server"],
+      ["addition", "apple"],
+      ["addition", "pear"],
     ]);
   });
 
@@ -289,8 +255,8 @@ describe("computeInterdiff", () => {
 -old_line
 +new_line
  context`;
-    const result = computeInterdiff(patch, patch);
-    expect(result.hunks).toHaveLength(0);
+    expect(computeInterdiff(patch, patch)).toBe("");
+    expect(interdiff(patch, patch).fileDiff.hunks).toHaveLength(0);
   });
 
   test("real change in v2 produces non-empty diff", () => {
@@ -304,12 +270,10 @@ describe("computeInterdiff", () => {
 -old_line
 +v2_line
  context`;
-    const result = computeInterdiff(patch1, patch2);
-    expect(result.hunks.length).toBeGreaterThan(0);
-    const hunk = result.hunks.find((h) => h.type === "hunk") as DiffHunk;
-    expect(hunk).toBeDefined();
-    expect(changedContents(hunk.lines, "delete")).toContain("v1_line");
-    expect(changedContents(hunk.lines, "insert")).toContain("v2_line");
+    const { fileDiff, deletes, inserts } = interdiff(patch1, patch2);
+    expect(fileDiff.hunks.length).toBeGreaterThan(0);
+    expect(deletes).toContain("v1_line");
+    expect(inserts).toContain("v2_line");
   });
 
   test("rebase-only shift produces empty output", () => {
@@ -328,9 +292,8 @@ describe("computeInterdiff", () => {
 +new
  ctx3
  ctx4`;
-    const result = computeInterdiff(patch1, patch2);
     // Both post-images have identical content lines → no diff
-    expect(result.hunks).toHaveLength(0);
+    expect(computeInterdiff(patch1, patch2)).toBe("");
   });
 
   test("additional lines in v2 show as insertions", () => {
@@ -345,16 +308,12 @@ describe("computeInterdiff", () => {
 +v2_new_line_a
 +v2_new_line_b
  context`;
-    const result = computeInterdiff(patch1, patch2);
-    expect(result.hunks.length).toBeGreaterThan(0);
-    const hunk = result.hunks.find((h) => h.type === "hunk") as DiffHunk;
-    const insertLines = hunk.lines.filter((l) => l.type === "insert");
-    expect(insertLines.length).toBeGreaterThanOrEqual(1);
+    const { inserts } = interdiff(patch1, patch2);
+    expect(inserts.length).toBeGreaterThanOrEqual(1);
   });
 
   test("empty patches produce empty output", () => {
-    const result = computeInterdiff("", "");
-    expect(result.hunks).toHaveLength(0);
+    expect(computeInterdiff("", "")).toBe("");
   });
 
   test("v2 adds a second hunk that v1 did not touch", () => {
@@ -386,26 +345,20 @@ describe("computeInterdiff", () => {
  ctx17
  ctx18`;
 
-    const result = computeInterdiff(patch1, patch2);
-
-    // Must have at least one hunk
-    const hunks = result.hunks.filter((h) => h.type === "hunk") as DiffHunk[];
-    expect(hunks.length).toBeGreaterThan(0);
-
-    const allLines = hunks.flatMap((h) => h.lines);
-    const insertLines = allLines.filter((l) => l.type === "insert");
-    const deleteLines = allLines.filter((l) => l.type === "delete");
+    const { lines } = interdiff(patch1, patch2);
+    const inserts = lines.filter((l) => l.type === "addition");
+    const deletes = lines.filter((l) => l.type === "deletion");
 
     // The change at line 10 shows as a modify (delete + insert)
-    expect(deleteLines.some((l) => l.oldLineNumber === 10)).toBe(true);
-    expect(insertLines.some((l) => l.newLineNumber === 10)).toBe(true);
+    expect(deletes.some((l) => l.oldLine === 10)).toBe(true);
+    expect(inserts.some((l) => l.newLine === 10)).toBe(true);
 
     // The new line 15 shows as an insert
-    expect(insertLines.some((l) => l.newLineNumber === 15)).toBe(true);
+    expect(inserts.some((l) => l.newLine === 15)).toBe(true);
 
     // Context lines 11-14 (shared between v1 and v2) must NOT be shown as inserts
     for (const n of [11, 12, 13, 14]) {
-      expect(insertLines.some((l) => l.newLineNumber === n)).toBe(false);
+      expect(inserts.some((l) => l.newLine === n)).toBe(false);
     }
   });
 
@@ -433,37 +386,23 @@ describe("computeInterdiff", () => {
  MAIN_END
  AFTER`;
 
-    const result = computeInterdiff(patch1, patch2);
-    const hunks = result.hunks.filter((h) => h.type === "hunk") as DiffHunk[];
-    expect(hunks.length).toBeGreaterThan(0);
-
-    const allLines = hunks.flatMap((h) => h.lines);
-    const insertLines = allLines.filter((l) => l.type === "insert");
-    const deleteLines = allLines.filter((l) => l.type === "delete");
+    const { inserts, deletes } = interdiff(patch1, patch2);
 
     // Helper function lines from v1 should be deleted
-    const deletedContents = deleteLines.map((l) =>
-      l.content.map((s) => s.value).join("")
-    );
-    expect(deletedContents.some((c) => c.includes("HELPER_DEF"))).toBe(true);
-    expect(deletedContents.some((c) => c.includes("CALL_HELPER"))).toBe(true);
+    expect(deletes.some((c) => c.includes("HELPER_DEF"))).toBe(true);
+    expect(deletes.some((c) => c.includes("CALL_HELPER"))).toBe(true);
 
     // The inlined body should be inserted
-    const insertedContents = insertLines.map((l) =>
-      l.content.map((s) => s.value).join("")
-    );
-    expect(insertedContents.some((c) => c.includes("INLINE_BODY"))).toBe(true);
+    expect(inserts.some((c) => c.includes("INLINE_BODY"))).toBe(true);
 
     // Shared context lines must NOT appear as inserts
     expect(
-      insertLines.some((l) =>
-        l.content.some(
-          (s) =>
-            s.value.includes("PREAMBLE") ||
-            s.value.includes("MAIN_START") ||
-            s.value.includes("MAIN_END") ||
-            s.value.includes("AFTER")
-        )
+      inserts.some(
+        (c) =>
+          c.includes("PREAMBLE") ||
+          c.includes("MAIN_START") ||
+          c.includes("MAIN_END") ||
+          c.includes("AFTER")
       )
     ).toBe(false);
   });
@@ -487,28 +426,15 @@ describe("computeInterdiff", () => {
 +blockB_line2
  outro`;
 
-    const result = computeInterdiff(patch1, patch2);
-    const hunks = result.hunks.filter((h) => h.type === "hunk") as DiffHunk[];
-    expect(hunks.length).toBeGreaterThan(0);
-
-    const allLines = hunks.flatMap((h) => h.lines);
-    const insertLines = allLines.filter((l) => l.type === "insert");
-    const deleteLines = allLines.filter((l) => l.type === "delete");
+    const { inserts, deletes } = interdiff(patch1, patch2);
 
     // block A should show as deleted
-    const deletedContents = deleteLines.map((l) =>
-      l.content.map((s) => s.value).join("")
-    );
-    expect(deletedContents.some((c) => c.includes("blockA_line1"))).toBe(true);
-    expect(deletedContents.some((c) => c.includes("blockA_line2"))).toBe(true);
+    expect(deletes.some((c) => c.includes("blockA_line1"))).toBe(true);
+    expect(deletes.some((c) => c.includes("blockA_line2"))).toBe(true);
 
     // block B is shared by both post-images; must NOT appear as delete or insert
-    expect(
-      deleteLines.some((l) => l.content.some((s) => s.value.includes("blockB")))
-    ).toBe(false);
-    expect(
-      insertLines.some((l) => l.content.some((s) => s.value.includes("blockB")))
-    ).toBe(false);
+    expect(deletes.some((c) => c.includes("blockB"))).toBe(false);
+    expect(inserts.some((c) => c.includes("blockB"))).toBe(false);
   });
 
   test("v2 deletes a line v1 doesn't touch shows the deletion", () => {
@@ -533,16 +459,10 @@ describe("computeInterdiff", () => {
 -setMenuState(HandoffView.Main)
 +setMenuState(HandoffView.TimeWanted)
  ctx_below`;
-    const result = computeInterdiff(patch1, patch2);
-    const hunks = result.hunks.filter((h) => h.type === "hunk") as DiffHunk[];
-    expect(hunks.length).toBeGreaterThan(0);
-    const allLines = hunks.flatMap((h) => h.lines);
-    expect(changedContents(allLines, "delete")).toContain(
-      "setMenuState(HandoffView.Main)"
-    );
-    expect(changedContents(allLines, "insert")).toContain(
-      "setMenuState(HandoffView.TimeWanted)"
-    );
+    const { fileDiff, deletes, inserts } = interdiff(patch1, patch2);
+    expect(fileDiff.hunks.length).toBeGreaterThan(0);
+    expect(deletes).toContain("setMenuState(HandoffView.Main)");
+    expect(inserts).toContain("setMenuState(HandoffView.TimeWanted)");
   });
 
   test("v1 deletes a line v2 doesn't touch shows as insert", () => {
@@ -564,20 +484,9 @@ describe("computeInterdiff", () => {
 -shared_old
 +shared_new
  other_ctx_b`;
-    const result = computeInterdiff(patch1, patch2);
-    const allLines = (
-      result.hunks.filter((h) => h.type === "hunk") as DiffHunk[]
-    ).flatMap((h) => h.lines);
-    const inserts = allLines.filter((l) => l.type === "insert");
-    const deletes = allLines.filter((l) => l.type === "delete");
-    expect(
-      inserts.some((l) =>
-        l.content.some((s) => s.value.includes("orphan_line"))
-      )
-    ).toBe(true);
-    expect(
-      deletes.some((l) => l.content.some((s) => s.value.includes("new_in_v1")))
-    ).toBe(true);
+    const { inserts, deletes } = interdiff(patch1, patch2);
+    expect(inserts.some((c) => c.includes("orphan_line"))).toBe(true);
+    expect(deletes.some((c) => c.includes("new_in_v1"))).toBe(true);
   });
 
   test("v1 adds a line v2 deletes shows as single delete", () => {
@@ -593,15 +502,8 @@ describe("computeInterdiff", () => {
 -X
  ctx2
  ctx3`;
-    const result = computeInterdiff(patch1, patch2);
-    const allLines = (
-      result.hunks.filter((h) => h.type === "hunk") as DiffHunk[]
-    ).flatMap((h) => h.lines);
-    const deletes = allLines.filter((l) => l.type === "delete");
-    const inserts = allLines.filter((l) => l.type === "insert");
-    expect(deletes.some((l) => l.content.some((s) => s.value === "X"))).toBe(
-      true
-    );
+    const { inserts, deletes } = interdiff(patch1, patch2);
+    expect(deletes).toContain("X");
     expect(inserts).toHaveLength(0);
   });
 
@@ -618,12 +520,9 @@ describe("computeInterdiff", () => {
 -shared_removed
 +v2_replacement
  ctx2`;
-    const result = computeInterdiff(patch1, patch2);
-    const allLines = (
-      result.hunks.filter((h) => h.type === "hunk") as DiffHunk[]
-    ).flatMap((h) => h.lines);
-    expect(changedContents(allLines, "delete")).toEqual(["v1_replacement"]);
-    expect(changedContents(allLines, "insert")).toEqual(["v2_replacement"]);
+    const { inserts, deletes } = interdiff(patch1, patch2);
+    expect(deletes).toEqual(["v1_replacement"]);
+    expect(inserts).toEqual(["v2_replacement"]);
   });
 
   test("delete-only change in v2 includes surrounding context", () => {
@@ -648,31 +547,16 @@ describe("computeInterdiff", () => {
  ctx_d
  ctx_e
  ctx_f`;
-    const result = computeInterdiff(patch1, patch2);
-    const hunks = result.hunks.filter((h) => h.type === "hunk") as DiffHunk[];
-    const allLines = hunks.flatMap((h) => h.lines);
-    const deletes = allLines.filter((l) => l.type === "delete");
-    const normals = allLines.filter((l) => l.type === "normal");
-    expect(
-      deletes.some((l) =>
-        l.content.some((s) => s.value.includes("removed_line"))
-      )
-    ).toBe(true);
-    expect(
-      normals.some((l) => l.content.some((s) => s.value.includes("ctx_b")))
-    ).toBe(true);
-    expect(
-      normals.some((l) => l.content.some((s) => s.value.includes("ctx_d")))
-    ).toBe(true);
-    const deleteHunk = hunks.find((h) =>
-      h.lines.some(
-        (l) =>
-          l.type === "delete" &&
-          l.content.some((s) => s.value.includes("removed_line"))
-      )
+    const { fileDiff, lines } = interdiff(patch1, patch2);
+    const contexts = lines.filter((l) => l.type === "context");
+    expect(lines.some((l) => l.text === "removed_line")).toBe(true);
+    expect(contexts.some((l) => l.text === "ctx_b")).toBe(true);
+    expect(contexts.some((l) => l.text === "ctx_d")).toBe(true);
+    const deleteHunk = fileDiff.hunks.find((h) =>
+      h.hunkContent.some((c) => c.type === "change" && c.deletions > 0)
     );
     expect(deleteHunk).toBeDefined();
-    expect(deleteHunk!.newStart).toBeGreaterThan(0);
+    expect(deleteHunk!.additionStart).toBeGreaterThan(0);
   });
 
   test("context/delete in equal LCS: v1 has line as context, v2 deletes it", () => {
@@ -695,12 +579,8 @@ describe("computeInterdiff", () => {
       "-ctx_c",
       " ctx_d",
     ].join("\n");
-    const result = computeInterdiff(patch1, patch2);
-    const hunks = result.hunks.filter((h) => h.type === "hunk") as DiffHunk[];
-    expect(hunks.length).toBeGreaterThan(0);
-    const allLines = hunks.flatMap((h) => h.lines);
-    const deletes = changedContents(allLines, "delete");
-    const inserts = changedContents(allLines, "insert");
+    const { fileDiff, deletes, inserts } = interdiff(patch1, patch2);
+    expect(fileDiff.hunks.length).toBeGreaterThan(0);
     // "ctx_c" was context in v1, deleted in v2 → must show as DELETE
     expect(deletes).toContain("ctx_c");
     // "new_line_v1" was inserted in v1, not in v2 → must show as DELETE
@@ -730,12 +610,7 @@ describe("computeInterdiff", () => {
       "-after",
       "+after_v2",
     ].join("\n");
-    const result = computeInterdiff(patch1, patch2);
-    const allLines = (
-      result.hunks.filter((h) => h.type === "hunk") as DiffHunk[]
-    ).flatMap((h) => h.lines);
-    const inserts = changedContents(allLines, "insert");
-    const deletes = changedContents(allLines, "delete");
+    const { inserts, deletes } = interdiff(patch1, patch2);
     // "X" was deleted in v1, kept as context in v2 → INSERT
     expect(inserts).toContain("X");
     // "after" was context in v1, deleted in v2 → DELETE
@@ -748,12 +623,11 @@ describe("computeInterdiff", () => {
     expect(inserts).toContain("after_v2");
   });
 
-  test("skip-block counts match real file-line gaps, not flat-array indices", () => {
+  test("gap counts match real file-line gaps, not flat-array indices", () => {
     // v1 changes line 617; v2 changes line 617 differently. The patches carry
     // only ~7 lines of on-patch content each. A correct interdiff must report
-    // a leading skip of 616 lines (to the file's first shown line) and a
-    // trailing "to end" sentinel — NOT small counts derived from positions in
-    // the internal flat array.
+    // a leading gap of 613 lines (to the file's first shown line) and no
+    // trailing gap: the file's length is unknown until it is hydrated.
     const patch1 = [
       "@@ -614,7 +614,7 @@",
       " ctx_a",
@@ -775,28 +649,17 @@ describe("computeInterdiff", () => {
       " ctx_e",
     ].join("\n");
 
-    const result = computeInterdiff(patch1, patch2);
-
-    const firstHunk = result.hunks.find((h) => h.type === "hunk") as DiffHunk;
-    expect(firstHunk).toBeDefined();
+    const { fileDiff, rows } = interdiff(patch1, patch2);
     // Hunk is anchored around line 617 in the post-image (head file).
-    expect(firstHunk.newStart).toBe(614);
-
-    const skips = result.hunks.filter(
-      (h) => h.type === "skip"
-    ) as DiffSkipBlock[];
-    expect(skips.length).toBeGreaterThanOrEqual(2);
-
-    const leading = skips[0];
-    // Bug regression check: leading count used to be ~7 (flat-array size);
-    // must now be 613 (lines 1..613 preceding the hunk at line 614).
-    expect(leading.count).toBe(613);
-
-    // Trailing skip carries a sentinel — the worker doesn't know EOF, so the
-    // expansion path clamps it to the fetched file's actual length.
-    const trailing = skips[skips.length - 1];
-    expect(trailing.count).toBe(Number.MAX_SAFE_INTEGER);
-    expect(trailing.content.length).toBeGreaterThan(0);
+    expect(fileDiff.hunks[0]!.additionStart).toBe(614);
+    expect(rows[0]).toMatchObject({
+      kind: "gap",
+      hunkIndex: 0,
+      count: 613,
+      oldStart: 1,
+      newStart: 1,
+    });
+    expect(rows.filter((row) => row.kind === "gap")).toHaveLength(1);
   });
 
   test("B-only trailing context uses running old-side counter, not v2 number", () => {
@@ -823,18 +686,17 @@ describe("computeInterdiff", () => {
       " tail2",
     ].join("\n");
 
-    const result = computeInterdiff(patch1, patch2);
-    const hunk = result.hunks.find((h) => h.type === "hunk") as DiffHunk;
-    expect(hunk).toBeDefined();
+    const { fileDiff, lines } = interdiff(patch1, patch2);
+    expect(fileDiff.hunks).toHaveLength(1);
 
-    // Find the last two equal (normal) lines and confirm the pair advances by
-    // 1 on both sides, not with a phantom jump on the old side.
-    const equals = hunk.lines.filter((l) => l.type === "normal");
+    // The last two context lines advance by 1 on both sides, not with a
+    // phantom jump on the old side.
+    const equals = lines.filter((l) => l.type === "context");
     expect(equals.length).toBeGreaterThanOrEqual(2);
-    const last = equals[equals.length - 1];
-    const prev = equals[equals.length - 2];
-    expect(last.oldLineNumber! - prev.oldLineNumber!).toBe(1);
-    expect(last.newLineNumber! - prev.newLineNumber!).toBe(1);
+    const last = equals[equals.length - 1]!;
+    const prev = equals[equals.length - 2]!;
+    expect(last.oldLine! - prev.oldLine!).toBe(1);
+    expect(last.newLine! - prev.newLine!).toBe(1);
   });
 
   test("both patches add same line: insert/insert equals to equal", () => {
@@ -852,21 +714,8 @@ describe("computeInterdiff", () => {
       " ctx_y",
       " ctx_z",
     ].join("\n");
-    const result = computeInterdiff(patch1, patch2);
-    const allLines = (
-      result.hunks.filter((h) => h.type === "hunk") as DiffHunk[]
-    ).flatMap((h) => h.lines);
-    const inserts = allLines.filter((l) => l.type === "insert");
-    const deletes = allLines.filter((l) => l.type === "delete");
-    expect(
-      inserts.some((l) =>
-        l.content.some((s) => s.value.includes("common_addition"))
-      )
-    ).toBe(false);
-    expect(
-      deletes.some((l) =>
-        l.content.some((s) => s.value.includes("common_addition"))
-      )
-    ).toBe(false);
+    const { inserts, deletes } = interdiff(patch1, patch2);
+    expect(inserts.some((c) => c.includes("common_addition"))).toBe(false);
+    expect(deletes.some((c) => c.includes("common_addition"))).toBe(false);
   });
 });

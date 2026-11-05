@@ -26,7 +26,9 @@
  *      equal pair, deleteA/contextB   → INSERT (v2 kept it)
  *      equal pair, other kind mismatch→ equal (LCS misalignment)
  * 5. Group into hunks with CONTEXT_LINES of surrounding context, stopping at
- *    gaps between sparse patch windows.
+ *    gaps between sparse patch windows, and print them as unified hunks whose
+ *    old side numbers the first patch's post-image and whose new side numbers
+ *    the second's.
  *
  * Base-position alignment (step 3) handles the line-number-shift case: when v2
  * deletes a block above shared content, those shared lines move to smaller
@@ -39,18 +41,8 @@
  * preserved through the alignment and emitted as a DELETE.
  */
 
-import gitDiffParser, { type Change } from "gitdiff-parser";
+import gitDiffParser from "gitdiff-parser";
 import { diffArrays } from "diff";
-import type {
-  ParsedDiff,
-  DiffHunk,
-  DiffSkipBlock,
-  DiffLine,
-} from "./diff-parser";
-import { mergeModifiedLines } from "./diff-parser";
-import { escapeHtml, highlightFileByLines } from "../../shared/diff-utils";
-
-import { guessLang } from "../../shared/language";
 
 const CONTEXT_LINES = 3;
 
@@ -205,13 +197,11 @@ function orderChangeGroups<T extends { type: string }>(lines: T[]) {
  *
  * @param patch1 Unified diff patch for the old version of the commit
  * @param patch2 Unified diff patch for the new version of the commit
- * @returns ParsedDiff showing deliberate changes between versions
+ * @returns Hunk-only unified patch (starting at `@@`) of the deliberate
+ *   changes between the versions; empty when there are none. Line numbers are
+ *   real file coordinates: old = version 1's file, new = version 2's file.
  */
-export function computeInterdiff(
-  patch1: string,
-  patch2: string,
-  filename?: string
-): ParsedDiff {
+export function computeInterdiff(patch1: string, patch2: string): string {
   const entriesA = buildPatchEntries(patch1);
   const entriesB = buildPatchEntries(patch2);
 
@@ -220,9 +210,7 @@ export function computeInterdiff(
   // Comparing content alone would falsely match a +X patch against a -X patch.
   const sigA = entriesA.map((e) => `${e.kind[0]}:${e.content}`).join("\n");
   const sigB = entriesB.map((e) => `${e.kind[0]}:${e.content}`).join("\n");
-  if (sigA === sigB) {
-    return { hunks: [] };
-  }
+  if (sigA === sigB) return "";
 
   const baseAtoB = baseLineMapper(entriesA, entriesB);
   const baseBtoA = baseLineMapper(entriesB, entriesA);
@@ -416,131 +404,49 @@ export function computeInterdiff(
       }
     }
   }
-  if (!ranges.length) return { hunks: [] };
+  if (!ranges.length) return "";
 
-  const output: (DiffHunk | DiffSkipBlock)[] = [];
-  // Track the next post-image (newLineNumber) file line the diff should cover.
-  // Skip-block counts are expressed as gaps in real file line numbers so that
-  // expansion fetches the correct range from the head file; using indices into
-  // `flat` (which only contains lines the two patches touched) undercounts by
-  // orders of magnitude.
-  let nextFileLine = 1;
+  const hunks: string[] = [];
+  // The next old/new file line after the previous hunk: where a hunk without
+  // lines of its own on one side (a pure insertion) is anchored.
+  let nextNewLine = 1;
   let nextOldLine = 1;
 
   for (const [start, end] of ranges) {
-    const hunkBlock = flat.slice(start, end + 1);
+    const block = flat.slice(start, end + 1);
+    const oldLines = block.filter((line) => line.type !== "insert");
+    const newLines = block.filter((line) => line.type !== "delete");
+    const firstOld = oldLines.find(
+      (line) => line.oldLineNumber != null
+    )?.oldLineNumber;
+    const firstNew = newLines.find(
+      (line) => line.newLineNumber != null
+    )?.newLineNumber;
+    const oldStart = firstOld ?? nextOldLine;
+    const newStart = firstNew ?? nextNewLine;
+    // Git numbers an empty side by the line before it.
+    const oldHeader = oldLines.length === 0 ? oldStart - 1 : oldStart;
+    const newHeader = newLines.length === 0 ? newStart - 1 : newStart;
 
-    // Determine this hunk's first and last post-image line numbers. Hunks
-    // include CONTEXT_LINES of equal context on each side, so newLineNumber is
-    // almost always populated on the edge entries; fall back defensively.
-    let firstNewLine: number | undefined;
-    let lastNewLine: number | undefined;
-    for (const fl of hunkBlock) {
-      if (fl.newLineNumber != null) {
-        if (firstNewLine === undefined) firstNewLine = fl.newLineNumber;
-        lastNewLine = fl.newLineNumber;
-      }
-    }
-    const hunkStart = firstNewLine ?? flat[start].oldLineNumber ?? nextFileLine;
-    const hunkEnd = lastNewLine ?? hunkStart;
-    const firstOld =
-      hunkBlock.find((line) => line.oldLineNumber != null)?.oldLineNumber ??
-      nextOldLine;
-
-    if (hunkStart > nextFileLine) {
-      output.push({
-        type: "skip",
-        count: hunkStart - nextFileLine,
-        content: "",
-        oldStart: nextOldLine,
-        newStart: nextFileLine,
-        oldCount: Math.max(0, firstOld - nextOldLine),
-        newCount: hunkStart - nextFileLine,
-      });
-    }
-
-    const changes: Change[] = hunkBlock.map((line) => {
-      if (line.type === "equal") {
-        return {
-          type: "normal",
-          isNormal: true,
-          oldLineNumber: line.oldLineNumber!,
-          newLineNumber: line.newLineNumber!,
-          content: line.content,
-        };
-      }
-      return line.type === "delete"
-        ? {
-            type: "delete",
-            isDelete: true,
-            lineNumber: line.oldLineNumber!,
-            content: line.content,
-          }
-        : {
-            type: "insert",
-            isInsert: true,
-            lineNumber: line.newLineNumber!,
-            content: line.content,
-          };
-    });
-    const oldStart =
-      hunkBlock.find((line) => line.oldLineNumber != null)?.oldLineNumber ??
-      hunkStart;
-    const mergedLines = mergeModifiedLines(
-      changes,
-      undefined,
-      hunkStart - oldStart
+    hunks.push(
+      [
+        `@@ -${oldHeader},${oldLines.length} +${newHeader},${newLines.length} @@`,
+        ...block.map(
+          (line) =>
+            `${line.type === "equal" ? " " : line.type === "delete" ? "-" : "+"}${line.content}`
+        ),
+      ].join("\n")
     );
-    orderChangeGroups(mergedLines);
-    const lang = filename ? guessLang(filename) : null;
-    const hunkHtml = lang
-      ? highlightFileByLines(
-          mergedLines
-            .map((line) => line.content.map((seg) => seg.value).join(""))
-            .join("\n"),
-          lang
-        )
-      : [];
-    const hunkLines: DiffLine[] = mergedLines.map((line, idx) => ({
-      type: line.type,
-      oldLineNumber: line.oldLineNumber,
-      newLineNumber: line.newLineNumber,
-      content: line.content.map((seg) => ({
-        ...seg,
-        html:
-          line.content.length === 1
-            ? (hunkHtml[idx] ?? escapeHtml(seg.value))
-            : lang
-              ? (highlightFileByLines(seg.value, lang)[0] ??
-                escapeHtml(seg.value))
-              : escapeHtml(seg.value),
-      })),
-    }));
 
-    output.push({
-      type: "hunk",
-      oldStart,
-      newStart: hunkStart,
-      lines: hunkLines,
-    });
-
-    nextFileLine = hunkEnd + 1;
-    nextOldLine =
-      (hunkBlock.findLast((line) => line.oldLineNumber != null)
-        ?.oldLineNumber ?? nextOldLine - 1) + 1;
+    const lastNew = block.findLast(
+      (line) => line.newLineNumber != null
+    )?.newLineNumber;
+    const lastOld = block.findLast(
+      (line) => line.oldLineNumber != null
+    )?.oldLineNumber;
+    nextNewLine = (lastNew ?? nextNewLine - 1) + 1;
+    nextOldLine = (lastOld ?? nextOldLine - 1) + 1;
   }
 
-  // Trailing skip: total file length is not known here (the worker only sees
-  // the two patches). Emit a sentinel count that the expansion handler clamps
-  // to the fetched file's actual length. `content` provides the user-visible
-  // label since the count is not meaningful on its own.
-  output.push({
-    type: "skip",
-    count: Number.MAX_SAFE_INTEGER,
-    content: "Show remainder of file",
-    oldStart: nextOldLine,
-    newStart: nextFileLine,
-  });
-
-  return { hunks: output };
+  return hunks.join("\n");
 }

@@ -1,11 +1,13 @@
 import { test, expect } from "bun:test";
+import { hydratePartialDiff } from "@pierre/diffs";
 import {
-  mapRangeToSegments,
   mergeSearchMatches,
   searchPatches,
   searchRows,
   walkPatchLines,
+  type DiffSearchMatch,
 } from "./diff-search";
+import { diffRows, fileDiffFromPatch } from "./file-diff";
 
 const PATCH = `@@ -1,3 +1,4 @@
  context
@@ -20,37 +22,44 @@ test("search merge preserves file order and expansion-aware matches without sear
   ];
   const patches = searchPatches(files, "line", { excludeFilename: "b.ts" });
   expect(patches.every((match) => match.filename === "a.ts")).toBe(true);
-  const row = {
-    rowIndex: 50,
-    side: "new" as const,
-    oldLine: 99,
-    newLine: 100,
+  const row: DiffSearchMatch = {
+    side: "new",
+    lineNumber: 100,
     start: 0,
-    length: 4,
+    end: 4,
+    hunkIndex: 3,
+    inGap: true,
   };
   const matches = mergeSearchMatches(files, "b.ts", [row], patches);
   expect(matches[0]).toEqual({ filename: "b.ts", ...row });
   expect(
     matches
       .slice(1)
-      .map((match) => [
-        match.filename,
-        match.side,
-        match.oldLine,
-        match.newLine,
-      ])
+      .map((match) => [match.filename, match.side, match.lineNumber])
   ).toEqual([
-    ["a.ts", "old", 2, null],
-    ["a.ts", "new", null, 2],
+    ["a.ts", "old", 2],
+    ["a.ts", "new", 2],
   ]);
   expect(mergeSearchMatches([], null, [], [])).toEqual([]);
 });
 
-test("walkPatchLines tracks line numbers from hunk headers", () => {
+test("walkPatchLines tracks line numbers and hunk ordinals from hunk headers", () => {
   expect(walkPatchLines(PATCH)).toEqual([
-    { kind: "context", oldLine: 1, newLine: 1, text: "context" },
-    { kind: "delete", oldLine: 2, newLine: null, text: "removed line" },
-    { kind: "insert", oldLine: null, newLine: 2, text: "added line" },
+    { kind: "context", oldLine: 1, newLine: 1, text: "context", hunkIndex: 0 },
+    {
+      kind: "delete",
+      oldLine: 2,
+      newLine: null,
+      text: "removed line",
+      hunkIndex: 0,
+    },
+    {
+      kind: "insert",
+      oldLine: null,
+      newLine: 2,
+      text: "added line",
+      hunkIndex: 0,
+    },
   ]);
 });
 
@@ -63,11 +72,20 @@ index 123..456 100644
  keep
 -old
 +new
-\\ No newline at end of file`;
+\\ No newline at end of file
+@@ -30,1 +30,1 @@
+-second`;
   expect(walkPatchLines(patch)).toEqual([
-    { kind: "context", oldLine: 10, newLine: 10, text: "keep" },
-    { kind: "delete", oldLine: 11, newLine: null, text: "old" },
-    { kind: "insert", oldLine: null, newLine: 11, text: "new" },
+    { kind: "context", oldLine: 10, newLine: 10, text: "keep", hunkIndex: 0 },
+    { kind: "delete", oldLine: 11, newLine: null, text: "old", hunkIndex: 0 },
+    { kind: "insert", oldLine: null, newLine: 11, text: "new", hunkIndex: 0 },
+    {
+      kind: "delete",
+      oldLine: 30,
+      newLine: null,
+      text: "second",
+      hunkIndex: 1,
+    },
   ]);
 });
 
@@ -84,27 +102,30 @@ test("searchPatches finds matches across files in order", () => {
   expect(searchPatches(files, "line")).toEqual([
     {
       filename: "a.ts",
-      kind: "delete",
-      oldLine: 2,
-      newLine: null,
+      side: "old",
+      lineNumber: 2,
       start: 8,
-      length: 4,
+      end: 12,
+      hunkIndex: 0,
+      inGap: false,
     },
     {
       filename: "a.ts",
-      kind: "insert",
-      oldLine: null,
-      newLine: 2,
+      side: "new",
+      lineNumber: 2,
       start: 6,
-      length: 4,
+      end: 10,
+      hunkIndex: 0,
+      inGap: false,
     },
     {
       filename: "b.ts",
-      kind: "delete",
-      oldLine: 5,
-      newLine: null,
+      side: "old",
+      lineNumber: 5,
       start: 5,
-      length: 4,
+      end: 9,
+      hunkIndex: 0,
+      inGap: false,
     },
   ]);
 });
@@ -122,100 +143,109 @@ test("searchPatches is case-insensitive by default and skips patchless files", (
   expect(searchPatches(files, "added line")).toEqual([
     {
       filename: "a.ts",
-      kind: "insert",
-      oldLine: null,
-      newLine: 1,
+      side: "new",
+      lineNumber: 1,
       start: 0,
-      length: 10,
+      end: 10,
+      hunkIndex: 0,
+      inGap: false,
     },
   ]);
   expect(searchPatches(files, "zzz")).toEqual([]);
+  expect(searchPatches(files, "added line", { caseSensitive: true })).toEqual(
+    []
+  );
 });
 
-function row(
-  type: string,
-  values: string[],
-  oldLine?: number | null,
-  newLine?: number | null
-) {
-  return {
-    type: "line",
-    line: {
-      type,
-      content: values.map((value) => ({ value, type })),
-      oldLineNumber: oldLine ?? null,
-      newLineNumber: newLine ?? null,
-    },
-  };
-}
+const ROWS_PATCH = [
+  "@@ -1,3 +1,3 @@",
+  " const x = 1;",
+  "-const x = 2;",
+  "+const y = 3;",
+  " tail",
+  "@@ -20,1 +20,2 @@",
+  " needle here",
+  "+needle there",
+].join("\n");
 
 test("searchRows matches unified rows and reports the right side", () => {
-  const rows = [
-    row("normal", ["const x = 1;"], 1, 1),
-    row("delete", ["const x = 2;"], 2),
-    { type: "skip", hunk: {} },
-    row("insert", ["const y = 3;"], null, 3),
-  ];
-  const matches = searchRows(rows as never, "const");
-  expect(matches.map((m) => [m.rowIndex, m.side, m.start])).toEqual([
-    [0, "new", 0],
-    [1, "old", 0],
-    [3, "new", 0],
+  const diff = fileDiffFromPatch({ patch: ROWS_PATCH, filename: "a.ts" });
+  const matches = searchRows(diffRows(diff), "const");
+  expect(
+    matches.map((m) => [m.side, m.lineNumber, m.start, m.end, m.hunkIndex])
+  ).toEqual([
+    ["new", 1, 0, 5, 0],
+    ["old", 2, 0, 5, 0],
+    ["new", 2, 0, 5, 0],
+  ]);
+  expect(matches.every((m) => !m.inGap)).toBe(true);
+});
+
+test("searchRows does not see text hidden in a gap of a partial diff", () => {
+  const diff = fileDiffFromPatch({ patch: ROWS_PATCH, filename: "a.ts" });
+  expect(searchRows(diffRows(diff), "never-shown")).toEqual([]);
+  expect(
+    searchRows(diffRows(diff), "needle").map((m) => [m.lineNumber, m.hunkIndex])
+  ).toEqual([
+    [20, 1],
+    [21, 1],
   ]);
 });
 
-test("searchRows skips collapsed blocks and non-code rows", () => {
-  const rows = [
-    { type: "skip", hunk: {} },
-    { type: "comment-thread", comments: [] },
-    row("normal", ["needle here"], 5, 5),
-  ];
-  const matches = searchRows(rows as never, "needle");
-  expect(matches).toEqual([
-    { rowIndex: 2, side: "new", oldLine: 5, newLine: 5, start: 0, length: 6 },
-  ]);
-});
-
-test("searchRows searches both spaces of merged modified rows", () => {
-  const merged = {
-    type: "line",
-    line: {
-      type: "normal",
-      oldLineNumber: 7,
-      newLineNumber: 7,
-      content: [
-        { value: "line_index", type: "normal" },
-        { value: "raise ", type: "insert" },
-        { value: "= i", type: "delete" },
-        { value: "e", type: "insert" },
-      ],
+test("searchRows searches collapsed gaps once the file is hydrated", () => {
+  const lines = Array.from({ length: 40 }, (_, i) => `line ${i + 1}`);
+  lines[9] = "hidden needle";
+  const oldLines = [...lines];
+  const newLines = [...lines];
+  oldLines[0] = "first";
+  newLines[0] = "FIRST";
+  oldLines[29] = "last";
+  newLines[29] = "LAST";
+  const diff = hydratePartialDiff(
+    "clone",
+    fileDiffFromPatch({
+      patch: [
+        "@@ -1,2 +1,2 @@",
+        "-first",
+        "+FIRST",
+        " line 2",
+        "@@ -29,2 +29,2 @@",
+        " line 29",
+        "-last",
+        "+LAST",
+      ].join("\n"),
+      filename: "a.ts",
+    }),
+    {
+      oldFile: { name: "a.ts", contents: oldLines.join("\n") + "\n" },
+      newFile: { name: "a.ts", contents: newLines.join("\n") + "\n" },
+    }
+  );
+  const rows = diffRows(diff);
+  expect(searchRows(rows, "hidden")).toEqual([]);
+  expect(searchRows(rows, "hidden", { fileDiff: diff })).toEqual([
+    {
+      side: "new",
+      lineNumber: 10,
+      start: 0,
+      end: 6,
+      hunkIndex: 1,
+      inGap: true,
     },
-  };
-  // new-space: "line_index" + "raise " + "e"
-  expect(searchRows([merged] as never, "raise")).toEqual([
-    { rowIndex: 0, side: "new", oldLine: 7, newLine: 7, start: 10, length: 5 },
   ]);
-  // old-space: "line_index" + "= i"
-  expect(searchRows([merged] as never, "= i")).toEqual([
-    { rowIndex: 0, side: "old", oldLine: 7, newLine: 7, start: 10, length: 3 },
+  // Once expanded the same line is an ordinary row match.
+  const expanded = diffRows(
+    diff,
+    new Map([[1, { fromStart: 27, fromEnd: 0 }]])
+  );
+  expect(searchRows(expanded, "hidden", { fileDiff: diff })).toEqual([
+    {
+      side: "new",
+      lineNumber: 10,
+      start: 0,
+      end: 6,
+      hunkIndex: 1,
+      inGap: false,
+    },
   ]);
-});
-
-test("mapRangeToSegments maps side-space ranges onto segments", () => {
-  const segments = [
-    { value: "line_index", type: "normal" },
-    { value: "raise ", type: "insert" },
-    { value: "= i", type: "delete" },
-    { value: "e", type: "insert" },
-  ];
-  // new-space = "line_indexraise e": [5, 13) spans two segments
-  expect(mapRangeToSegments(segments, "new", 5, 8)).toEqual([
-    { segIndex: 0, start: 5, length: 5 },
-    { segIndex: 1, start: 0, length: 3 },
-  ]);
-  // old-space = "line_index= i": [0, 10) is exactly the first segment
-  expect(mapRangeToSegments(segments, "old", 0, 10)).toEqual([
-    { segIndex: 0, start: 0, length: 10 },
-  ]);
-  expect(mapRangeToSegments(segments, "old", 0, 7)).not.toBeNull();
 });

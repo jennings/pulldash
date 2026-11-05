@@ -131,7 +131,6 @@ export type WorkerRequest =
       id: string;
       patch1: string;
       patch2: string;
-      filename?: string;
     };
 
 export type WorkerResponse =
@@ -148,7 +147,8 @@ export type WorkerResponse =
   | {
       type: "interdiff-result";
       id: string;
-      result: ParsedDiff;
+      /** Hunk-only unified patch; see `computeInterdiff`. */
+      result: string;
     }
   | {
       type: "error";

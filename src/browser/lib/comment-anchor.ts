@@ -10,7 +10,7 @@
  * view's parsed diff and use that line number instead.
  */
 
-import type { ParsedDiff } from "./diff-worker";
+import { baseDiffRows, type LoadedDiff } from "./file-diff";
 
 export interface CommentAnchorInput {
   side?: "LEFT" | "RIGHT" | null;
@@ -57,36 +57,37 @@ function extractSideContent(
 
 function findSliceInDiff(
   slice: string[],
-  parsedDiff: ParsedDiff,
+  diff: LoadedDiff,
   side: "LEFT" | "RIGHT"
 ): number | null {
-  for (const hunk of parsedDiff.hunks) {
-    if (hunk.type !== "hunk") continue;
-
-    const sideLines = hunk.lines.filter((l) =>
-      side === "RIGHT"
-        ? l.type === "insert" || l.type === "normal"
-        : l.type === "delete" || l.type === "normal"
-    );
-
-    for (let i = 0; i <= sideLines.length - slice.length; i++) {
-      let matched = true;
-      for (let j = 0; j < slice.length; j++) {
-        const content = sideLines[i + j].content.map((s) => s.value).join("");
-        if (content !== slice[j]) {
-          matched = false;
-          break;
-        }
-      }
-      if (matched) {
-        const last = sideLines[i + slice.length - 1];
-        const lineNum =
-          side === "RIGHT" ? last.newLineNumber : last.oldLineNumber;
-        return lineNum ?? null;
+  // Match within one run of consecutive rows: never across hunks or gaps.
+  let run: { text: string; line: number }[] = [];
+  let runHunk = -1;
+  const search = (): number | null => {
+    for (let i = 0; i <= run.length - slice.length; i++) {
+      if (slice.every((text, j) => run[i + j]!.text === text)) {
+        return run[i + slice.length - 1]!.line;
       }
     }
+    return null;
+  };
+  for (const row of baseDiffRows(diff.fileDiff)) {
+    const included =
+      row.kind === "line" &&
+      (row.type === "context" ||
+        row.type === (side === "RIGHT" ? "addition" : "deletion"));
+    if (row.kind === "gap" || row.hunkIndex !== runHunk) {
+      const found = search();
+      if (found !== null) return found;
+      run = [];
+      runHunk = row.kind === "gap" ? -1 : row.hunkIndex;
+    }
+    if (included && row.kind === "line") {
+      const line = side === "RIGHT" ? row.newLine : row.oldLine;
+      if (line !== null) run.push({ text: row.text, line });
+    }
   }
-  return null;
+  return search();
 }
 
 /**
@@ -104,10 +105,10 @@ export function resolveCommentLine(
     originalLine?: number | null;
   },
   viewedCommitSha: string | null | undefined,
-  parsedDiff: ParsedDiff
+  diff: LoadedDiff
 ): number | null | undefined {
-  if (parsedDiff.sources) {
-    const source = parsedDiff.sources[comment.side === "LEFT" ? "old" : "new"];
+  if (diff.sources) {
+    const source = diff.sources[comment.side === "LEFT" ? "old" : "new"];
     if (commitShasMatch(comment.commitId, source.sha))
       return comment.line ?? comment.originalLine;
     if (commitShasMatch(comment.originalCommitId, source.sha))
@@ -121,20 +122,20 @@ export function resolveCommentLine(
     ) {
       return comment.originalLine ?? comment.line;
     }
-    return resolveCommentLineFromDiffHunk(comment, parsedDiff);
+    return resolveCommentLineFromDiffHunk(comment, diff);
   }
   return comment.line ?? comment.originalLine;
 }
 
 /**
- * Find the line number in `parsedDiff` that contains the same content the
+ * Find the line number in `diff` that contains the same content the
  * comment was anchored to. Returns null when no match is found (the line was
- * removed, lives inside a collapsed skip block, or differs by even a single
+ * removed, lives inside a collapsed gap, or differs by even a single
  * character).
  */
 export function resolveCommentLineFromDiffHunk(
   comment: CommentAnchorInput,
-  parsedDiff: ParsedDiff
+  diff: LoadedDiff
 ): number | null {
   if (!comment.diffHunk || !comment.line) return null;
   const side = (comment.side ?? "RIGHT") as "LEFT" | "RIGHT";
@@ -154,12 +155,12 @@ export function resolveCommentLineFromDiffHunk(
     sideContent.length
   );
   const withContextSlice = sideContent.slice(-withContext);
-  const matched = findSliceInDiff(withContextSlice, parsedDiff, side);
+  const matched = findSliceInDiff(withContextSlice, diff, side);
   if (matched !== null) return matched;
 
   if (withContext > anchorCount) {
     const anchorOnly = sideContent.slice(-anchorCount);
-    return findSliceInDiff(anchorOnly, parsedDiff, side);
+    return findSliceInDiff(anchorOnly, diff, side);
   }
   return null;
 }

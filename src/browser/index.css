@@ -104,23 +104,12 @@
 
 :root {
   --radius: 0.625rem;
-  --selection-bg: #19273e;
-  --diff-insert-bg: #122218;
-  --diff-insert-fg: #4ade80;
-  --diff-delete-fg: #fb923c;
-  --diff-delete-bg: #261710;
-  --diff-comment-range-bg: #19273e;
-  --diff-comment-range-active-bg: #1b1810;
-  --diff-inline-change-bg: #282310;
   --markdown-code-bg: oklch(0.22 0.01 260 / 80%);
   --markdown-pre-bg: oklch(0.18 0.01 260 / 60%);
   --markdown-pre-border: oklch(1 0 0 / 8%);
   --markdown-table-header-bg: oklch(0.2 0 0);
   --markdown-table-alt-row: oklch(0.18 0 0 / 50%);
   --code-bg: #0d1117;
-  --code-added: #22c55e; /* green-500, inline word-diff background */
-  --code-removed: #ea580c; /* orange-600, inline word-diff background */
-  --code-changed: #eab308; /* yellow-500, inline word-diff background */
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);
@@ -160,20 +149,12 @@
 }
 
 .light {
-  --diff-insert-bg: #e6ffec;
-  --diff-insert-fg: #15803d;
-  --diff-delete-fg: #ea580c;
-  --diff-delete-bg: #ffebe9;
-  --diff-comment-range-bg: #dbeafe;
-  --diff-comment-range-active-bg: #fff8c5;
-  --diff-inline-change-bg: #fef9c3;
   --markdown-code-bg: oklch(0.95 0.01 260);
   --markdown-pre-bg: oklch(0.96 0.01 260);
   --markdown-pre-border: oklch(0 0 0 / 8%);
   --markdown-table-header-bg: oklch(0.92 0 0);
   --markdown-table-alt-row: oklch(0.95 0 0);
   --code-bg: #f6f8fa;
-  --selection-bg: #dbeafe;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(0.98 0 0);
@@ -227,21 +208,6 @@
   --diffs-header-font-family: var(--font-sans);
   --diffs-font-size: 0.8rem;
   --diffs-line-height: 1.5;
-}
-
-/* Diff content styling */
-.diff-content table {
-  font-family: var(--font-mono);
-}
-
-.diff-content ins,
-.diff-content del {
-  text-decoration: none;
-}
-
-/* Comments positioning */
-.diff-with-comments {
-  position: relative;
 }
 
 /* Themed scrollbars */
@@ -316,71 +282,6 @@
 .app-viewport {
   height: 100vh;
   height: 100dvh;
-}
-
-/* CSS-based diff line selection - avoids per-row React re-renders */
-/* Unified view selection */
-.diff-line-row[data-selected="true"] {
-  background: linear-gradient(
-    var(--selection-bg),
-    var(--selection-bg)
-  ) !important;
-  background-size: 100% calc(100% + 2px) !important;
-  background-repeat: no-repeat !important;
-  box-shadow:
-    inset 2px 0 0 rgb(59, 130, 246),
-    inset -2px 0 0 rgb(59, 130, 246);
-}
-.diff-line-row[data-sel-first="true"] {
-  box-shadow:
-    inset 2px 0 0 rgb(59, 130, 246),
-    inset -2px 0 0 rgb(59, 130, 246),
-    inset 0 2px 0 rgb(59, 130, 246) !important;
-}
-.diff-line-row[data-sel-last="true"] {
-  box-shadow:
-    inset 2px 0 0 rgb(59, 130, 246),
-    inset -2px 0 0 rgb(59, 130, 246),
-    inset 0 -2px 0 rgb(59, 130, 246) !important;
-}
-.diff-line-row[data-sel-first="true"][data-sel-last="true"] {
-  box-shadow:
-    inset 2px 0 0 rgb(59, 130, 246),
-    inset -2px 0 0 rgb(59, 130, 246),
-    inset 0 2px 0 rgb(59, 130, 246),
-    inset 0 -2px 0 rgb(59, 130, 246) !important;
-}
-
-/* Split view selection */
-.split-diff-side[data-selected="true"] {
-  background: linear-gradient(
-    var(--selection-bg),
-    var(--selection-bg)
-  ) !important;
-  background-size: 100% calc(100% + 2px) !important;
-  background-repeat: no-repeat !important;
-  box-shadow:
-    inset 2px 0 0 rgb(59, 130, 246),
-    inset -2px 0 0 rgb(59, 130, 246);
-}
-.split-diff-side[data-sel-first="true"] {
-  box-shadow:
-    inset 2px 0 0 rgb(59, 130, 246),
-    inset -2px 0 0 rgb(59, 130, 246),
-    inset 0 2px 0 rgb(59, 130, 246) !important;
-}
-.split-diff-side[data-sel-last="true"] {
-  box-shadow:
-    inset 2px 0 0 rgb(59, 130, 246),
-    inset -2px 0 0 rgb(59, 130, 246),
-    inset 0 -2px 0 rgb(59, 130, 246) !important;
-}
-.split-diff-side[data-sel-first="true"][data-sel-last="true"] {
-  box-shadow:
-    inset 2px 0 0 rgb(59, 130, 246),
-    inset -2px 0 0 rgb(59, 130, 246),
-    inset 0 2px 0 rgb(59, 130, 246),
-    inset 0 -2px 0 rgb(59, 130, 246) !important;
 }
 
 /* ============================================================================
