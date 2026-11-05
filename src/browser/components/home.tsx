@@ -89,6 +89,7 @@ import {
   type PRReminder,
 } from "../lib/reminders";
 import { ReminderMenu } from "./reminder-menu";
+import { SearchHelpButton } from "./search-help-dialog";
 import { useAuth } from "../contexts/auth";
 import { getTimeAgo } from "../lib/dates";
 import { randomId } from "../lib/ids";
@@ -1836,40 +1837,43 @@ export const Home = memo(function Home({ active }: { active: boolean }) {
               </Tooltip>
 
               {/* Free-text search appended to the filter queries */}
-              <div className="relative shrink-0 w-56">
-                <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
-                <input
-                  type="text"
-                  value={prSearchInput}
-                  onChange={(e) => setPrSearchInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      setPrSearchQuery(prSearchInput.trim());
-                    } else if (e.key === "Escape" && prSearchInput) {
-                      e.preventDefault();
-                      setPrSearchInput("");
-                      setPrSearchQuery("");
-                    }
-                  }}
-                  placeholder="Search pull requests..."
-                  aria-label="Search pull requests"
-                  spellCheck={false}
-                  className="w-full h-7 pl-7 pr-7 rounded-md border border-border bg-muted/50 text-xs placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent"
-                />
-                {prSearchInput && (
-                  <button
-                    onClick={() => {
-                      setPrSearchInput("");
-                      setPrSearchQuery("");
+              <div className="flex items-center gap-1 shrink-0">
+                <div className="relative w-56">
+                  <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
+                  <input
+                    type="text"
+                    value={prSearchInput}
+                    onChange={(e) => setPrSearchInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        setPrSearchQuery(prSearchInput.trim());
+                      } else if (e.key === "Escape" && prSearchInput) {
+                        e.preventDefault();
+                        setPrSearchInput("");
+                        setPrSearchQuery("");
+                      }
                     }}
-                    className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 rounded text-muted-foreground hover:text-foreground"
-                    aria-label="Clear search"
-                    title="Clear search"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                )}
+                    placeholder="Search pull requests..."
+                    aria-label="Search pull requests"
+                    spellCheck={false}
+                    className="w-full h-7 pl-7 pr-7 rounded-md border border-border bg-muted/50 text-xs placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent"
+                  />
+                  {prSearchInput && (
+                    <button
+                      onClick={() => {
+                        setPrSearchInput("");
+                        setPrSearchQuery("");
+                      }}
+                      className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 rounded text-muted-foreground hover:text-foreground"
+                      aria-label="Clear search"
+                      title="Clear search"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+                <SearchHelpButton />
               </div>
 
               {/* Divider between the filter toggles and the results count. */}
