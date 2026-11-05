@@ -53,7 +53,7 @@ and inline re-implementations of helpers that already exist in
 Places that hand-roll something the codebase already has a utility for:
 
 - Class merging that bypasses `cn()` from `@/browser/cn` (clsx + tailwind-merge).
-- Inline diff parsing when `src/api/diff.ts` or `src/browser/lib/diff.ts` applies.
+- Inline diff parsing when `src/api/diff.ts` or `src/browser/lib/file-diff.ts` (`@pierre/diffs`) applies.
 - Raw `fetch` calls where `src/api/client.ts` should be used instead.
 
 **3. Unnecessary TypeScript casts**
@@ -66,7 +66,6 @@ baseline (do not re-flag these as new):
 - `src/browser/contexts/github.tsx`
 - `src/browser/components/file-tree.tsx`
 - `src/browser/components/pr-overview.tsx`
-- `src/browser/lib/diff-worker.ts`
 
 Flag any that were added _since_ those files were last touched, or that appear
 in files not on this list.

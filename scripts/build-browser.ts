@@ -27,6 +27,15 @@ async function build() {
     return false;
   }
   const workerUrl = `/lib/${workerResult.outputs[0]!.path.split("/").at(-1)}`;
+  // Hashed names change on every build; drop previous workers once the new one exists.
+  const freshWorkers = new Set(
+    workerResult.outputs.map((o) => basename(o.path))
+  );
+  for (const file of await readdir("./dist/browser/lib")) {
+    if (!freshWorkers.has(file)) {
+      await rm(resolve("./dist/browser/lib", file), { force: true });
+    }
+  }
   const pierreResult = await buildPierreWorker();
   if (!pierreResult.success) {
     console.error("Pierre worker build failed:", pierreResult.logs);
@@ -188,6 +197,7 @@ async function build() {
   return true;
 }
 
+/** Interdiff worker: the only computation left that is too heavy for the main thread. */
 function buildWorker() {
   return Bun.build({
     entrypoints: ["./src/browser/lib/diff-worker.ts"],
@@ -197,34 +207,6 @@ function buildWorker() {
     format: "esm",
     minify: mode.minify,
     define,
-    banner: `// Worker shim for libraries that check for document (Prism/refractor)
-if (typeof document === 'undefined') {
-  globalThis.document = {
-    currentScript: null,
-    querySelectorAll: () => [],
-    querySelector: () => null,
-    getElementById: () => null,
-    getElementsByClassName: () => [],
-    getElementsByTagName: () => [],
-    createElement: () => ({
-      setAttribute: () => {},
-      getAttribute: () => null,
-      appendChild: () => {},
-      removeChild: () => {},
-      classList: { add: () => {}, remove: () => {}, contains: () => false },
-      style: {},
-      innerHTML: '',
-      textContent: '',
-    }),
-    createTextNode: () => ({ textContent: '' }),
-    createDocumentFragment: () => ({ appendChild: () => {}, childNodes: [] }),
-    head: { appendChild: () => {}, removeChild: () => {} },
-    body: { appendChild: () => {}, removeChild: () => {} },
-    addEventListener: () => {},
-    removeEventListener: () => {},
-  };
-}
-`,
   });
 }
 

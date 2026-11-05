@@ -1,26 +1,16 @@
 /**
- * Diff Service - Async API wrapper for the diff WebWorker
+ * Diff Service - Async API wrapper for the interdiff WebWorker.
+ *
+ * Interdiff of large patches is CPU-heavy (hundreds of ms for ~10k-line files),
+ * so it runs off the main thread. Parsing and highlighting live in
+ * `@pierre/diffs` (see `file-diff.ts` and `pierre.tsx`).
  *
  * Usage:
  *   import { diffService } from './diff';
- *   const parsed = await diffService.parseDiff(patch, filename);
+ *   const patch = await diffService.interdiff(patch1, patch2);
  */
 
-import type {
-  WorkerRequest,
-  WorkerResponse,
-  ParsedDiff,
-  DiffLine,
-} from "./diff-worker";
-
-// Re-export types for consumers
-export type {
-  ParsedDiff,
-  DiffLine,
-  DiffHunk,
-  DiffSkipBlock,
-  LineSegment,
-} from "./diff-worker";
+import type { WorkerRequest, WorkerResponse } from "./diff-worker";
 
 // ============================================================================
 // Worker Pool
@@ -33,7 +23,7 @@ const POOL_SIZE = Math.max(
 
 interface PendingRequest {
   worker: Worker;
-  resolve: (value: any) => void;
+  resolve: (value: string) => void;
   reject: (error: Error) => void;
 }
 
@@ -104,80 +94,6 @@ export class DiffWorkerPool {
     return `${Date.now()}-${this.nextId++}`;
   }
 
-  async parseDiff(
-    patch: string,
-    filename: string,
-    previousFilename?: string,
-    oldContent?: string,
-    newContent?: string
-  ): Promise<ParsedDiff> {
-    const id = this.generateId();
-    const worker = this.getNextWorker();
-
-    return new Promise((resolve, reject) => {
-      this.pendingRequests.set(id, { worker, resolve, reject });
-      this.loads.set(worker, (this.loads.get(worker) ?? 0) + 1);
-
-      worker.postMessage({
-        type: "parse-diff",
-        id,
-        patch,
-        filename,
-        previousFilename,
-        oldContent,
-        newContent,
-      } as WorkerRequest);
-    });
-  }
-
-  async highlightLines(
-    content: string,
-    filename: string,
-    startLine: number,
-    oldStartLine: number,
-    count: number
-  ): Promise<DiffLine[]> {
-    const id = this.generateId();
-    const worker = this.getNextWorker();
-
-    return new Promise((resolve, reject) => {
-      this.pendingRequests.set(id, { worker, resolve, reject });
-      this.loads.set(worker, (this.loads.get(worker) ?? 0) + 1);
-
-      worker.postMessage({
-        type: "highlight-lines",
-        id,
-        content,
-        filename,
-        startLine,
-        oldStartLine,
-        count,
-      } as WorkerRequest);
-    });
-  }
-
-  async compareContents(
-    oldContent: string,
-    newContent: string,
-    filename: string,
-    context?: number
-  ): Promise<ParsedDiff> {
-    const id = this.generateId();
-    const worker = this.getNextWorker();
-    return new Promise((resolve, reject) => {
-      this.pendingRequests.set(id, { worker, resolve, reject });
-      this.loads.set(worker, (this.loads.get(worker) ?? 0) + 1);
-      worker.postMessage({
-        type: "compare-content",
-        id,
-        oldContent,
-        newContent,
-        filename,
-        context,
-      } satisfies WorkerRequest);
-    });
-  }
-
   /** Hunk-only unified patch of the deliberate changes between two patches. */
   async interdiff(patch1: string, patch2: string): Promise<string> {
     const id = this.generateId();
@@ -192,25 +108,8 @@ export class DiffWorkerPool {
         id,
         patch1,
         patch2,
-      } as WorkerRequest);
+      } satisfies WorkerRequest);
     });
-  }
-
-  /**
-   * Parse multiple diffs in parallel across the worker pool.
-   */
-  async parseDiffBatch(
-    items: Array<{
-      patch: string;
-      filename: string;
-      previousFilename?: string;
-    }>
-  ): Promise<ParsedDiff[]> {
-    return Promise.all(
-      items.map((item) =>
-        this.parseDiff(item.patch, item.filename, item.previousFilename)
-      )
-    );
   }
 
   /**

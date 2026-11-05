@@ -16,7 +16,7 @@ import remarkGemoji from "remark-gemoji";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
 import { refractor } from "refractor/all";
-import { hastToHtml } from "../../shared/diff-utils";
+import { hastToHtml } from "../../shared/html";
 import { cn } from "../cn";
 import { isMac } from "./keycap";
 import { Popover, PopoverContent, PopoverAnchor } from "./popover";
