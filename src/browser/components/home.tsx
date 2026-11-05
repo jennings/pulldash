@@ -337,11 +337,13 @@ function getModeFilter(mode: FilterMode, authoredBy?: string): string {
 }
 
 // Build queries grouped by mode (GitHub doesn't support per-repo qualifiers with OR)
-// Multiple repo: qualifiers act as OR, but user filters apply to all repos
-function buildSearchQueries(
+// Multiple repo: qualifiers act as OR, but user filters apply to all repos.
+// The free-text `userQuery` is appended verbatim to every generated query.
+export function buildSearchQueries(
   config: FilterConfig,
   state: StateFilter,
-  stalledThreshold?: string
+  stalledThreshold?: string,
+  userQuery?: string
 ): string[] {
   // Filter out disabled repos (enabled defaults to true if not specified)
   const enabledRepos = config.repos.filter((r) => r.enabled !== false);
@@ -503,7 +505,10 @@ function buildSearchQueries(
     }
   }
 
-  return queries;
+  const trimmedUserQuery = userQuery?.trim();
+  return trimmedUserQuery
+    ? queries.map((q) => `${q} ${trimmedUserQuery}`)
+    : queries;
 }
 
 // ============================================================================
@@ -819,10 +824,23 @@ export const Home = memo(function Home({ active }: { active: boolean }) {
     return d.toISOString().slice(0, 10);
   }, [showStalledOnly]);
 
+  // Free-text PR search appended to every filter query. The input updates
+  // immediately; the committed query (which triggers a GitHub search) is
+  // debounced, and Enter commits without waiting.
+  const [prSearchInput, setPrSearchInput] = useState("");
+  const [prSearchQuery, setPrSearchQuery] = useState("");
+  useEffect(() => {
+    const trimmed = prSearchInput.trim();
+    if (trimmed === prSearchQuery) return;
+    const timeout = setTimeout(() => setPrSearchQuery(trimmed), 400);
+    return () => clearTimeout(timeout);
+  }, [prSearchInput, prSearchQuery]);
+
   // Build queries from config (one per mode group)
   const searchQueries = useMemo(
-    () => buildSearchQueries(config, stateFilter, stalledThreshold),
-    [config, stateFilter, teamsKey, stalledThreshold]
+    () =>
+      buildSearchQueries(config, stateFilter, stalledThreshold, prSearchQuery),
+    [config, stateFilter, teamsKey, stalledThreshold, prSearchQuery]
   );
 
   const previousFilter = useRef({ searchQueries, showUpdatedOnly });
@@ -1816,6 +1834,43 @@ export const Home = memo(function Home({ active }: { active: boolean }) {
                   No activity for at least {STALLED_DAYS} days
                 </TooltipContent>
               </Tooltip>
+
+              {/* Free-text search appended to the filter queries */}
+              <div className="relative shrink-0 w-56">
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
+                <input
+                  type="text"
+                  value={prSearchInput}
+                  onChange={(e) => setPrSearchInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      setPrSearchQuery(prSearchInput.trim());
+                    } else if (e.key === "Escape" && prSearchInput) {
+                      e.preventDefault();
+                      setPrSearchInput("");
+                      setPrSearchQuery("");
+                    }
+                  }}
+                  placeholder="Search pull requests..."
+                  aria-label="Search pull requests"
+                  spellCheck={false}
+                  className="w-full h-7 pl-7 pr-7 rounded-md border border-border bg-muted/50 text-xs placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent"
+                />
+                {prSearchInput && (
+                  <button
+                    onClick={() => {
+                      setPrSearchInput("");
+                      setPrSearchQuery("");
+                    }}
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 rounded text-muted-foreground hover:text-foreground"
+                    aria-label="Clear search"
+                    title="Clear search"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
 
               {/* Divider between the filter toggles and the results count. */}
               <div aria-hidden className="h-4 w-px bg-border shrink-0" />
