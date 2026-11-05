@@ -39,6 +39,7 @@ import {
 } from "../../lib/file-diff";
 import {
   DIFF_THEMES,
+  HIGHLIGHTER_OPTIONS,
   isDiffInstance,
   readDiffExpansion,
   useDiffThemeType,
@@ -615,6 +616,7 @@ export const DiffViewer = memo(function DiffViewer({
       theme: DIFF_THEMES,
       themeType,
       lineDiffType: "word-alt",
+      ...HIGHLIGHTER_OPTIONS,
       diffStyle: viewMode,
       overflow: wordWrap ? "wrap" : "scroll",
       hunkSeparators: "line-info",

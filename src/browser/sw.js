@@ -6,10 +6,11 @@ const CACHE = "pulldash-v2";
 
 const precached = new Set(PRECACHE);
 
-// Code-split chunks that are only reached through dynamic import() (Shiki
-// grammars/themes for the diff highlighter) are deliberately not precached -
-// there are hundreds. They are hashed too, so they are cached on first use.
-const LAZY_CHUNK = /^\/(?:pierre\/|chunk-)[^/]+\.js$/;
+// Code-split chunks that are only reached through dynamic import() (Highlights
+// themes and Shiki grammars/themes for the diff highlighter) are deliberately
+// not precached - there are hundreds. They are hashed too, so they are cached
+// on first use.
+const LAZY_CHUNK = /^\/chunk-[^/]+\.js$/;
 
 self.addEventListener("install", (e) => {
   e.waitUntil(
