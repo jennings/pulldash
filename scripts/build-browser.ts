@@ -6,6 +6,8 @@ import {
   browserBuildMode,
   lazyChunkPaths,
   metafileInputs,
+  repointEntryScript,
+  verifyEntryScript,
   verifyProductionBundle,
 } from "./browser-build-mode";
 
@@ -36,23 +38,6 @@ async function build() {
       await rm(resolve("./dist/browser/lib", file), { force: true });
     }
   }
-  const pierreResult = await buildPierreWorker();
-  if (!pierreResult.success) {
-    console.error("Pierre worker build failed:", pierreResult.logs);
-    return false;
-  }
-  const pierreEntry = pierreResult.outputs.find(
-    (o) => o.kind === "entry-point"
-  );
-  if (!pierreEntry) {
-    console.error("Pierre worker build produced no entry point");
-    return false;
-  }
-  const pierreWorkerUrl = `/pierre/${basename(pierreEntry.path)}`;
-  // Installed before the main build because its URL is baked into the app; the
-  // staged files are only copied in once the worker build has succeeded.
-  await installPierreWorker(pierreResult.outputs.map((o) => basename(o.path)));
-  // Build main app
   const mainResult = await Bun.build({
     entrypoints: ["./src/browser/index.html"],
     outdir: "./dist/browser",
@@ -65,7 +50,6 @@ async function build() {
     define: {
       ...define,
       __DIFF_WORKER_URL__: JSON.stringify(workerUrl),
-      __PIERRE_WORKER_URL__: JSON.stringify(pierreWorkerUrl),
     },
   });
 
@@ -81,8 +65,8 @@ async function build() {
     await verifyProductionBundle(mainResult.outputs);
   }
 
-  // Every build emits a fresh set of hashed chunks (hundreds, because pierre's
-  // main-thread fallback imports Shiki grammars dynamically). Drop the ones
+  // Every build emits a fresh set of hashed chunks (hundreds, because pierre
+  // imports Highlights themes and Shiki grammars dynamically). Drop the ones
   // this build no longer produces, after the new ones exist so a running dev
   // server never sees a gap.
   const fresh = new Set(mainResult.outputs.map((o) => basename(o.path)));
@@ -94,7 +78,18 @@ async function build() {
 
   // Make paths absolute to root in index.html and inject spa redirect script
   const indexPath = "./dist/browser/index.html";
-  const indexHtml = await Bun.file(indexPath).text();
+  const builtHtml = await Bun.file(indexPath).text();
+  const {
+    html: indexHtml,
+    from,
+    to,
+  } = repointEntryScript(builtHtml, mainResult.outputs);
+  if (from !== to) {
+    console.warn(
+      `index.html loaded ${from} instead of the entry point; using ${to}`
+    );
+  }
+  verifyEntryScript(indexHtml, mainResult.outputs);
   await Bun.write(
     indexPath,
     indexHtml
@@ -133,33 +128,22 @@ async function build() {
     const at = p.lastIndexOf(outMarker);
     return at >= 0 ? p.slice(at + outMarker.length) : p.replace(/^\/+/, "");
   };
-  const mainInputs = metafileInputs(mainResult.metafile!, "/");
-  const pierreInputs = metafileInputs(pierreResult.metafile!, "/pierre/");
+  const mainInputs = metafileInputs(mainResult.metafile!);
   const mainSite = mainResult.outputs.map((o) => {
     const path = `/${sitePath(o.path)}`;
     return { sitePath: path, kind: o.kind, inputs: mainInputs.get(path) ?? [] };
   });
-  const pierreSite = pierreResult.outputs.map((o) => {
-    const path = `/pierre/${basename(o.path)}`;
-    return {
-      sitePath: path,
-      kind: o.kind,
-      inputs: pierreInputs.get(path) ?? [],
-    };
-  });
-  // Shiki grammar and theme chunks (hundreds) are runtime-cached on first use
-  // rather than precached. Everything else, including lazily imported app and
-  // Shiki engine chunks, is needed offline and is precached.
+  // Shiki and Highlights grammar/theme chunks (hundreds) are runtime-cached on
+  // first use rather than precached. Everything else, including lazily imported
+  // app chunks and the highlighter engines, is needed offline and is precached.
   const lazyMain = lazyChunkPaths(mainSite);
-  const lazyPierre = lazyChunkPaths(pierreSite);
-  const lazy = new Set([...lazyMain, ...lazyPierre]);
   const precache = [
     "/",
     "/spa-redirect.js",
     workerUrl,
-    ...[...mainSite, ...pierreSite]
+    ...mainSite
       .map((o) => o.sitePath)
-      .filter((p) => /\.(js|css|svg|woff2?)$/.test(p) && !lazy.has(p)),
+      .filter((p) => /\.(js|css|svg|woff2?)$/.test(p) && !lazyMain.has(p)),
   ];
   const sw = await Bun.file(swPath).text();
   const injected = sw.replace(
@@ -188,10 +172,7 @@ async function build() {
   for (const output of allOutputs)
     console.log(`  ${output.path} (${(output.size / 1024).toFixed(1)} KiB)`);
   console.log(
-    `Main build: ${mainResult.outputs.length} files, ${lazyMain.size} lazy Shiki chunks not precached`
-  );
-  console.log(
-    `Pierre worker: ${pierreResult.outputs.length} files, ${lazyPierre.size} lazy Shiki chunks not precached, entry ${pierreWorkerUrl}`
+    `Main build: ${mainResult.outputs.length} files, ${lazyMain.size} lazy Shiki/Highlights chunks not precached`
   );
   console.log(`Service worker precache: ${new Set(precache).size} URLs`);
   return true;
@@ -208,49 +189,6 @@ function buildWorker() {
     minify: mode.minify,
     define,
   });
-}
-
-const PIERRE_STAGING = "./dist/.pierre-build";
-const PIERRE_OUT = "./dist/browser/pierre";
-
-/**
- * Pierre's highlighter worker. Splitting keeps Shiki's ~480 grammar/theme
- * modules as lazily loaded chunks instead of one multi-megabyte worker.
- * Built into a staging directory and copied into place by
- * `installPierreWorker`, so the served `pierre/` directory is never empty.
- */
-async function buildPierreWorker() {
-  await rm(PIERRE_STAGING, { recursive: true, force: true });
-  return Bun.build({
-    entrypoints: [
-      Bun.fileURLToPath(import.meta.resolve("@pierre/diffs/worker/worker.js")),
-    ],
-    outdir: PIERRE_STAGING,
-    naming: "[name]-[hash].[ext]",
-    target: "browser",
-    format: "esm",
-    splitting: true,
-    metafile: true,
-    minify: mode.minify,
-    define,
-  });
-}
-
-/**
- * Copies the staged worker over `dist/browser/pierre`, then removes files the
- * new build no longer produces. Files are content-hashed, so overwriting in
- * place never changes what a given URL serves; unlike deleting the directory
- * first, a request arriving mid-build still finds its file.
- */
-async function installPierreWorker(files: string[]) {
-  await cp(PIERRE_STAGING, PIERRE_OUT, { recursive: true, force: true });
-  const fresh = new Set(files);
-  for (const file of await readdir(PIERRE_OUT)) {
-    if (!fresh.has(file)) {
-      await rm(resolve(PIERRE_OUT, file), { recursive: true, force: true });
-    }
-  }
-  await rm(PIERRE_STAGING, { recursive: true, force: true });
 }
 
 if (!(await build()) && !isWatch) process.exitCode = 1;
