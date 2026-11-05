@@ -76,11 +76,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         break;
       }
       case "interdiff": {
-        const result = computeInterdiff(
-          request.patch1,
-          request.patch2,
-          request.filename
-        );
+        const result = computeInterdiff(request.patch1, request.patch2);
         self.postMessage({
           type: "interdiff-result",
           id: request.id,

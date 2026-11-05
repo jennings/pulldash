@@ -1,181 +1,91 @@
 // Pure helpers powering the diff content search (Cmd/Ctrl+F in the changes
-// view). All matching runs over data already in memory: the parsed virtual
-// rows of the open file and the raw patch of every changed file. No network,
-// no virtualization changes — display speed is unaffected.
+// view). All matching runs over data already in memory: the rows of the open
+// file and the raw patch of every changed file. No network, no rendering
+// changes — display speed is unaffected.
 
-export interface SearchRange {
-  start: number;
-  length: number;
-}
+import type { FileDiffMetadata } from "@pierre/diffs";
+import type { DiffRow } from "./file-diff";
 
-export interface SearchableSegment {
-  value: string;
-  type?: string;
-}
-
-export interface SearchableLine {
-  type?: string;
-  content: SearchableSegment[];
-  oldLineNumber?: number | null;
-  newLineNumber?: number | null;
-}
-
-export interface SearchableRow {
-  type: string;
-  line?: SearchableLine;
-  pair?: {
-    left?: SearchableLine | null;
-    right?: SearchableLine | null;
-  } | null;
-}
-
-export interface RowMatch {
-  rowIndex: number;
+/** A search hit. `start`/`end` are offsets into the line's text (no marker). */
+export interface DiffSearchMatch {
   side: "old" | "new";
-  oldLine: number | null;
-  newLine: number | null;
+  /** Line number on `side`. */
+  lineNumber: number;
   start: number;
-  length: number;
+  end: number;
+  /** Hunk the line belongs to (for a gap, the hunk it precedes). */
+  hunkIndex: number;
+  /** The line is hidden in a collapsed gap: expand it to show the match. */
+  inGap: boolean;
 }
 
-export interface PatchMatch {
+export interface PatchMatch extends DiffSearchMatch {
   filename: string;
-  kind: "context" | "insert" | "delete";
-  oldLine: number | null;
-  newLine: number | null;
-  start: number;
-  length: number;
 }
 
 function findRanges(
   text: string,
   needle: string,
   caseSensitive?: boolean
-): SearchRange[] {
+): Array<{ start: number; end: number }> {
   const hay = caseSensitive ? text : text.toLowerCase();
   const n = caseSensitive ? needle : needle.toLowerCase();
   if (!n) return [];
-  const ranges: SearchRange[] = [];
+  const ranges: Array<{ start: number; end: number }> = [];
   let idx = hay.indexOf(n);
   while (idx !== -1) {
-    ranges.push({ start: idx, length: n.length });
+    ranges.push({ start: idx, end: idx + n.length });
     idx = hay.indexOf(n, idx + n.length);
   }
   return ranges;
 }
 
-// Which side-space a segment advances: "new" content = normal + insert
-// segments; "old" content = normal + delete segments.
-function advances(side: "old" | "new", type?: string): boolean {
-  return side === "new" ? type !== "delete" : type !== "insert";
-}
-
-// Map a range within a side's concatenated content back to per-segment
-// ranges. Returns null when the side has no content at all.
-export function mapRangeToSegments(
-  segments: SearchableSegment[],
-  side: "old" | "new",
-  start: number,
-  length: number
-): Array<{ segIndex: number; start: number; length: number }> | null {
-  const hits: Array<{ segIndex: number; start: number; length: number }> = [];
-  let any = false;
-  let offset = 0;
-  const end = start + length;
-  for (let i = 0; i < segments.length; i++) {
-    const seg = segments[i];
-    if (!advances(side, seg.type)) continue;
-    any = true;
-    const segEnd = offset + seg.value.length;
-    if (segEnd > start && offset < end) {
-      const localStart = Math.max(0, start - offset);
-      const localEnd = Math.min(seg.value.length, end - offset);
-      if (localEnd > localStart) {
-        hits.push({
-          segIndex: i,
-          start: localStart,
-          length: localEnd - localStart,
-        });
-      }
-    }
-    offset = segEnd;
-  }
-  return any ? hits : null;
-}
-
+/**
+ * Find `query` in the rows of a file as Pierre shows them in unified mode, in
+ * display order. A context line is reported on the new side; deletions on the
+ * old side. When `fileDiff` has been hydrated with the full file text, lines
+ * hidden in collapsed gaps are searched too and reported with `inGap`.
+ */
 export function searchRows(
-  rows: SearchableRow[],
+  rows: readonly DiffRow[],
   query: string,
-  opts?: { caseSensitive?: boolean }
-): RowMatch[] {
-  const matches: RowMatch[] = [];
+  opts?: { caseSensitive?: boolean; fileDiff?: FileDiffMetadata }
+): DiffSearchMatch[] {
+  const matches: DiffSearchMatch[] = [];
   if (!query) return matches;
-  for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
-    const row = rows[rowIndex];
-    if (row.type === "line" && row.line) {
-      const line = row.line;
-      const mixed = line.content.some(
-        (s) => s.type === "insert" || s.type === "delete"
-      );
-      // A merged modified row carries both old and new content; a pure
-      // context row has identical old/new spaces, so only search "new".
-      const sides: Array<"old" | "new"> =
-        line.type === "insert"
-          ? ["new"]
-          : line.type === "delete"
-            ? ["old"]
-            : mixed
-              ? ["new", "old"]
-              : ["new"];
-      for (const side of sides) {
-        let text = "";
-        for (const seg of line.content) {
-          if (advances(side, seg.type)) text += seg.value;
-        }
+  const hidden =
+    opts?.fileDiff && !opts.fileDiff.isPartial
+      ? opts.fileDiff.additionLines
+      : null;
+  for (const row of rows) {
+    if (row.kind === "gap") {
+      if (!hidden) continue;
+      for (let i = 0; i < row.count; i++) {
+        const lineNumber = row.newStart + i;
+        const text = (hidden[lineNumber - 1] ?? "").replace(/\r?\n$/, "");
         for (const range of findRanges(text, query, opts?.caseSensitive)) {
           matches.push({
-            rowIndex,
-            side,
-            oldLine:
-              line.type === "insert" ? null : (line.oldLineNumber ?? null),
-            newLine:
-              line.type === "delete" ? null : (line.newLineNumber ?? null),
-            ...range,
-          });
-        }
-      }
-    } else if (row.type === "split-line" && row.pair) {
-      const { left, right } = row.pair;
-      if (left) {
-        let text = "";
-        for (const seg of left.content) {
-          if (advances("old", seg.type)) text += seg.value;
-        }
-        for (const range of findRanges(text, query, opts?.caseSensitive)) {
-          matches.push({
-            rowIndex,
-            side: "old",
-            oldLine: left.oldLineNumber ?? null,
-            newLine: null,
-            ...range,
-          });
-        }
-      }
-      if (right) {
-        let text = "";
-        for (const seg of right.content) {
-          if (advances("new", seg.type)) text += seg.value;
-        }
-        for (const range of findRanges(text, query, opts?.caseSensitive)) {
-          matches.push({
-            rowIndex,
             side: "new",
-            oldLine: null,
-            newLine: right.newLineNumber ?? null,
+            lineNumber,
             ...range,
+            hunkIndex: row.hunkIndex,
+            inGap: true,
           });
         }
       }
+      continue;
+    }
+    const side = row.type === "deletion" ? "old" : "new";
+    const lineNumber = side === "old" ? row.oldLine : row.newLine;
+    if (lineNumber === null) continue;
+    for (const range of findRanges(row.text, query, opts?.caseSensitive)) {
+      matches.push({
+        side,
+        lineNumber,
+        ...range,
+        hunkIndex: row.hunkIndex,
+        inGap: false,
+      });
     }
   }
   return matches;
@@ -186,6 +96,8 @@ export interface PatchLineMatch {
   oldLine: number | null;
   newLine: number | null;
   text: string;
+  /** Ordinal of the `@@` hunk the line is in. */
+  hunkIndex: number;
 }
 
 // Walk a raw unified diff, tracking line numbers from @@ headers.
@@ -193,8 +105,10 @@ export function walkPatchLines(patch: string): PatchLineMatch[] {
   const out: PatchLineMatch[] = [];
   let oldLine = 0;
   let newLine = 0;
+  let hunkIndex = -1;
   for (const raw of patch.split("\n")) {
     if (raw.startsWith("@@")) {
+      hunkIndex++;
       const m = raw.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
       if (m) {
         oldLine = parseInt(m[1], 10);
@@ -217,6 +131,7 @@ export function walkPatchLines(patch: string): PatchLineMatch[] {
         oldLine: null,
         newLine: newLine++,
         text: raw.slice(1),
+        hunkIndex,
       });
     } else if (raw.startsWith("-")) {
       out.push({
@@ -224,6 +139,7 @@ export function walkPatchLines(patch: string): PatchLineMatch[] {
         oldLine: oldLine++,
         newLine: null,
         text: raw.slice(1),
+        hunkIndex,
       });
     } else if (raw.startsWith(" ")) {
       out.push({
@@ -231,6 +147,7 @@ export function walkPatchLines(patch: string): PatchLineMatch[] {
         oldLine: oldLine++,
         newLine: newLine++,
         text: raw.slice(1),
+        hunkIndex,
       });
     }
     // "" (trailing newline artifact) is ignored
@@ -249,12 +166,14 @@ export function searchPatches(
     if (!file.patch || file.filename === opts?.excludeFilename) continue;
     for (const line of walkPatchLines(file.patch)) {
       for (const range of findRanges(line.text, query, opts?.caseSensitive)) {
+        const side = line.kind === "delete" ? "old" : "new";
         matches.push({
           filename: file.filename,
-          kind: line.kind,
-          oldLine: line.oldLine,
-          newLine: line.newLine,
+          side,
+          lineNumber: (side === "old" ? line.oldLine : line.newLine) ?? 0,
           ...range,
+          hunkIndex: line.hunkIndex,
+          inGap: false,
         });
       }
     }
@@ -262,12 +181,17 @@ export function searchPatches(
   return matches;
 }
 
+/**
+ * Combine the open file's row matches with every other file's patch matches in
+ * file-list order. The selected file is never searched in its patch: its rows
+ * already include whatever the user expanded.
+ */
 export function mergeSearchMatches(
   files: Array<{ filename: string }>,
   selectedFile: string | null,
-  rowMatches: RowMatch[],
+  rowMatches: DiffSearchMatch[],
   patchMatches: PatchMatch[]
-): Array<Omit<RowMatch, "rowIndex"> & { filename: string; rowIndex?: number }> {
+): PatchMatch[] {
   const byFile = new Map<string, PatchMatch[]>();
   for (const match of patchMatches) {
     const matches = byFile.get(match.filename);
@@ -277,13 +201,6 @@ export function mergeSearchMatches(
   return files.flatMap((file) =>
     file.filename === selectedFile
       ? rowMatches.map((match) => ({ filename: file.filename, ...match }))
-      : (byFile.get(file.filename) ?? []).map((match) => ({
-          filename: match.filename,
-          side: match.kind === "delete" ? ("old" as const) : ("new" as const),
-          oldLine: match.oldLine,
-          newLine: match.newLine,
-          start: match.start,
-          length: match.length,
-        }))
+      : (byFile.get(file.filename) ?? [])
   );
 }

@@ -1,4 +1,5 @@
 import { test, expect, beforeEach, mock } from "bun:test";
+import { hydratePartialDiff } from "@pierre/diffs";
 import type {
   PullRequest,
   PullRequestFile,
@@ -16,14 +17,31 @@ import type {
   PRCommit,
   ReviewThread,
 } from "@/browser/contexts/github";
+import { fileDiffFromPatch, type LoadedDiff } from "@/browser/lib/file-diff";
 
 // Mock diffService so interdiff calls resolve without real WebWorkers
 mock.module("@/browser/lib/diff", () => ({
   diffService: {
-    parseDiff: mock(() => Promise.resolve({ hunks: [] })),
-    interdiff: mock(() => Promise.resolve({ hunks: [] })),
+    interdiff: mock(() => Promise.resolve("")),
   },
 }));
+
+/** A diff from hunks written as raw patch lines (`+`, `-`, ` ` prefixed). */
+function loadedDiff(
+  ...hunks: { oldStart: number; newStart: number; lines: string[] }[]
+): LoadedDiff {
+  const patch = hunks
+    .map(({ oldStart, newStart, lines }) => {
+      const oldCount = lines.filter((l) => l[0] !== "+").length;
+      const newCount = lines.filter((l) => l[0] !== "-").length;
+      return [
+        `@@ -${oldStart},${oldCount} +${newStart},${newCount} @@`,
+        ...lines,
+      ].join("\n");
+    })
+    .join("\n");
+  return { fileDiff: fileDiffFromPatch({ patch, filename: "file.ts" }) };
+}
 
 // Mock localStorage
 const storage = new Map<string, string>();
@@ -220,22 +238,9 @@ test("a superseded commit fetch cannot replace the active files", async () => {
 
 test("line, side, and go-to navigation use the displayed comparison", () => {
   const store = createStore({ files: [createMockFile("file.ts")] });
-  const diff = (old: number, current: number) => ({
-    hunks: [
-      {
-        type: "hunk",
-        oldStart: old,
-        newStart: current,
-        lines: [0, 1].map((i) => ({
-          type: "normal",
-          oldLineNumber: old + i,
-          newLineNumber: current + i,
-          content: [{ type: "normal", value: "line", html: "line" }],
-        })),
-      },
-    ],
-  });
-  store.setLoadedDiff("file.ts", diff(1, 1) as any);
+  const diff = (old: number, current: number) =>
+    loadedDiff({ oldStart: old, newStart: current, lines: [" line", " line"] });
+  store.setLoadedDiff("file.ts", diff(1, 1));
   (store as any).set({
     selectedFile: "file.ts",
     interdiffEnabled: true,
@@ -324,20 +329,14 @@ test("line navigation skips outdated comments absent from the rendered diff", ()
     ],
   });
   store.selectFile("src/index.ts");
-  store.setLoadedDiff("src/index.ts", {
-    hunks: [
-      {
-        type: "hunk",
-        oldStart: 0,
-        newStart: 449,
-        lines: [449, 450].map((n) => ({
-          type: "insert",
-          newLineNumber: n,
-          content: [{ type: "normal", value: `line ${n}`, html: `line ${n}` }],
-        })),
-      },
-    ],
-  });
+  store.setLoadedDiff(
+    "src/index.ts",
+    loadedDiff({
+      oldStart: 0,
+      newStart: 449,
+      lines: ["+line 449", "+line 450"],
+    })
+  );
   store.setFocusedLine(449, "new");
   store.navigateLine("down", false);
   expect(store.getSnapshot().focusedLine).toBe(450);
@@ -359,26 +358,11 @@ test("line navigation enters and exits comments at their rendered position", () 
     ],
   });
   store.selectFile("src/index.ts");
-  const diff = {
-    hunks: [
-      {
-        type: "hunk" as const,
-        oldStart: 0,
-        newStart: 449,
-        lines: [449, 450, 451].map((n) => ({
-          type: "insert" as const,
-          newLineNumber: n,
-          content: [
-            {
-              type: "normal" as const,
-              value: n === 450 ? "anchored text" : `line ${n}`,
-              html: "",
-            },
-          ],
-        })),
-      },
-    ],
-  };
+  const diff = loadedDiff({
+    oldStart: 0,
+    newStart: 449,
+    lines: ["+line 449", "+anchored text", "+line 451"],
+  });
   store.setLoadedDiff("src/index.ts", diff);
   store.setFocusedLine(449, "new");
   store.navigateLine("down", false);
@@ -413,13 +397,15 @@ test("line navigation enters and exits comments at their rendered position", () 
   expect(store.getSnapshot().focusedCommentId).toBeNull();
 
   store.toggleComments();
-  store.setLoadedDiff("src/index.ts", {
-    ...diff,
-    hunks: diff.hunks.map((hunk) => ({
-      ...hunk,
-      lines: hunk.lines.map((line) => ({ ...line, content: [] })),
-    })),
-  });
+  // Once the commented text is gone from the diff, the comment is not entered.
+  store.setLoadedDiff(
+    "src/index.ts",
+    loadedDiff({
+      oldStart: 0,
+      newStart: 449,
+      lines: ["+line 449", "+line 450", "+line 451"],
+    })
+  );
   store.setFocusedLine(450, "new");
   store.navigateLine("down", false);
   expect(store.getSnapshot().focusedLine).toBe(451);
@@ -439,7 +425,7 @@ test("refresh preserves a selected commit and updates the latest baseline", asyn
     viewerPermission: "WRITE",
   });
   await store.setSelectedCommitSha("historical");
-  const diff = { hunks: [] };
+  const diff = loadedDiff();
   store.setLoadedDiff("historical.ts", diff);
   const latest = createMockFile("latest.ts");
   await store.refreshPR(
@@ -458,7 +444,7 @@ test("refresh preserves a selected commit and updates the latest baseline", asyn
 test("refresh invalidates latest diffs only when the comparison changes", async () => {
   const store = createStore();
   const { pr, files } = store.getSnapshot();
-  const diff = { hunks: [] };
+  const diff = loadedDiff();
   store.setLoadedDiff(files[0]!.filename, diff);
   await store.refreshPR({ ...pr, title: "edited title" }, [...files]);
   expect(store.getSnapshot().loadedDiffs[files[0]!.filename]).toBe(diff);
@@ -802,14 +788,14 @@ test("setFocusedLine records mouse source", () => {
   expect(store.getSnapshot().focusSource).toBe("keyboard");
 });
 
-test("setFocusedLine clears skip block focus", () => {
+test("setFocusedLine clears gap focus", () => {
   const store = createStore();
   store.selectFile("src/index.ts");
-  store.setFocusedSkipBlock(0);
+  store.setFocusedGap(0);
 
   store.setFocusedLine(10, "new");
 
-  expect(store.getSnapshot().focusedSkipBlockIndex).toBeNull();
+  expect(store.getSnapshot().focusedGapIndex).toBeNull();
 });
 
 test("setSelectionAnchor creates range selection", () => {
@@ -1522,7 +1508,7 @@ test("identical patches still go through interdiff computation", async () => {
 
   const state = store.getSnapshot();
   expect(state.versionCompareNoChangeFiles).toEqual([]);
-  expect(state.interdiffLoadedDiffs["same.py"]?.hunks).toEqual([]);
+  expect(state.interdiffLoadedDiffs["same.py"]?.fileDiff.hunks).toEqual([]);
 });
 
 test("files only in previous version get an interdiff entry via interdiff(prevPatch, '')", async () => {
@@ -2039,53 +2025,355 @@ test("updateReviewThread does not affect non-matching threads", () => {
 });
 
 // ============================================================================
-// Skip blocks
+// Collapsed gaps, expansion and hydration
 // ============================================================================
 
-test("getSkipBlockKey returns a stable key", () => {
+// Old file: L1..L32. New file: L5 -> L5x, L20 removed, "extra" added after L28.
+const OLD_LINES = Array.from({ length: 32 }, (_, i) => `L${i + 1}`);
+const NEW_LINES = OLD_LINES.flatMap((line) =>
+  line === "L5"
+    ? ["L5x"]
+    : line === "L20"
+      ? []
+      : line === "L28"
+        ? [line, "extra"]
+        : [line]
+);
+const GAPPED_PATCH = [
+  "@@ -2,7 +2,7 @@",
+  " L2",
+  " L3",
+  " L4",
+  "-L5",
+  "+L5x",
+  " L6",
+  " L7",
+  " L8",
+  "@@ -17,7 +17,6 @@",
+  " L17",
+  " L18",
+  " L19",
+  "-L20",
+  " L21",
+  " L22",
+  " L23",
+  "@@ -26,5 +25,6 @@",
+  " L26",
+  " L27",
+  " L28",
+  "+extra",
+  " L29",
+  " L30",
+].join("\n");
+
+function gappedDiff(): LoadedDiff {
+  return {
+    fileDiff: fileDiffFromPatch({
+      patch: GAPPED_PATCH,
+      filename: "src/index.ts",
+    }),
+  };
+}
+
+/** Pierre hydrating the diff in place after the viewer expanded a hunk. */
+function hydrate(diff: LoadedDiff) {
+  hydratePartialDiff("merge", diff.fileDiff, {
+    oldFile: { name: "src/index.ts", contents: OLD_LINES.join("\n") + "\n" },
+    newFile: { name: "src/index.ts", contents: NEW_LINES.join("\n") + "\n" },
+  });
+}
+
+function storeWithDiff(diff = gappedDiff()) {
   const store = createStore();
-  expect(store.getSkipBlockKey("file.ts", 0)).toBe("file.ts:0");
-  expect(store.getSkipBlockKey("file.ts", 5)).toBe("file.ts:5");
+  store.selectFile("src/index.ts");
+  store.setLoadedDiff("src/index.ts", diff);
+  return store;
+}
+
+const describeRows = (store: PRReviewStore) =>
+  store
+    .getDiffRows("src/index.ts")
+    .map((row) =>
+      row.kind === "gap"
+        ? `gap#${row.hunkIndex}(${row.count})`
+        : `${row.type[0]}${row.newLine ?? row.oldLine}`
+    );
+
+test("down/up navigation visits collapsed gaps by hunk index", () => {
+  const store = storeWithDiff();
+  // The first item is the gap before the first hunk.
+  store.navigateLine("down", false);
+  expect(store.getSnapshot().focusedGapIndex).toBe(0);
+  expect(store.getSnapshot().focusedLine).toBeNull();
+  store.navigateLine("down", false);
+  expect(store.getSnapshot().focusedGapIndex).toBeNull();
+  expect(store.getSnapshot().focusedLine).toBe(2);
+
+  store.setFocusedLine(8, "new");
+  store.navigateLine("down", false);
+  expect(store.getSnapshot().focusedGapIndex).toBe(1);
+  store.navigateLine("down", false);
+  expect(store.getSnapshot().focusedLine).toBe(17);
+  store.navigateLine("up", false);
+  expect(store.getSnapshot().focusedGapIndex).toBe(1);
+  store.navigateLine("up", false);
+  expect(store.getSnapshot()).toMatchObject({
+    focusedLine: 8,
+    focusedLineSide: "new",
+    focusedGapIndex: null,
+  });
 });
 
-test("setSkipBlockExpanding sets the expanding map", () => {
-  const store = createStore();
-  const key = store.getSkipBlockKey("file.ts", 0);
-
-  store.setSkipBlockExpanding(key, true);
-  expect(store.getSnapshot().expandingSkipBlocks.has(key)).toBe(true);
-
-  store.setSkipBlockExpanding(key, false);
-  expect(store.getSnapshot().expandingSkipBlocks.has(key)).toBe(false);
+test("a deleted line is focused on the old side and navigation crosses it", () => {
+  const store = storeWithDiff();
+  store.setFocusedLine(4, "new");
+  store.navigateLine("down", false);
+  expect(store.getSnapshot()).toMatchObject({
+    focusedLine: 5,
+    focusedLineSide: "old",
+  });
+  store.navigateLine("down", false);
+  expect(store.getSnapshot()).toMatchObject({
+    focusedLine: 5,
+    focusedLineSide: "new",
+  });
 });
 
-test("isSkipBlockExpanding returns correct state", () => {
-  const store = createStore();
-  expect(store.isSkipBlockExpanding("file.ts", 0)).toBe(false);
-
-  store.setSkipBlockExpanding(store.getSkipBlockKey("file.ts", 0), true);
-  expect(store.isSkipBlockExpanding("file.ts", 0)).toBe(true);
+test("split view navigates visual rows and gaps on the focused side", () => {
+  const store = storeWithDiff();
+  (store as any).set({ diffViewMode: "split" });
+  // Row: "-L5 | +L5x" share a visual row.
+  store.setFocusedLine(4, "new");
+  store.navigateLine("down", false);
+  expect(store.getSnapshot()).toMatchObject({
+    focusedLine: 5,
+    focusedLineSide: "new",
+  });
+  store.navigateSide("left");
+  expect(store.getSnapshot()).toMatchObject({
+    focusedLine: 5,
+    focusedLineSide: "old",
+  });
+  store.navigateLine("down", false);
+  expect(store.getSnapshot()).toMatchObject({
+    focusedLine: 6,
+    focusedLineSide: "old",
+  });
+  // Three rows down (L7, L8) reaches the gap before the second hunk.
+  store.navigateLine("down", false, 3);
+  expect(store.getSnapshot().focusedGapIndex).toBe(1);
+  expect(store.getSnapshot().focusedLine).toBeNull();
 });
 
-test("setExpandedSkipBlock stores expanded lines", () => {
-  const store = createStore();
-  const key = store.getSkipBlockKey("file.ts", 0);
-  const lines: any[] = [{ type: "normal" }];
+test("go-to line picks the closest line in the chosen column", () => {
+  const store = storeWithDiff();
+  store.enterGotoMode();
+  for (const char of "9") store.appendGotoInput(char);
+  store.executeGotoLine();
+  // New column: the closest displayed line to 9 is L8.
+  expect(store.getSnapshot()).toMatchObject({
+    focusedLine: 8,
+    focusedLineSide: "new",
+    gotoLineMode: false,
+  });
 
-  store.setExpandedSkipBlock(key, lines);
-
-  expect(store.getSnapshot().expandedSkipBlocks[key]).toBe(lines);
+  // Old column: line 5 exists as a deletion and is focused on the old side.
+  store.enterGotoMode();
+  store.toggleGotoLineSide();
+  store.appendGotoInput("5");
+  store.executeGotoLine();
+  expect(store.getSnapshot()).toMatchObject({
+    focusedLine: 5,
+    focusedLineSide: "old",
+  });
 });
 
-test("isSkipBlockExpanded returns true after expanding", () => {
-  const store = createStore();
-  expect(store.isSkipBlockExpanded("file.ts", 0)).toBe(false);
+test("go-to line on a diff without lines just leaves go-to mode", () => {
+  const store = storeWithDiff(loadedDiff());
+  store.enterGotoMode();
+  store.appendGotoInput("3");
+  store.executeGotoLine();
+  expect(store.getSnapshot().gotoLineMode).toBe(false);
+  expect(store.getSnapshot().focusedLine).toBeNull();
+});
 
-  store.setExpandedSkipBlock(store.getSkipBlockKey("file.ts", 0), [
-    { type: "normal" },
-  ] as any);
+test("syncDiffView derives rows from Pierre's expansion and hydration", () => {
+  const diff = gappedDiff();
+  const store = storeWithDiff(diff);
+  expect(describeRows(store).slice(0, 2)).toEqual(["gap#0(1)", "c2"]);
 
-  expect(store.isSkipBlockExpanded("file.ts", 0)).toBe(true);
+  // Hydration alone (no expansion yet) turns the 1-line leading gap into a line
+  // and adds the collapsed tail after the last hunk.
+  hydrate(diff);
+  store.syncDiffView("src/index.ts", new Map());
+  expect(store.getSnapshot().diffHydrated["src/index.ts"]).toBe(true);
+  expect(describeRows(store).slice(0, 2)).toEqual(["c1", "c2"]);
+  expect(describeRows(store).at(-1)).toBe("gap#3(2)");
+
+  // Partially expanding the gap before the second hunk from both ends.
+  store.syncDiffView(
+    "src/index.ts",
+    new Map([[1, { fromStart: 2, fromEnd: 1 }]])
+  );
+  expect(describeRows(store)).toContain("gap#1(5)");
+  expect(describeRows(store)).toContain("c9");
+  expect(describeRows(store)).toContain("c16");
+  expect(describeRows(store)).not.toContain("c12");
+
+  // Expanding it completely leaves no gap there.
+  store.syncDiffView(
+    "src/index.ts",
+    new Map([[1, { fromStart: 8, fromEnd: 0 }]])
+  );
+  expect(describeRows(store).some((row) => row.startsWith("gap#1"))).toBe(
+    false
+  );
+});
+
+test("syncDiffView is a no-op while nothing changed", () => {
+  const diff = gappedDiff();
+  const store = storeWithDiff(diff);
+  store.syncDiffView("src/index.ts", new Map());
+  const before = store.getSnapshot();
+  store.syncDiffView("src/index.ts", new Map());
+  expect(store.getSnapshot()).toBe(before);
+
+  const expansion = new Map([[1, { fromStart: 3, fromEnd: 0 }]]);
+  store.syncDiffView("src/index.ts", expansion);
+  const expanded = store.getSnapshot();
+  expect(expanded).not.toBe(before);
+  // Same contents in a new Map: still nothing to do.
+  store.syncDiffView(
+    "src/index.ts",
+    new Map([[1, { fromStart: 3, fromEnd: 0 }]])
+  );
+  expect(store.getSnapshot()).toBe(expanded);
+  // Rows are reused until something changes.
+  const rows = store.getDiffRows("src/index.ts");
+  expect(store.getDiffRows("src/index.ts")).toBe(rows);
+  // Ignored for files that are not loaded.
+  store.syncDiffView("README.md", expansion);
+  expect(store.getSnapshot()).toBe(expanded);
+});
+
+test("expansion applies only to the diff it was reported for", () => {
+  const normal = gappedDiff();
+  hydrate(normal);
+  const store = storeWithDiff(normal);
+  store.syncDiffView(
+    "src/index.ts",
+    new Map([[1, { fromStart: 8, fromEnd: 0 }]])
+  );
+  expect(describeRows(store).some((row) => row.startsWith("gap#1"))).toBe(
+    false
+  );
+
+  // Switching to the comparison of the same file shows it collapsed again,
+  // before the viewer has reported anything for it.
+  const comparison = gappedDiff();
+  hydrate(comparison);
+  (store as any).set({
+    interdiffEnabled: true,
+    interdiffLoadedDiffs: { "src/index.ts": comparison },
+  });
+  expect(describeRows(store)).toContain("gap#1(8)");
+
+  // Dropping the loaded diffs forgets the expansion for good.
+  (store as any).set({ interdiffEnabled: false });
+  (store as any).set({ loadedDiffs: {} });
+  expect(store.getSnapshot().diffExpansion).toEqual({});
+  store.setLoadedDiff("src/index.ts", normal);
+  expect(describeRows(store)).toContain("gap#1(8)");
+});
+
+test("expanding the focused gap away moves focus to the first revealed line", () => {
+  const diff = gappedDiff();
+  hydrate(diff);
+  const store = storeWithDiff(diff);
+  store.syncDiffView("src/index.ts", new Map());
+  store.setFocusedGap(1);
+  store.syncDiffView(
+    "src/index.ts",
+    new Map([[1, { fromStart: 8, fromEnd: 0 }]])
+  );
+  expect(store.getSnapshot()).toMatchObject({
+    focusedGapIndex: null,
+    focusedLine: 9,
+    focusedLineSide: "new",
+  });
+
+  // A gap that merely shrank keeps focus.
+  const partlyExpanded = storeWithDiff(
+    (() => {
+      const next = gappedDiff();
+      hydrate(next);
+      return next;
+    })()
+  );
+  partlyExpanded.syncDiffView("src/index.ts", new Map());
+  partlyExpanded.setFocusedGap(1);
+  partlyExpanded.syncDiffView(
+    "src/index.ts",
+    new Map([[1, { fromStart: 3, fromEnd: 0 }]])
+  );
+  expect(partlyExpanded.getSnapshot().focusedGapIndex).toBe(1);
+});
+
+test("Pierre syncs the expansion first and the loaded file later: focus still leaves the gap", () => {
+  const diff = gappedDiff();
+  const store = storeWithDiff(diff);
+  store.syncDiffView("src/index.ts", new Map());
+  store.setFocusedGap(1);
+  // Pierre records the expansion and redraws at once; the diff is still partial
+  // so the gap is still there and keeps focus.
+  store.syncDiffView(
+    "src/index.ts",
+    new Map([[1, { fromStart: 8, fromEnd: 0 }]])
+  );
+  expect(store.getSnapshot().focusedGapIndex).toBe(1);
+  // Then the full file arrives and the same expansion now takes effect.
+  hydrate(diff);
+  store.syncDiffView(
+    "src/index.ts",
+    new Map([[1, { fromStart: 8, fromEnd: 0 }]])
+  );
+  expect(store.getSnapshot()).toMatchObject({
+    focusedGapIndex: null,
+    focusedLine: 9,
+    focusedLineSide: "new",
+  });
+  store.navigateLine("down", false);
+  expect(store.getSnapshot().focusedLine).toBe(10);
+});
+
+test("a focused one-line gap becomes its line when the file loads", () => {
+  const diff = gappedDiff();
+  const store = storeWithDiff(diff);
+  store.syncDiffView("src/index.ts", new Map());
+  store.setFocusedGap(0);
+  hydrate(diff);
+  store.syncDiffView("src/index.ts", new Map());
+  expect(store.getSnapshot()).toMatchObject({
+    focusedGapIndex: null,
+    focusedLine: 1,
+  });
+});
+
+test("navigation includes lines revealed by expansion", () => {
+  const diff = gappedDiff();
+  hydrate(diff);
+  const store = storeWithDiff(diff);
+  store.syncDiffView(
+    "src/index.ts",
+    new Map([[1, { fromStart: 2, fromEnd: 0 }]])
+  );
+  store.setFocusedLine(8, "new");
+  store.navigateLine("down", false);
+  expect(store.getSnapshot().focusedLine).toBe(9);
+  store.navigateLine("down", false);
+  expect(store.getSnapshot().focusedLine).toBe(10);
+  store.navigateLine("down", false);
+  expect(store.getSnapshot().focusedGapIndex).toBe(1);
 });
 
 // ============================================================================

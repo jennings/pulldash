@@ -85,12 +85,12 @@ export function useKeyboardNavigation() {
         return;
       }
 
-      // Enter to expand focused skip block
-      if (e.key === "Enter" && state.focusedSkipBlockIndex !== null) {
+      // Enter to expand the focused collapsed gap
+      if (e.key === "Enter" && state.focusedGapIndex !== null) {
         e.preventDefault();
-        // Dispatch event to expand the skip block (handled by DiffViewer)
+        // Dispatch event to expand the gap (handled by the diff viewer)
         const event = new CustomEvent("pr-review:expand-skip-block", {
-          detail: { skipIndex: state.focusedSkipBlockIndex },
+          detail: { hunkIndex: state.focusedGapIndex },
         });
         window.dispatchEvent(event);
         return;

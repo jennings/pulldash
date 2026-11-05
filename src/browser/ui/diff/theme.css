@@ -916,21 +916,3 @@
     fill: transparent;
   }
 }
-
-tr[data-comment-highlight="true"] {
-  @apply !bg-[var(--color-yellow)]/20;
-  transition: background-color 150ms ease;
-}
-
-.dark tr[data-comment-highlight="true"] {
-  @apply !bg-[var(--color-yellow)]/20;
-  background-color: rgba(188, 133, 255, 0.22);
-}
-
-tr[data-comment-draft="true"] {
-  background-color: rgba(59, 130, 246, 0.12);
-}
-
-tr[data-comment-draft="true"] td:first-child {
-  border-left-color: rgba(59, 130, 246, 0.4);
-}

@@ -40,7 +40,7 @@ class FakeWorker {
           data: {
             type: "interdiff-result",
             id: data.id,
-            result: { hunks: [] },
+            result: "",
           },
         });
       }

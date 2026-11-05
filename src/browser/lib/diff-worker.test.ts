@@ -631,8 +631,7 @@ describe("interdiff message", () => {
     expect(posted).toHaveLength(1);
     expect(posted[0].type).toBe("interdiff-result");
     expect(posted[0].id).toBe("7");
-    expect(posted[0].result).toBeDefined();
-    expect(Array.isArray(posted[0].result.hunks)).toBe(true);
+    expect(posted[0].result).toBe("");
   });
 
   test("identical patches produce empty interdiff", () => {
@@ -646,7 +645,7 @@ describe("interdiff message", () => {
       data: { type: "interdiff", id: "8", patch1: patch, patch2: patch },
     });
 
-    expect(posted[0].result.hunks).toHaveLength(0);
+    expect(posted[0].result).toBe("");
   });
 
   test("different patches produce non-empty interdiff", () => {
@@ -663,7 +662,9 @@ describe("interdiff message", () => {
 
     handler({ data: { type: "interdiff", id: "9", patch1, patch2 } });
 
-    expect(posted[0].result.hunks.length).toBeGreaterThan(0);
+    expect(posted[0].result).toContain("@@");
+    expect(posted[0].result).toContain("-v1");
+    expect(posted[0].result).toContain("+v2");
   });
 });
 
