@@ -8,6 +8,7 @@ import {
   createContext,
   useContext,
   createElement,
+  type ComponentPropsWithoutRef,
   type ReactNode,
 } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
@@ -15,8 +16,13 @@ import remarkGfm from "remark-gfm";
 import remarkGemoji from "remark-gemoji";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
-import { refractor } from "refractor/all";
-import { hastToHtml } from "../../shared/html";
+import {
+  highlightCode,
+  loadCodeHighlighter,
+  useCodeHighlighterReady,
+  type HighlightedLines,
+} from "../lib/code-highlight";
+import { HighlightedCode } from "./highlighted-code";
 import { cn } from "../cn";
 import { isMac } from "./keycap";
 import { Popover, PopoverContent, PopoverAnchor } from "./popover";
@@ -51,6 +57,10 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "./tooltip";
 import { Dialog, DialogContent, DialogTitle } from "./dialog";
 import { useQuery } from "@tanstack/react-query";
 import { queries } from "../lib/queries";
+
+// This module only loads with the PR view, which almost always shows code:
+// start the highlighter now so blocks are not painted plain first.
+void loadCodeHighlighter();
 
 interface MarkdownProps {
   children: string;
@@ -377,12 +387,14 @@ function ImagePreviewProvider({ children }: { children: ReactNode }) {
 // UserHoverCard component for a rich hover experience.
 
 interface HtmlNode {
-  type: "text" | "element" | "mention";
+  type: "text" | "element" | "mention" | "highlighted";
   content?: string;
   tag?: string;
   attributes?: Record<string, string>;
   children?: HtmlNode[];
   login?: string;
+  /** Syntax-highlighted code, rendered as tokens (type "highlighted"). */
+  lines?: HighlightedLines;
 }
 
 // Convert CSS string like "color: red; margin-top: 10px" to React style object
@@ -404,10 +416,15 @@ function parseStyleString(styleStr: string): Record<string, string> {
   return style;
 }
 
+/**
+ * The language a code block declares: a `language-*`/`lang-*` class (markdown
+ * fences) or GitHub's `highlight-source-*`/`highlight-text-*` wrapper class.
+ * Whether it can be highlighted is up to `highlightCode`.
+ */
 function extractLanguage(className: string): string | null {
-  const langMatch = className.match(/lang(uage)?-(\w+)/);
-  if (langMatch) return langMatch[2];
-  const sourceMatch = className.match(/highlight-source-(\w+)/);
+  const langMatch = className.match(/\blang(?:uage)?-(\S+)/);
+  if (langMatch) return langMatch[1];
+  const sourceMatch = className.match(/\bhighlight-(?:source|text)-(\S+)/);
   return sourceMatch ? sourceMatch[1] : null;
 }
 
@@ -423,14 +440,32 @@ function extractCodeText(nodes: HtmlNode[]): string {
   return result;
 }
 
-/** Highlight code with Prism (refractor), shared by GitHub's body_html and
- *  the markdown renderer so both use the same token palette. */
-export function highlightToHtml(code: string, lang: string): string | null {
-  try {
-    return refractor.highlight(code, lang).children.map(hastToHtml).join("");
-  } catch {
-    return null;
-  }
+/**
+ * Fenced code from the markdown renderer: highlighted once the highlighter has
+ * loaded (plain until then, and for unknown languages), like GitHub's
+ * `body_html` blocks.
+ */
+function MarkdownCode({
+  className,
+  children,
+  node: _node,
+  ...props
+}: ComponentPropsWithoutRef<"code"> & { node?: unknown }) {
+  // `ready` flips the memo (and re-renders) once the highlighter has loaded.
+  // `highlightCode` itself starts the load when it is not ready.
+  const ready = useCodeHighlighterReady();
+  const lang = className ? extractLanguage(className) : null;
+  const code = String(children);
+  const lines = useMemo(
+    () => (lang ? highlightCode(code, lang) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [ready, lang, code]
+  );
+  return (
+    <code className={className} {...props}>
+      {lines === null ? children : <HighlightedCode lines={lines} />}
+    </code>
+  );
 }
 
 /**
@@ -549,10 +584,13 @@ function HtmlWithMentions({
 }) {
   const nodes = useMemo(() => parseHtmlToNodes(html), [html]);
   const imagePreview = useImagePreview();
+  // Code blocks render plain until the highlighter loads; re-render then.
+  const highlighterReady = useCodeHighlighterReady(html.includes("<pre"));
 
   const rendered = useMemo(
     () => renderNodes(nodes, imagePreview?.openPreview, nav, prTitles),
-    [nodes, imagePreview, nav, prTitles]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [nodes, imagePreview, nav, prTitles, highlighterReady]
   );
 
   return <>{rendered}</>;
@@ -576,6 +614,10 @@ function renderNode(
   navigate?: (path: string) => void,
   prTitles?: Map<string, PRTitleInfo>
 ): React.ReactNode {
+  if (node.type === "highlighted" && node.lines) {
+    return <HighlightedCode key={key} lines={node.lines} />;
+  }
+
   if (node.type === "text") {
     return node.content;
   }
@@ -700,8 +742,10 @@ function renderNode(
         if (preChild && preChild.children) {
           const codeText = extractCodeText(preChild.children);
           if (codeText) {
-            const html = highlightToHtml(codeText, lang);
-            if (html !== null) preChild.children = parseHtmlToNodes(html);
+            const lines = highlightCode(codeText, lang);
+            if (lines !== null) {
+              preChild.children = [{ type: "highlighted", lines }];
+            }
           }
         }
       }
@@ -717,16 +761,13 @@ function renderNode(
       if (lang && node.children) {
         const codeText = extractCodeText(node.children);
         if (codeText) {
-          const html = highlightToHtml(codeText, lang);
-          if (html !== null) {
-            const highlightedNodes = parseHtmlToNodes(html);
-            const children = renderNodes(
-              highlightedNodes,
-              openPreview,
-              navigate,
-              prTitles
+          const lines = highlightCode(codeText, lang);
+          if (lines !== null) {
+            return createElement(
+              "code",
+              { key, ...safeAttributes },
+              <HighlightedCode lines={lines} />
             );
-            return createElement("code", { key, ...safeAttributes }, children);
           }
         }
       }
@@ -897,7 +938,7 @@ export const Markdown = memo(function Markdown({
   }, [children]);
 
   // Shared renderers for the plain and mention-aware renderers. Code blocks
-  // are highlighted with Prism so the preview matches the final result.
+  // are highlighted like GitHub's so the preview matches the final result.
   const markdownComponents = useMemo((): Components => {
     return {
       // Custom link handling - open external links in new tab
@@ -945,23 +986,7 @@ export const Markdown = memo(function Markdown({
       },
       // Suppress React controlled-input warning for task list checkboxes
       input: (props) => <input readOnly {...props} />,
-      code: ({ className, children, node: _node, ...props }) => {
-        const lang = /language-(\w+)/.exec(className ?? "")?.[1];
-        const html = lang ? highlightToHtml(String(children), lang) : null;
-        if (html === null) {
-          return (
-            <code className={className} {...props}>
-              {children}
-            </code>
-          );
-        }
-        return (
-          <code
-            className={className}
-            dangerouslySetInnerHTML={{ __html: html }}
-          />
-        );
-      },
+      code: MarkdownCode,
     };
   }, [navigate]);
 
