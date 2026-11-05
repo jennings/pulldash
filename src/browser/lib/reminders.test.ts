@@ -19,13 +19,16 @@ globalThis.localStorage = {
   clear: () => store.clear(),
 } as unknown as Storage;
 
-const now = Date.parse("2026-09-03T12:00:00Z");
+// Fixtures are relative to the real clock: writes prune reminders older than
+// 60 days by Date.now(), so fixed calendar dates eventually expire.
+const now = Date.now();
+const minutesFromNow = (m: number) => new Date(now + m * 60_000).toISOString();
 const reminder = {
   owner: "o",
   repo: "r",
   number: 1,
   title: "A PR",
-  remindAt: "2026-09-03T11:00:00Z", // one hour ago relative to `now`
+  remindAt: minutesFromNow(-60),
 };
 
 beforeEach(() => {
@@ -46,21 +49,19 @@ test("set/get/clear round-trip, set replaces and resets notifiedAt", () => {
 test("active only when due and unviewed since remindAt", () => {
   setReminder("o/r#1", reminder);
   // Not due yet
-  expect(hasActiveReminder("o/r#1", Date.parse("2026-09-03T10:30:00Z"))).toBe(
-    false
-  );
+  expect(hasActiveReminder("o/r#1", now - 90 * 60_000)).toBe(false);
   // Due, never viewed
   expect(hasActiveReminder("o/r#1", now)).toBe(true);
   // Viewed before the reminder time — still active
   store.set(
     "pulldash_viewed_prs",
-    JSON.stringify({ "o/r#1": "2026-09-03T10:00:00Z" })
+    JSON.stringify({ "o/r#1": minutesFromNow(-120) })
   );
   expect(hasActiveReminder("o/r#1", now)).toBe(true);
   // Viewed after the reminder time — no longer active
   store.set(
     "pulldash_viewed_prs",
-    JSON.stringify({ "o/r#1": "2026-09-03T11:30:00Z" })
+    JSON.stringify({ "o/r#1": minutesFromNow(-30) })
   );
   expect(hasActiveReminder("o/r#1", now)).toBe(false);
 });
@@ -70,7 +71,7 @@ test("getActiveReminders filters non-active entries", () => {
   setReminder("o/r#2", {
     ...reminder,
     number: 2,
-    remindAt: "2026-09-03T13:00:00Z",
+    remindAt: minutesFromNow(60),
   });
   const active = getActiveReminders(now);
   expect(active).toHaveLength(1);
@@ -91,7 +92,7 @@ test("consumeDueReminders prunes reminders viewed after remindAt", () => {
   setReminder("o/r#1", reminder);
   store.set(
     "pulldash_viewed_prs",
-    JSON.stringify({ "o/r#1": "2026-09-03T11:30:00Z" })
+    JSON.stringify({ "o/r#1": minutesFromNow(-30) })
   );
   const fired: string[] = [];
   consumeDueReminders(now, (id) => fired.push(id));
