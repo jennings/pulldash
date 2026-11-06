@@ -1,8 +1,15 @@
 import tailwind from "bun-plugin-tailwind";
 import { watch } from "fs";
-import { cp } from "fs/promises";
-import { resolve } from "path";
-import { browserBuildMode, verifyProductionBundle } from "./browser-build-mode";
+import { cp, readdir, rm } from "fs/promises";
+import { basename, resolve } from "path";
+import {
+  browserBuildMode,
+  lazyChunkPaths,
+  metafileInputs,
+  repointEntryScript,
+  verifyEntryScript,
+  verifyProductionBundle,
+} from "./browser-build-mode";
 
 const isWatch = process.argv.includes("--watch");
 const mode = browserBuildMode(
@@ -22,7 +29,15 @@ async function build() {
     return false;
   }
   const workerUrl = `/lib/${workerResult.outputs[0]!.path.split("/").at(-1)}`;
-  // Build main app
+  // Hashed names change on every build; drop previous workers once the new one exists.
+  const freshWorkers = new Set(
+    workerResult.outputs.map((o) => basename(o.path))
+  );
+  for (const file of await readdir("./dist/browser/lib")) {
+    if (!freshWorkers.has(file)) {
+      await rm(resolve("./dist/browser/lib", file), { force: true });
+    }
+  }
   const mainResult = await Bun.build({
     entrypoints: ["./src/browser/index.html"],
     outdir: "./dist/browser",
@@ -30,8 +45,12 @@ async function build() {
     target: "browser",
     format: "esm",
     splitting: true,
+    metafile: true,
     minify: mode.minify,
-    define: { ...define, __DIFF_WORKER_URL__: JSON.stringify(workerUrl) },
+    define: {
+      ...define,
+      __DIFF_WORKER_URL__: JSON.stringify(workerUrl),
+    },
   });
 
   if (!mainResult.success) {
@@ -46,9 +65,31 @@ async function build() {
     await verifyProductionBundle(mainResult.outputs);
   }
 
+  // Every build emits a fresh set of hashed chunks (hundreds, because pierre
+  // imports Highlights themes and Shiki grammars dynamically). Drop the ones
+  // this build no longer produces, after the new ones exist so a running dev
+  // server never sees a gap.
+  const fresh = new Set(mainResult.outputs.map((o) => basename(o.path)));
+  for (const file of await readdir("./dist/browser")) {
+    if (file.startsWith("chunk-") && !fresh.has(file)) {
+      await rm(resolve("./dist/browser", file), { force: true });
+    }
+  }
+
   // Make paths absolute to root in index.html and inject spa redirect script
   const indexPath = "./dist/browser/index.html";
-  const indexHtml = await Bun.file(indexPath).text();
+  const builtHtml = await Bun.file(indexPath).text();
+  const {
+    html: indexHtml,
+    from,
+    to,
+  } = repointEntryScript(builtHtml, mainResult.outputs);
+  if (from !== to) {
+    console.warn(
+      `index.html loaded ${from} instead of the entry point; using ${to}`
+    );
+  }
+  verifyEntryScript(indexHtml, mainResult.outputs);
   await Bun.write(
     indexPath,
     indexHtml
@@ -87,13 +128,22 @@ async function build() {
     const at = p.lastIndexOf(outMarker);
     return at >= 0 ? p.slice(at + outMarker.length) : p.replace(/^\/+/, "");
   };
+  const mainInputs = metafileInputs(mainResult.metafile!);
+  const mainSite = mainResult.outputs.map((o) => {
+    const path = `/${sitePath(o.path)}`;
+    return { sitePath: path, kind: o.kind, inputs: mainInputs.get(path) ?? [] };
+  });
+  // Shiki and Highlights grammar/theme chunks (hundreds) are runtime-cached on
+  // first use rather than precached. Everything else, including lazily imported
+  // app chunks and the highlighter engines, is needed offline and is precached.
+  const lazyMain = lazyChunkPaths(mainSite);
   const precache = [
     "/",
     "/spa-redirect.js",
     workerUrl,
-    ...mainResult.outputs
-      .map((o) => `/${sitePath(o.path)}`)
-      .filter((p) => /\.(js|css|svg|woff2?)$/.test(p)),
+    ...mainSite
+      .map((o) => o.sitePath)
+      .filter((p) => /\.(js|css|svg|woff2?)$/.test(p) && !lazyMain.has(p)),
   ];
   const sw = await Bun.file(swPath).text();
   const injected = sw.replace(
@@ -121,9 +171,14 @@ async function build() {
   console.log(`Bundled ${allOutputs.length} files`);
   for (const output of allOutputs)
     console.log(`  ${output.path} (${(output.size / 1024).toFixed(1)} KiB)`);
+  console.log(
+    `Main build: ${mainResult.outputs.length} files, ${lazyMain.size} lazy Shiki/Highlights chunks not precached`
+  );
+  console.log(`Service worker precache: ${new Set(precache).size} URLs`);
   return true;
 }
 
+/** Interdiff worker: the only computation left that is too heavy for the main thread. */
 function buildWorker() {
   return Bun.build({
     entrypoints: ["./src/browser/lib/diff-worker.ts"],
@@ -133,34 +188,6 @@ function buildWorker() {
     format: "esm",
     minify: mode.minify,
     define,
-    banner: `// Worker shim for libraries that check for document (Prism/refractor)
-if (typeof document === 'undefined') {
-  globalThis.document = {
-    currentScript: null,
-    querySelectorAll: () => [],
-    querySelector: () => null,
-    getElementById: () => null,
-    getElementsByClassName: () => [],
-    getElementsByTagName: () => [],
-    createElement: () => ({
-      setAttribute: () => {},
-      getAttribute: () => null,
-      appendChild: () => {},
-      removeChild: () => {},
-      classList: { add: () => {}, remove: () => {}, contains: () => false },
-      style: {},
-      innerHTML: '',
-      textContent: '',
-    }),
-    createTextNode: () => ({ textContent: '' }),
-    createDocumentFragment: () => ({ appendChild: () => {}, childNodes: [] }),
-    head: { appendChild: () => {}, removeChild: () => {} },
-    body: { appendChild: () => {}, removeChild: () => {} },
-    addEventListener: () => {},
-    removeEventListener: () => {},
-  };
-}
-`,
   });
 }
 

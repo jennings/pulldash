@@ -87,9 +87,9 @@ Why line.
 
 6. **Large unvirtualized lists** — `.map()` rendering more than ~50 items
    without `@tanstack/react-virtual`. Reference the existing virtual-list
-   pattern used in `src/browser/components/file-tree.tsx:252`,
-   `src/browser/components/command-palette.tsx:235`, and
-   `src/browser/components/pr-review.tsx:1888`.
+   pattern used in `src/browser/components/file-tree.tsx:278` and
+   `src/browser/components/command-palette.tsx:178`; diffs are virtualized by
+   `@pierre/diffs`' `CodeView` (`src/browser/components/diff-viewer/`).
 
 7. **Over-broad context consumers** — components that call `useContext` (or a
    context hook) on a wide context object but only read one field, so they

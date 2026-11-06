@@ -40,13 +40,13 @@ Fast, filterable PR review. Entirely client-side.
 
 GitHub's API supports [CORS](https://docs.github.com/en/rest/using-the-rest-api/using-cors-and-jsonp-to-make-cross-origin-requests), so Pulldash runs entirely client-side. No backend proxying your requests.
 
-- **Web Worker pool**: Diff parsing and syntax highlighting run in workers sized to `navigator.hardwareConcurrency`. The main thread stays free for scrolling.
+- **WASM highlighting, no worker round trip**: Diffs are rendered with [`@pierre/diffs`](https://diffs.com) and highlighted by its [`@pierre/highlights`](https://www.npmjs.com/package/@pierre/highlights) WebAssembly lexers, which tokenize a 5,000-line file in a couple of milliseconds. Highlighting (and the word diff) therefore runs on the main thread over the whole file rather than through a worker; measured at roughly 60 ms for a 4.7k-line full rewrite and 180 ms for a 47k-line half-changed file. Browsers without WebAssembly SIMD fall back to Shiki, which skips highlighting for files over 5,000 lines. Interdiff (comparing two versions of a commit) runs in its own worker.
 
 - **Pre-computed navigation**: When a diff loads, we index all navigable lines. Arrow keys are O(1)—no DOM queries.
 
 - **External store**: State lives outside React ([`useSyncExternalStore`](https://react.dev/reference/react/useSyncExternalStore)). Focusing line 5000 doesn't re-render the file tree.
 
-- **Virtualized rendering**: Diffs, file lists, and the command palette only render visible rows.
+- **Virtualized rendering**: The diff view (`@pierre/diffs` `CodeView`), file list, and command palette only render visible rows.
 
 ## Setup (self-hosted)
 

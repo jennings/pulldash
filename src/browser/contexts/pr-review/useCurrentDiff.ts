@@ -1,18 +1,19 @@
 import { useMemo } from "react";
+import { parseDiffFromFile } from "@pierre/diffs";
 import {
   usePRReviewSelector,
   getLoadedFileDiff,
   parseChangeId,
-  type ParsedDiff,
-  type DiffLine,
-  type DiffHunk,
+  type LoadedDiff,
 } from ".";
 import type { PRCommit } from "@/browser/contexts/github";
-import { buildInlineDiffSegments, escapeHtml } from "@/shared/diff-utils";
+import { escapeHtml } from "@/shared/html";
 import { formatDateTime } from "@/browser/lib/dates";
-import { INLINE_MAX_CHAR_EDITS } from "@/diff-parse-constants";
-
-const EMPTY_DIFF: ParsedDiff = { hunks: [] };
+import {
+  contextOnlyFileDiff,
+  emptyLoadedDiff,
+  hashText,
+} from "@/browser/lib/file-diff";
 const SEPARATOR = "\u2500".repeat(50);
 
 const COMMIT_FILE = ":commit";
@@ -171,116 +172,68 @@ export function buildMetadataLines(
   return lines;
 }
 
-function makeContent(html: string, text: string): DiffLine["content"] {
-  return [{ value: text, html, type: "normal" }];
+/** The metadata pseudo-file's text: one line per metadata line. */
+function metadataText(commit: PRCommit, changeId?: string | null): string {
+  return (
+    buildMetadataLines(commit, changeId)
+      .map((line) => line.raw)
+      .join("\n") + "\n"
+  );
 }
 
-function buildSingleCommitDiff(
+const metadataDiffs = new Map<string, LoadedDiff>();
+const MAX_METADATA_DIFFS = 50;
+
+/**
+ * Metadata diffs are rebuilt whenever `commits` or `commitChangeIds` change,
+ * usually to the same text. The viewer keys its item on the diff object, so
+ * identical text must give back the identical object.
+ */
+function cachedMetadataDiff(key: string, build: () => LoadedDiff): LoadedDiff {
+  const cached = metadataDiffs.get(key);
+  if (cached) return cached;
+  if (metadataDiffs.size >= MAX_METADATA_DIFFS) {
+    metadataDiffs.delete(metadataDiffs.keys().next().value!);
+  }
+  const diff = build();
+  metadataDiffs.set(key, diff);
+  return diff;
+}
+
+export function buildSingleCommitDiff(
   commit: PRCommit,
   changeId?: string | null
-): ParsedDiff {
-  const metadataLines = buildMetadataLines(commit, changeId);
-  const diffLines: DiffLine[] = metadataLines.map((ml, i) => ({
-    type: "normal",
-    oldLineNumber: i + 1,
-    newLineNumber: i + 1,
-    content: makeContent(ml.html, ml.raw),
+): LoadedDiff {
+  const text = metadataText(commit, changeId);
+  const cacheKey = `commit-metadata:${commit.sha}:${hashText(text)}`;
+  return cachedMetadataDiff(cacheKey, () => ({
+    fileDiff: contextOnlyFileDiff(COMMIT_FILE, text, {
+      lang: "text",
+      cacheKey,
+    }),
   }));
-  const hunk: DiffHunk = {
-    type: "hunk",
-    oldStart: 1,
-    newStart: 1,
-    lines: diffLines,
-  };
-  return { hunks: [hunk] };
 }
 
-function buildInterdiff(
+/** What changed in the commit metadata between two versions of a commit. */
+export function buildMetadataComparison(
   prevCommit: PRCommit,
   headCommit: PRCommit,
   prevChangeId?: string | null,
   headChangeId?: string | null
-): ParsedDiff {
-  const prevLines = buildMetadataLines(prevCommit, prevChangeId);
-  const headLines = buildMetadataLines(headCommit, headChangeId);
-  const maxLen = Math.max(prevLines.length, headLines.length);
-  let oldNum = 0;
-  let newNum = 0;
-  const result: DiffLine[] = [];
-
-  for (let i = 0; i < maxLen; i++) {
-    const prev = prevLines[i];
-    const head = headLines[i];
-
-    if (prev && head && prev.raw === head.raw) {
-      oldNum++;
-      newNum++;
-      result.push({
-        type: "normal",
-        oldLineNumber: oldNum,
-        newLineNumber: newNum,
-        content: makeContent(head.html, head.raw),
-      });
-    } else {
-      if (prev && head) {
-        const segments = buildInlineDiffSegments(
-          prev.raw,
-          head.raw,
-          INLINE_MAX_CHAR_EDITS
-        );
-        oldNum++;
-        result.push({
-          type: "delete",
-          oldLineNumber: oldNum,
-          newLineNumber: undefined,
-          content: segments
-            .filter((s) => s.type !== "insert")
-            .map((s) => ({
-              value: s.value,
-              html: escapeHtml(s.value),
-              type: s.type as "insert" | "delete" | "normal",
-            })),
-        });
-        newNum++;
-        result.push({
-          type: "insert",
-          oldLineNumber: undefined,
-          newLineNumber: newNum,
-          content: segments
-            .filter((s) => s.type !== "delete")
-            .map((s) => ({
-              value: s.value,
-              html: escapeHtml(s.value),
-              type: s.type === "delete" ? ("normal" as const) : s.type,
-            })),
-        });
-      } else if (prev) {
-        oldNum++;
-        result.push({
-          type: "delete",
-          oldLineNumber: oldNum,
-          newLineNumber: undefined,
-          content: makeContent(prev.html, prev.raw),
-        });
-      } else if (head) {
-        newNum++;
-        result.push({
-          type: "insert",
-          oldLineNumber: undefined,
-          newLineNumber: newNum,
-          content: makeContent(head.html, head.raw),
-        });
-      }
-    }
-  }
-
-  const hunk: DiffHunk = {
-    type: "hunk",
-    oldStart: 1,
-    newStart: 1,
-    lines: result,
-  };
-  return { hunks: [hunk] };
+): LoadedDiff {
+  const prevText = metadataText(prevCommit, prevChangeId);
+  const headText = metadataText(headCommit, headChangeId);
+  const file = (contents: string, sha: string) => ({
+    name: COMMIT_FILE,
+    contents,
+    lang: "text" as const,
+    cacheKey: `commit-metadata:${sha}:${hashText(contents)}`,
+  });
+  const prev = file(prevText, prevCommit.sha);
+  const head = file(headText, headCommit.sha);
+  return cachedMetadataDiff(`${prev.cacheKey}\n${head.cacheKey}`, () => ({
+    fileDiff: parseDiffFromFile(prev, head),
+  }));
 }
 
 function findCommitBySha(
@@ -297,7 +250,7 @@ function findCommitBySha(
   return undefined;
 }
 
-export function useCurrentDiff(): ParsedDiff | null {
+export function useCurrentDiff(): LoadedDiff | null {
   const selectedFile = usePRReviewSelector((s) => s.selectedFile);
   const loadedDiffs = usePRReviewSelector((s) => s.loadedDiffs);
   const interdiffEnabled = usePRReviewSelector((s) => s.interdiffEnabled);
@@ -320,8 +273,9 @@ export function useCurrentDiff(): ParsedDiff | null {
   return useMemo(() => {
     if (!selectedFile) return null;
     if (interdiffEnabled && interdiffError)
-      return { hunks: [], error: interdiffError };
-    if (versionCompareNoChangeFiles.includes(selectedFile)) return EMPTY_DIFF;
+      return emptyLoadedDiff(selectedFile, { error: interdiffError });
+    if (versionCompareNoChangeFiles.includes(selectedFile))
+      return emptyLoadedDiff(selectedFile);
     if (selectedFile === COMMIT_FILE && selectedCommitSha) {
       const headCommit =
         commits.find((c) => c.sha === selectedCommitSha) ??
@@ -340,7 +294,7 @@ export function useCurrentDiff(): ParsedDiff | null {
           const prevChangeId =
             commitChangeIds[compareToCommitSha] ??
             parseChangeId(prevCommit.commit.message);
-          return buildInterdiff(
+          return buildMetadataComparison(
             prevCommit,
             headCommit,
             prevChangeId,

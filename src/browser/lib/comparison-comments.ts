@@ -1,8 +1,8 @@
-import type { ParsedDiff } from "./diff-parser";
+import type { LoadedDiff } from "./file-diff";
 import { commitShasMatch } from "./comment-anchor";
 
 export function comparisonCommentTarget(
-  diff: ParsedDiff | null,
+  diff: LoadedDiff | null,
   side: "old" | "new"
 ) {
   const source = diff?.sources?.[side];
@@ -16,7 +16,7 @@ export function comparisonCommentTarget(
 }
 
 export function comparisonCommentSide(
-  diff: ParsedDiff,
+  diff: LoadedDiff,
   path: string,
   sha: string | undefined | null,
   side: string | undefined | null

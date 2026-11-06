@@ -40,6 +40,17 @@ import { Home } from "./home";
 const PRReviewContent = lazy(() =>
   import("./pr-review").then((module) => ({ default: module.PRReviewContent }))
 );
+
+function PRLoadingFallback() {
+  return (
+    <div
+      role="status"
+      className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground"
+    >
+      Loading pull request...
+    </div>
+  );
+}
 import { UserMenuButton } from "./welcome-dialog";
 import { useAuth } from "../contexts/auth";
 import {
@@ -162,6 +173,18 @@ export function AppShell() {
     kind: "warn" | "success";
   } | null>(null);
   const [hintClosing, setHintClosing] = useState(false);
+  const prTab =
+    activeTab?.type === "pr-review" &&
+    activeTab.owner &&
+    activeTab.repo &&
+    activeTab.number
+      ? {
+          tab: activeTab,
+          owner: activeTab.owner,
+          repo: activeTab.repo,
+          number: activeTab.number,
+        }
+      : null;
 
   const updateScrollArrows = useCallback(() => {
     const el = tabScrollRef.current;
@@ -747,35 +770,26 @@ export function AppShell() {
         </Activity>
 
         {/* PR Review - only render active tab */}
-        {activeTab?.type === "pr-review" &&
-          activeTab.owner &&
-          activeTab.repo &&
-          activeTab.number && (
-            <div key={activeTab.id} className="absolute inset-0">
-              <Suspense
-                fallback={
-                  <div
-                    role="status"
-                    className="h-full flex items-center justify-center text-sm text-muted-foreground"
-                  >
-                    Loading pull request...
-                  </div>
+        {prTab && (
+          <div key={prTab.tab.id} className="absolute inset-0">
+            <Suspense fallback={<PRLoadingFallback />}>
+              <PRReviewContent
+                owner={prTab.owner}
+                repo={prTab.repo}
+                number={prTab.number}
+                tabId={prTab.tab.id}
+                cachedPr={
+                  prTab.tab.prTitle && prTab.tab.prAuthor
+                    ? {
+                        title: prTab.tab.prTitle,
+                        user: prTab.tab.prAuthor,
+                      }
+                    : null
                 }
-              >
-                <PRReviewContent
-                  owner={activeTab.owner}
-                  repo={activeTab.repo}
-                  number={activeTab.number}
-                  tabId={activeTab.id}
-                  cachedPr={
-                    activeTab.prTitle && activeTab.prAuthor
-                      ? { title: activeTab.prTitle, user: activeTab.prAuthor }
-                      : null
-                  }
-                />
-              </Suspense>
-            </div>
-          )}
+              />
+            </Suspense>
+          </div>
+        )}
       </div>
 
       {hint && (
