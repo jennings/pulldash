@@ -163,3 +163,35 @@ export function resolveCommentLineFromDiffHunk(
   }
   return null;
 }
+
+/**
+ * Build a pseudo `diff_hunk` for a comment on `line` (and up to
+ * `MIN_MATCH_LINES - 1` preceding lines of the same hunk) so it can later be
+ * re-anchored by content with `resolveCommentLineFromDiffHunk`. Returns
+ * undefined when the line isn't inside a hunk.
+ */
+export function buildAnchorDiffHunk(
+  parsedDiff: ParsedDiff,
+  side: "LEFT" | "RIGHT",
+  line: number,
+  startLine?: number
+): string | undefined {
+  const count = Math.max(MIN_MATCH_LINES, line - (startLine ?? line) + 1);
+  for (const hunk of parsedDiff.hunks) {
+    if (hunk.type !== "hunk") continue;
+    const sideLines = hunk.lines.filter((l) =>
+      side === "RIGHT"
+        ? l.type === "insert" || l.type === "normal"
+        : l.type === "delete" || l.type === "normal"
+    );
+    const idx = sideLines.findIndex(
+      (l) => (side === "RIGHT" ? l.newLineNumber : l.oldLineNumber) === line
+    );
+    if (idx === -1) continue;
+    return sideLines
+      .slice(Math.max(0, idx - count + 1), idx + 1)
+      .map((l) => " " + l.content.map((s) => s.value).join(""))
+      .join("\n");
+  }
+  return undefined;
+}

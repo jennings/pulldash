@@ -5,7 +5,10 @@ import {
   usePRReviewSelector,
   usePRReviewStore,
   equivalentShortShas,
+  getLoadedFileDiff,
+  type PRReviewStore,
 } from "../contexts/pr-review";
+import { resolveCommentLineFromDiffHunk } from "../lib/comment-anchor";
 import { TimeAgo } from "../ui/time-ago";
 import { discussionUrl } from "../lib/pr-url";
 import type { LocalPendingComment } from "../contexts/pr-review";
@@ -107,6 +110,41 @@ function buildSidebarItems(
   return items;
 }
 
+/** Navigate to the commit or push version a pending comment was made on. */
+function openPendingDiff(store: PRReviewStore, pending: LocalPendingComment) {
+  const { commits, commitsByVersion } = store.getSnapshot();
+  const sha = pending.targetSha ?? "";
+  const isCommit =
+    commits.some((c) => c.sha === sha) ||
+    commitsByVersion.some((v) => v.commits.some((c) => c.sha === sha));
+  const params = new URLSearchParams({
+    [isCommit ? "commit" : "view"]: sha,
+    file: pending.path,
+    pending: pending.id,
+  });
+  return store.navigateFromHash(params.toString());
+}
+
+/** Resolve with the file's diff once loaded, or null after a timeout. */
+function waitForFileDiff(store: PRReviewStore, path: string) {
+  return new Promise<ReturnType<typeof getLoadedFileDiff>>((resolve) => {
+    const check = () => {
+      const diff = getLoadedFileDiff(store.getSnapshot(), path);
+      if (!diff) return false;
+      done(diff);
+      return true;
+    };
+    const done = (diff: ReturnType<typeof getLoadedFileDiff>) => {
+      unsubscribe();
+      clearTimeout(timer);
+      resolve(diff);
+    };
+    const unsubscribe = store.subscribe(check);
+    const timer = setTimeout(() => done(null), 10_000);
+    check();
+  });
+}
+
 // ============================================================================
 // ConversationsSidebar
 // ============================================================================
@@ -178,10 +216,21 @@ export const ConversationsSidebar = memo(function ConversationsSidebar() {
         if (info) {
           await store.setSelectedCommitSha(resolveSha(info.sha));
         }
+      } else if (pending.targetSha && !pending.diffHunk) {
+        // No content to re-anchor it elsewhere: open the diff it was made on.
+        await openPendingDiff(store, pending);
+        return;
       } else if (store.getSnapshot().selectedCommitSha) {
         await store.setSelectedCommitSha(null);
       }
       store.selectFile(pending.path);
+      if (pending.diffHunk) {
+        const diff = await waitForFileDiff(store, pending.path);
+        if (!diff || !resolveCommentLineFromDiffHunk(pending, diff)) {
+          await openPendingDiff(store, pending);
+          return;
+        }
+      }
       setTimeout(() => store.setFocusedPendingCommentId(pending.id), 100);
     },
     [store]

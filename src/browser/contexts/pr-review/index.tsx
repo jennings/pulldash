@@ -104,6 +104,12 @@ export interface LocalPendingComment extends PendingReviewComment {
   // Commit view (or push-version view) the comment was made on. Comments are
   // anchored to this commit at submission; undefined means the PR head.
   targetSha?: string;
+  // Content around the comment in the diff it was made on, used to re-anchor
+  // it in other diffs (same format as a review comment's diff_hunk).
+  diffHunk?: string;
+  // Display-only: set when the comment is shown re-anchored in a diff other
+  // than the one it was made on.
+  anchoredFrom?: string;
 }
 
 import type {

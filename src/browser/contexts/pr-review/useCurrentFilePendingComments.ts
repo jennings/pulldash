@@ -12,6 +12,7 @@ import {
 } from "@/shared/commit-metadata";
 import { useCurrentDiff } from "./useCurrentDiff";
 import { comparisonCommentSide } from "@/browser/lib/comparison-comments";
+import { resolveCommentLineFromDiffHunk } from "@/browser/lib/comment-anchor";
 
 const EMPTY_PENDING_COMMENTS: LocalPendingComment[] = [];
 
@@ -100,9 +101,15 @@ export function useCurrentFilePendingComments(): LocalPendingComment[] {
         return !!info && validShas.has(info.sha.slice(0, 7));
       });
     }
-    return pendingComments.filter(
-      (c) => c.path === selectedFile && onCurrentDiff(c)
-    );
+    return pendingComments.flatMap((c) => {
+      if (c.path !== selectedFile) return [];
+      if (onCurrentDiff(c)) return [c];
+      // Made on another diff: re-anchor by content, like submitted comments.
+      const line = diff && resolveCommentLineFromDiffHunk(c, diff);
+      if (!line) return [];
+      const start_line = c.start_line && c.start_line - c.line + line;
+      return [{ ...c, line, start_line, anchoredFrom: c.targetSha }];
+    });
   }, [
     selectedFile,
     viewingHead,

@@ -1,5 +1,6 @@
 import { test, expect, describe } from "bun:test";
 import {
+  buildAnchorDiffHunk,
   commitShasMatch,
   resolveCommentLine,
   resolveCommentLineFromDiffHunk,
@@ -378,5 +379,41 @@ describe("resolveCommentLine", () => {
         parsedDiff
       )
     ).toBe(7);
+  });
+});
+
+describe("buildAnchorDiffHunk", () => {
+  const hunk = (start: number, lines: DiffLine[]): ParsedDiff => ({
+    hunks: [{ type: "hunk", oldStart: start, newStart: start, lines }],
+  });
+
+  test("round-trips through resolveCommentLineFromDiffHunk", () => {
+    const commitDiff = hunk(10, [
+      normal("a", 10, 10),
+      insert("b", 11),
+      insert("c", 12),
+      deleteLine("old", 11),
+      normal("d", 12, 13),
+    ]);
+    const diffHunk = buildAnchorDiffHunk(commitDiff, "RIGHT", 13);
+    expect(diffHunk).toBe(" b\n c\n d");
+    const headDiff = hunk(40, [
+      insert("x", 40),
+      insert("b", 41),
+      insert("c", 42),
+      insert("d", 43),
+    ]);
+    expect(
+      resolveCommentLineFromDiffHunk(
+        { side: "RIGHT", line: 13, diffHunk },
+        headDiff
+      )
+    ).toBe(43);
+  });
+
+  test("returns undefined for a line outside the hunks", () => {
+    expect(
+      buildAnchorDiffHunk(hunk(1, [normal("a", 1, 1)]), "RIGHT", 5)
+    ).toBeUndefined();
   });
 });

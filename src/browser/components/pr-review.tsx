@@ -5469,6 +5469,11 @@ const PendingCommentItem = memo(function PendingCommentItem({
                 <span className="px-1.5 py-0.5 text-[10px] font-medium bg-yellow-500/20 text-yellow-500 rounded">
                   Pending
                 </span>
+                {comment.anchoredFrom && (
+                  <span className="text-muted-foreground text-xs font-mono">
+                    on {comment.anchoredFrom.slice(0, 7)}
+                  </span>
+                )}
               </div>
             </div>
 

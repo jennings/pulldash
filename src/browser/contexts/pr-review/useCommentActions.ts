@@ -11,6 +11,7 @@ import { withReviewGroupMarker } from "@/shared/review-group";
 import { isOutOfDiffComment, rebuildOutOfDiffBody } from "@/shared/out-of-diff";
 import { resolveCommentPosition } from "@/browser/lib/reviews";
 import { comparisonCommentTarget } from "@/browser/lib/comparison-comments";
+import { buildAnchorDiffHunk } from "@/browser/lib/comment-anchor";
 
 export function useCommentActions() {
   const store = usePRReviewStore();
@@ -76,6 +77,11 @@ export function useCommentActions() {
       state.selectedCommitSha ??
       state.selectedHeadSha ??
       undefined;
+    const fileDiff = getLoadedFileDiff(state, state.selectedFile);
+    const diffHunk =
+      targetSha && !target && state.selectedFile !== ":commit" && fileDiff
+        ? buildAnchorDiffHunk(fileDiff, commentSide, line, startLine)
+        : undefined;
     const newComment: LocalPendingComment = {
       id: localId,
       path: target?.path ?? state.selectedFile,
@@ -84,6 +90,7 @@ export function useCommentActions() {
       body: finalBody,
       side: commentSide,
       targetSha,
+      diffHunk,
     };
 
     store.addPendingComment(newComment);
