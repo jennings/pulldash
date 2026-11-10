@@ -169,3 +169,47 @@ export function buildInlineDiffSegments(
 
   return result;
 }
+
+/**
+ * Split one line of highlighted HTML into pieces holding `lengths` characters
+ * of text each, re-opening the enclosing tags in every piece. Lets inline diff
+ * segments keep the line's full-file highlighting. Returns null when the HTML
+ * text doesn't add up to the requested lengths.
+ */
+export function splitHighlightedHtml(
+  html: string,
+  lengths: number[]
+): string[] | null {
+  const pieces = lengths.map(() => "");
+  const open: string[] = [];
+  let piece = 0;
+  let count = 0;
+  const advance = () => {
+    pieces[piece] += open
+      .map((tag) => `</${tag.match(/^<(\w+)/)?.[1] ?? "span"}>`)
+      .reverse()
+      .join("");
+    piece++;
+    count = 0;
+    if (piece < lengths.length) pieces[piece] = open.join("");
+  };
+  for (const [token] of html.matchAll(/<\/?[^>]*>|&[#\w]+;|[^<&]/g)) {
+    const closing = token.startsWith("</");
+    // Text and opening tags start the next piece once this one is full.
+    if (!closing)
+      while (piece < lengths.length - 1 && count === lengths[piece]) advance();
+    if (token.startsWith("<")) {
+      if (closing) open.pop();
+      else open.push(token);
+      pieces[piece] += token;
+      continue;
+    }
+    if (count === lengths[piece]) return null;
+    pieces[piece] += token;
+    count++;
+  }
+  while (piece < lengths.length - 1 && count === lengths[piece]) advance();
+  return piece === lengths.length - 1 && count === lengths[piece]
+    ? pieces
+    : null;
+}

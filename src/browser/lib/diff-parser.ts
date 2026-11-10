@@ -16,6 +16,7 @@ import {
   escapeHtml,
   hastToHtml,
   highlightFileByLines,
+  splitHighlightedHtml,
   tokenizeWords,
   type RawLineSegment,
 } from "../../shared/diff-utils";
@@ -776,22 +777,49 @@ ${patch}`;
         const hasSingleSegment = line.content.length === 1;
         const singleSegmentIsNormal =
           hasSingleSegment && line.content[0].type === "normal";
+        // Inline diff segments reuse the whole line's highlighting (new side
+        // for normal/insert segments, old side for delete ones) so they keep
+        // multi-line context, e.g. inside a block comment.
+        const segmentHtml: (string | undefined)[] = [];
+        if (!singleSegmentIsNormal) {
+          for (const side of ["new", "old"] as const) {
+            const idxs = line.content.flatMap((seg, idx) =>
+              (side === "old" ? seg.type !== "insert" : seg.type !== "delete")
+                ? [idx]
+                : []
+            );
+            if ((side === "new" ? newNum : oldNum) == null) continue;
+            const text = idxs.map((idx) => line.content[idx].value).join("");
+            const pieces = splitHighlightedHtml(
+              side === "new"
+                ? lookupNewHtml(i, newNum, text)
+                : lookupOldHtml(i, oldNum, text, line.type),
+              idxs.map((idx) => line.content[idx].value.length)
+            );
+            idxs.forEach((idx, k) => {
+              if (side === "new" || line.content[idx].type === "delete")
+                segmentHtml[idx] ??= pieces?.[k];
+            });
+          }
+        }
 
         return {
           type: line.type,
           oldLineNumber: oldNum,
           newLineNumber: newNum,
-          content: line.content.map((seg): LineSegment => {
+          content: line.content.map((seg, segIdx): LineSegment => {
             let html: string;
 
-            if (singleSegmentIsNormal) {
+            const sliced = segmentHtml[segIdx];
+            if (sliced !== undefined) {
+              html = sliced;
+            } else if (singleSegmentIsNormal) {
               html =
                 line.type === "delete"
                   ? lookupOldHtml(i, oldNum, seg.value, line.type)
                   : lookupNewHtml(i, newNum, seg.value);
             } else {
-              // Multiple segments (inline diff) - highlight each segment individually
-              // This is acceptable since inline diffs are usually small
+              // Line HTML didn't match the segments: highlight each alone
               const segLang = seg.type === "delete" ? prevLanguage : language;
               html = highlight(seg.value, segLang);
             }
