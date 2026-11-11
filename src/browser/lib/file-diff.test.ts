@@ -226,6 +226,20 @@ test("windowing renumbers a hunk that keeps only additions", () => {
   );
 });
 
+test("windowing a new file keeps its old side at 0", () => {
+  const patch = ["@@ -0,0 +1,3 @@", "+a", "+b", "+c"].join("\n");
+  expect(windowPatchAroundLines(patch, { line: 3 }, 1)).toBe(
+    "@@ -0,0 +2,2 @@\n+b\n+c"
+  );
+});
+
+test("windowing a deleted file keeps its new side at 0", () => {
+  const patch = ["@@ -1,3 +0,0 @@", "-a", "-b", "-c"].join("\n");
+  expect(windowPatchAroundLines(patch, { line: 3 }, 1)).toBe(
+    "@@ -2,2 +0,0 @@\n-b\n-c"
+  );
+});
+
 test("windowing keeps the whole hunk, with a corrected header, without a line or a match", () => {
   // GitHub cuts diff_hunk at the commented line but keeps the full hunk's counts.
   const truncated = "@@ -1,9 +1,9 @@ fn\n a\n-b\n+c";

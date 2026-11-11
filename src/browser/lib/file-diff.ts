@@ -146,8 +146,9 @@ export function windowPatchAroundLines(
     newNo: number | null;
   }
   const body: Row[] = [];
-  let oldNo = Number(header[1]);
-  let newNo = Number(header[3]);
+  // An empty side (count 0) is numbered by the line before it.
+  let oldNo = Number(header[1]) + (header[2] === "0" ? 1 : 0);
+  let newNo = Number(header[3]) + (header[4] === "0" ? 1 : 0);
   for (const text of rows.slice(headerAt + 1)) {
     if (text.startsWith("@@")) break;
     const marker = text[0];
