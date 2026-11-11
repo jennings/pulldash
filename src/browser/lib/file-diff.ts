@@ -4,6 +4,7 @@ import {
   type SupportedLanguages,
 } from "@pierre/diffs";
 import type { PullRequestFile } from "../../api/types";
+import { pairChangedLines } from "./line-pairing";
 
 /**
  * Short, stable digest of `text` (cyrb53) for cache keys that must change with
@@ -107,6 +108,7 @@ export function fileDiffFromPatch(input: PatchInput): FileDiffMetadata {
   if (!fileDiff) {
     throw new Error(`Failed to build a diff model for ${input.filename}`);
   }
+  pairChangedLines(fileDiff);
   if (input.cacheKey !== undefined) fileDiff.cacheKey = input.cacheKey;
   return fileDiff;
 }

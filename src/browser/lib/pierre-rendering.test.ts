@@ -342,36 +342,100 @@ test("indentation-only changes pair in a large rewrite", () => {
   const at = (line: number) => split.find(([o]) => o?.line === line)!;
   expect(cell(at(139)[1])).toBe("160         try:");
   expect(cell(at(141)[1])).toBe("162         except Exception:");
+  expect(cell(at(80)[1])).toBe("102         try:");
+  expect(cell(at(83)[1])).toBe("105         except Exception:");
 });
 
-// Known regression: the old pipeline paired `foo bar` with `foo baz` and left
-// `standalone` alone. Pierre pairs a change block's lines by position when it
-// has more deletions than additions.
-test.failing(
-  "split view pairs similar lines when a deletion has no match",
-  () => {
-    const split = splitRows(
-      renderPatch(
-        patchOf(1, 1, [
-          " context1",
-          "-hello world",
-          "+hello_world",
-          "-standalone",
-          "-foo bar",
-          "+foo baz",
-          " context2",
-        ])
-      )
-    );
-    expect(split.map(([o, n]) => [o?.text, n?.text])).toEqual([
-      ["context1", "context1"],
-      ["hello world", "hello_world"],
-      ["standalone", undefined],
-      ["foo bar", "foo baz"],
-      ["context2", "context2"],
-    ]);
+test("pairing survives hydration, and split row counts match the rendered rows", () => {
+  const partial = fileDiffFromPatch({
+    filename: "file.txt",
+    patch: [
+      patchOf(2, 2, [
+        " context1",
+        "-hello world",
+        "+hello_world",
+        "-standalone",
+        "-foo bar",
+        "+foo baz",
+        " context2",
+      ]),
+      patchOf(20, 19, [" a", "-x1", "-same line", "+same line!", "+y1", " b"]),
+    ].join("\n"),
+  });
+  const lines = (n: number, prefix: string) =>
+    Array.from({ length: n }, (_, i) => `${prefix}${i + 1}`);
+  const oldContent = [
+    "top",
+    "context1",
+    "hello world",
+    "standalone",
+    "foo bar",
+    "context2",
+    ...lines(13, "k"),
+    "a",
+    "x1",
+    "same line",
+    "b",
+    "",
+  ].join("\n");
+  const newContent = [
+    "top",
+    "context1",
+    "hello_world",
+    "foo baz",
+    "context2",
+    ...lines(13, "k"),
+    "a",
+    "same line!",
+    "y1",
+    "b",
+    "",
+  ].join("\n");
+  const hydrated = hydratePartialDiff("clone", partial, {
+    oldFile: { name: "file.txt", contents: oldContent },
+    newFile: { name: "file.txt", contents: newContent },
+  });
+  for (const [fileDiff, expanded] of [
+    [partial, undefined],
+    [hydrated, true],
+  ] as const) {
+    const split = splitRows(render(fileDiff, expanded));
+    const pair = (text: string) =>
+      split.find(([o]) => o?.text === text)?.[1]?.text;
+    expect(pair("hello world")).toBe("hello_world");
+    expect(pair("standalone")).toBeUndefined();
+    expect(pair("foo bar")).toBe("foo baz");
+    expect(pair("x1")).toBeUndefined();
+    expect(pair("same line")).toBe("same line!");
+    const rendered = split.length;
+    const counted = fileDiff.hunks.reduce((n, h) => n + h.splitLineCount, 0);
+    if (!expanded) expect(counted).toBe(rendered);
+    else expect(fileDiff.splitLineCount).toBe(rendered);
   }
-);
+});
+
+test("split view pairs similar lines when a deletion has no match", () => {
+  const split = splitRows(
+    renderPatch(
+      patchOf(1, 1, [
+        " context1",
+        "-hello world",
+        "+hello_world",
+        "-standalone",
+        "-foo bar",
+        "+foo baz",
+        " context2",
+      ])
+    )
+  );
+  expect(split.map(([o, n]) => [o?.text, n?.text])).toEqual([
+    ["context1", "context1"],
+    ["hello world", "hello_world"],
+    ["standalone", undefined],
+    ["foo bar", "foo baz"],
+    ["context2", "context2"],
+  ]);
+});
 
 test("rendered text keeps all whitespace, and word diffs leave the indent out", () => {
   // xcp-ng/xcp-ng-tests#570 lib/host.py
