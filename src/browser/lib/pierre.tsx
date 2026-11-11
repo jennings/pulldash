@@ -1,5 +1,9 @@
 import { useMemo } from "react";
-import { canUseWASM, preloadHighlighter } from "@pierre/diffs";
+import {
+  canUseWASM,
+  preloadHighlighter,
+  setCustomExtension,
+} from "@pierre/diffs";
 import type { FileDiffOptions } from "@pierre/diffs/react";
 import type {
   ExpansionDirections,
@@ -65,6 +69,10 @@ export const HIGHLIGHTER_OPTIONS: {
         tokenizeMaxLength: SHIKI_FALLBACK_MAX_LINES,
       }
     : { preferredHighlighter: PREFERRED_HIGHLIGHTER };
+
+// No RPM spec grammar exists; its build sections are shell, which also covers
+// its comments and heredocs.
+setCustomExtension("spec", "shellscript");
 
 // Initialize the highlighter and load both themes as soon as the PR view's
 // code is loaded, in parallel with the PR data fetch, so the first diff to
