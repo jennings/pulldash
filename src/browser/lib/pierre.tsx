@@ -11,6 +11,7 @@ import type {
   HunkExpansionRegion,
 } from "@pierre/diffs";
 import { useTheme } from "../contexts/theme";
+import { DIFF_COLORS_CSS } from "./diff-colors";
 
 /** Pierre's built-in themes; the app toggles between them with its own theme. */
 export const DIFF_THEMES = {
@@ -100,6 +101,7 @@ export function useSnippetDiffOptions(): FileDiffOptions<undefined, undefined> {
       hunkSeparators: "simple",
       overflow: "scroll",
       lineDiffType: "word-alt",
+      unsafeCSS: DIFF_COLORS_CSS,
       ...HIGHLIGHTER_OPTIONS,
     }),
     [themeType]

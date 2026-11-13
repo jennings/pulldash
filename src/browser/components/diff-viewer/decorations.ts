@@ -8,6 +8,7 @@
 // the per-state rules from `buildDecorationCss` live in a stylesheet the viewer
 // adopts into each diff's shadow root.
 
+import { DIFF_COLORS_CSS } from "../../lib/diff-colors";
 import type { DiffRow } from "../../lib/file-diff";
 import type { LineSide } from "./selection";
 
@@ -19,8 +20,8 @@ export const SEARCH_HIGHLIGHT_ACTIVE = "pd-search-active";
 
 const BLUE = "59 130 246";
 
-/** Constant rules (search highlights). */
-export const STATIC_CSS = `
+/** Constant rules (diff colors, search highlights). */
+export const STATIC_CSS = `${DIFF_COLORS_CSS}
 ::highlight(${SEARCH_HIGHLIGHT}) { background-color: light-dark(#fde047, rgb(234 179 8 / 0.6)); color: inherit; }
 ::highlight(${SEARCH_HIGHLIGHT_ACTIVE}) { background-color: light-dark(#fdba74, rgb(249 115 22 / 0.7)); color: inherit; }
 `;
