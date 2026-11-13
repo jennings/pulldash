@@ -17,6 +17,7 @@ import type {
   GitHubStore,
   PRCommit,
   ReviewThread,
+  TimelineEvent,
 } from "@/browser/contexts/github";
 import { fileDiffFromPatch, type LoadedDiff } from "@/browser/lib/file-diff";
 
@@ -2779,6 +2780,7 @@ function storeWithRepo(
     allowRebaseMerge: true,
     defaultMergeMethod: "merge",
     mergeMessageSettings: DEFAULT_MERGE_MESSAGE_SETTINGS,
+    deleteBranchOnMerge: false,
     hasMergeQueue: false,
     isInMergeQueue: false,
     ...settings,
@@ -2817,5 +2819,45 @@ describe("merge method", () => {
 
   test("keeps a method the user picked", async () => {
     expect(await load("merge", true, "squash")).toBe("squash");
+  });
+});
+
+describe("branch deleted on merge", () => {
+  const repo = (name: string) =>
+    ({ full_name: name }) as PullRequest["head"]["repo"];
+  const mergeIn = async (deleteBranchOnMerge: boolean, headRepo = "o/r") => {
+    const pr = createMockPR();
+    pr.head.repo = repo(headRepo);
+    pr.base.repo = repo("o/r") as PullRequest["base"]["repo"];
+    const { store, github } = storeWithRepo({ deleteBranchOnMerge }, pr);
+    await store.loadPRData();
+    await store.mergePR();
+    return { store, github };
+  };
+
+  test("shows the branch deleted before the timeline does", async () => {
+    const { store } = await mergeIn(true);
+    expect(store.getSnapshot().branchDeleted).toBe(true);
+    store.setTimeline([]);
+    expect(store.getSnapshot().branchDeleted).toBe(true);
+  });
+
+  test("then follows the timeline", async () => {
+    const { store } = await mergeIn(true);
+    store.setTimeline([
+      { event: "head_ref_deleted" },
+      { event: "head_ref_restored" },
+    ] as TimelineEvent[]);
+    expect(store.getSnapshot().branchDeleted).toBe(false);
+  });
+
+  test("keeps the branch when the repository does not delete it", async () => {
+    const { store } = await mergeIn(false);
+    expect(store.getSnapshot().branchDeleted).toBe(false);
+  });
+
+  test("keeps a fork's branch", async () => {
+    const { store } = await mergeIn(true, "fork/r");
+    expect(store.getSnapshot().branchDeleted).toBe(false);
   });
 });

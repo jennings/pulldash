@@ -650,6 +650,7 @@ export const queries = {
               squashMergeAllowed: boolean;
               rebaseMergeAllowed: boolean;
               viewerDefaultMergeMethod: "MERGE" | "SQUASH" | "REBASE";
+              deleteBranchOnMerge: boolean;
               mergeCommitTitle: MergeMessageSettings["mergeTitle"];
               mergeCommitMessage: MergeMessageSettings["mergeMessage"];
               squashMergeCommitTitle: MergeMessageSettings["squashTitle"];
@@ -681,6 +682,7 @@ export const queries = {
               squashMergeAllowed
               rebaseMergeAllowed
               viewerDefaultMergeMethod
+              deleteBranchOnMerge
               mergeCommitTitle
               mergeCommitMessage
               squashMergeCommitTitle
@@ -799,6 +801,7 @@ export const queries = {
               | "merge"
               | "squash"
               | "rebase",
+          deleteBranchOnMerge: data.repository.deleteBranchOnMerge,
           mergeMessageSettings: {
             mergeTitle: data.repository.mergeCommitTitle,
             mergeMessage: data.repository.mergeCommitMessage,

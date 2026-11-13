@@ -258,6 +258,7 @@ interface PRReviewState {
   repoAllowSquashMerge: boolean;
   repoAllowRebaseMerge: boolean;
   repoMergeMessages: MergeMessageSettings;
+  repoDeletesBranchOnMerge: boolean;
   repoHasMergeQueue: boolean;
   // Whether this PR is currently in the merge queue
   prInMergeQueue: boolean;
@@ -635,6 +636,8 @@ export class PRReviewStore {
   private recentlyApprovedWorkflowIds = new Set<number>();
   /** Once the user picks a merge method, refreshes keep it. */
   private mergeMethodChosen = false;
+  /** Merged here in a repository that deletes the branch on merge. */
+  private awaitingAutoDelete = false;
   // Original files from the latest PR version (restored when deselecting a push version)
   private baseFiles: PullRequestFile[] = [];
   // Full commit list from the latest PR version (restored when deselecting a push version)
@@ -787,6 +790,7 @@ export class PRReviewStore {
       repoAllowSquashMerge: true,
       repoAllowRebaseMerge: true,
       repoMergeMessages: DEFAULT_MERGE_MESSAGE_SETTINGS,
+      repoDeletesBranchOnMerge: false,
       repoHasMergeQueue: false,
       prInMergeQueue: false,
 
@@ -2937,7 +2941,7 @@ export class PRReviewStore {
 
   setTimeline = (timeline: TimelineEvent[]) => {
     const merged = this.submittedActivity.mergeTimeline(timeline);
-    this.set({ timeline: merged, branchDeleted: isBranchDeleted(merged) });
+    this.set({ timeline: merged, branchDeleted: this.branchDeletedIn(merged) });
   };
 
   publishSubmittedActivity = (activity: SubmittedActivity) => {
@@ -3612,6 +3616,7 @@ export class PRReviewStore {
             allowRebaseMerge: true,
             defaultMergeMethod: null,
             mergeMessageSettings: null,
+            deleteBranchOnMerge: false,
             hasMergeQueue: false,
             isInMergeQueue: false,
           })),
@@ -3653,6 +3658,7 @@ export class PRReviewStore {
         repoAllowMergeCommit: reviewThreadsResult.allowMergeCommit,
         repoAllowSquashMerge: reviewThreadsResult.allowSquashMerge,
         repoAllowRebaseMerge: reviewThreadsResult.allowRebaseMerge,
+        repoDeletesBranchOnMerge: reviewThreadsResult.deleteBranchOnMerge,
         repoMergeMessages:
           reviewThreadsResult.mergeMessageSettings ??
           this.state.repoMergeMessages,
@@ -3735,7 +3741,7 @@ export class PRReviewStore {
         conversation:
           this.submittedActivity.mergeConversation(conversationData),
         timeline: this.submittedActivity.mergeTimeline(timelineData),
-        branchDeleted: isBranchDeleted(timelineData),
+        branchDeleted: this.branchDeletedIn(timelineData),
         overviewLoading: false,
       });
     } catch {
@@ -4000,10 +4006,7 @@ export class PRReviewStore {
         this.invalidatePRCaches(owner, repo, pr.number);
 
         if (result.status === "merged") {
-          this.set({
-            pr: { ...this.state.pr, merged: true, state: "closed" as const },
-            merging: false,
-          });
+          this.setMerged();
         } else if (result.status === "enqueued") {
           this.set({ prInMergeQueue: true, merging: false });
         } else {
@@ -4018,21 +4021,15 @@ export class PRReviewStore {
         // Invalidate all PR-related caches
         this.invalidatePRCaches(owner, repo, pr.number);
 
-        // Optimistically update PR state
-        this.set({
-          pr: { ...this.state.pr, merged: true, state: "closed" as const },
-          merging: false,
-        });
+        this.setMerged();
       }
 
       // Refetch timeline in background (enqueue/merge creates event). Also
-      // re-derive branchDeleted: repos with auto-delete on merge delete the
-      // head branch server-side, and the merged banner must not offer a
-      // "Delete branch" button for a branch that no longer exists.
+      // re-derive branchDeleted, which a restore elsewhere may have changed.
       this.github
         .getPRTimeline(owner, repo, pr.number)
         .then((timeline) =>
-          this.set({ timeline, branchDeleted: isBranchDeleted(timeline) })
+          this.set({ timeline, branchDeleted: this.branchDeletedIn(timeline) })
         )
         .catch(() => {});
 
@@ -4045,6 +4042,26 @@ export class PRReviewStore {
       return false;
     }
   };
+
+  /** Optimistic state after a merge. GitHub deletes the head branch shortly
+   *  after when the repository asks for it, before the timeline shows it. */
+  private setMerged() {
+    const { pr, repoDeletesBranchOnMerge } = this.state;
+    this.awaitingAutoDelete =
+      repoDeletesBranchOnMerge &&
+      pr.head.repo?.full_name === pr.base.repo?.full_name;
+    this.set({
+      pr: { ...pr, merged: true, state: "closed" as const },
+      merging: false,
+      branchDeleted: this.branchDeletedIn(this.state.timeline),
+    });
+  }
+
+  private branchDeletedIn(timeline: TimelineEvent[]): boolean {
+    if (timeline.some((e) => e.event === "head_ref_deleted"))
+      this.awaitingAutoDelete = false;
+    return this.awaitingAutoDelete || isBranchDeleted(timeline);
+  }
 
   /**
    * Remove this PR from the repository's merge queue.
@@ -4202,6 +4219,7 @@ export class PRReviewStore {
 
     try {
       await this.github.restoreBranch(owner, repo, pr.head.ref, pr.head.sha);
+      this.awaitingAutoDelete = false;
 
       // The git/refs mutation isn't PR-number-scoped — mark self activity here
       setLastViewed(`${owner}/${repo}#${pr.number}`);
