@@ -209,6 +209,15 @@
   --diffs-line-height: 1.5;
 }
 
+/* Pierre's CodeView holds the diff in one div spanning its whole height: frame
+   it with a rounded border. `clip`, unlike `hidden`, keeps Pierre's sticky
+   positioning working, and the shadow takes no room from the fixed height. */
+.diff-scroller > div {
+  border-radius: var(--radius-lg);
+  overflow: clip;
+  box-shadow: 0 0 0 1px var(--border);
+}
+
 /* Themed scrollbars */
 .themed-scrollbar {
   scrollbar-width: thin;
