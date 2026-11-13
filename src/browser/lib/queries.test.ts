@@ -400,6 +400,7 @@ test("review threads paginate both the thread list and nested replies", async ()
           mergeCommitAllowed: true,
           squashMergeAllowed: true,
           rebaseMergeAllowed: true,
+          viewerDefaultMergeMethod: "MERGE",
           mergeQueue: null,
           pullRequest: {
             viewerCanMergeAsAdmin: false,

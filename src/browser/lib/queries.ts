@@ -648,6 +648,7 @@ export const queries = {
               mergeCommitAllowed: boolean;
               squashMergeAllowed: boolean;
               rebaseMergeAllowed: boolean;
+              viewerDefaultMergeMethod: "MERGE" | "SQUASH" | "REBASE";
               mergeQueue: { id: string } | null;
               pullRequest: {
                 viewerCanMergeAsAdmin: boolean;
@@ -674,6 +675,7 @@ export const queries = {
               mergeCommitAllowed
               squashMergeAllowed
               rebaseMergeAllowed
+              viewerDefaultMergeMethod
               mergeQueue {
                 id
               }
@@ -782,6 +784,12 @@ export const queries = {
             data.repository.squashMergeAllowed && branchAllowsSquash,
           allowRebaseMerge:
             data.repository.rebaseMergeAllowed && branchAllowsRebase,
+          // The method GitHub preselects: the viewer's last one in this repo.
+          defaultMergeMethod:
+            data.repository.viewerDefaultMergeMethod.toLowerCase() as
+              | "merge"
+              | "squash"
+              | "rebase",
           hasMergeQueue: data.repository.mergeQueue !== null,
           isInMergeQueue: data.repository.pullRequest.isInMergeQueue,
         };

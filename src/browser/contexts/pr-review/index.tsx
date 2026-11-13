@@ -628,6 +628,8 @@ export class PRReviewStore {
   private github: GitHubStore;
   // Track recently approved workflow IDs to filter out stale API responses
   private recentlyApprovedWorkflowIds = new Set<number>();
+  /** Once the user picks a merge method, refreshes keep it. */
+  private mergeMethodChosen = false;
   // Original files from the latest PR version (restored when deselecting a push version)
   private baseFiles: PullRequestFile[] = [];
   // Full commit list from the latest PR version (restored when deselecting a push version)
@@ -788,7 +790,7 @@ export class PRReviewStore {
 
       // Merge state
       merging: false,
-      mergeMethod: "squash",
+      mergeMethod: "merge",
       mergeError: null,
       dequeueing: false,
 
@@ -3602,6 +3604,7 @@ export class PRReviewStore {
             allowMergeCommit: true,
             allowSquashMerge: true,
             allowRebaseMerge: true,
+            defaultMergeMethod: null,
             hasMergeQueue: false,
             isInMergeQueue: false,
           })),
@@ -3644,7 +3647,8 @@ export class PRReviewStore {
         repoAllowSquashMerge: reviewThreadsResult.allowSquashMerge,
         repoAllowRebaseMerge: reviewThreadsResult.allowRebaseMerge,
         mergeMethod: this.resolveAllowedMergeMethod(
-          this.state.mergeMethod,
+          (!this.mergeMethodChosen && reviewThreadsResult.defaultMergeMethod) ||
+            this.state.mergeMethod,
           reviewThreadsResult.allowSquashMerge,
           reviewThreadsResult.allowMergeCommit,
           reviewThreadsResult.allowRebaseMerge
@@ -3938,9 +3942,10 @@ export class PRReviewStore {
     allowMerge: boolean,
     allowRebase: boolean
   ): MergeMethod => {
+    // GitHub's order, used when the current method isn't allowed.
     const allowed: Array<[MergeMethod, boolean]> = [
-      ["squash", allowSquash],
       ["merge", allowMerge],
+      ["squash", allowSquash],
       ["rebase", allowRebase],
     ];
     if (allowed.find(([m]) => m === current)?.[1]) return current;
@@ -3948,6 +3953,7 @@ export class PRReviewStore {
   };
 
   setMergeMethod = (method: MergeMethod) => {
+    this.mergeMethodChosen = true;
     this.set({ mergeMethod: method });
   };
 

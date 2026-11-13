@@ -1,4 +1,4 @@
-import { test, expect, beforeEach, mock } from "bun:test";
+import { test, expect, beforeEach, describe, mock } from "bun:test";
 import { hydratePartialDiff } from "@pierre/diffs";
 import type {
   PullRequest,
@@ -2760,4 +2760,60 @@ test("extractMentionParticipants includes mentioned and cross-referenced users",
   const users = extractMentionParticipants(pr, [], [], [], timeline);
 
   expect(users.map((u) => u.login)).toEqual(["testuser", "vxgmichel"]);
+});
+
+type RepoSettings = Awaited<ReturnType<GitHubStore["getReviewThreads"]>>;
+
+function storeWithRepo(
+  settings: Partial<RepoSettings>,
+  pr = createMockPR()
+): { store: PRReviewStore; github: GitHubStore } {
+  const github = createMockGitHubStore();
+  github.getReviewThreads = async () => ({
+    threads: [],
+    viewerPermission: null,
+    viewerCanMergeAsAdmin: false,
+    allowMergeCommit: true,
+    allowSquashMerge: true,
+    allowRebaseMerge: true,
+    defaultMergeMethod: "merge",
+    hasMergeQueue: false,
+    isInMergeQueue: false,
+    ...settings,
+  });
+  const store = new PRReviewStore(github, {
+    pr,
+    files: [],
+    comments: [],
+    owner: "test",
+    repo: "repo",
+    viewerPermission: "WRITE",
+  });
+  return { store, github };
+}
+
+describe("merge method", () => {
+  const load = async (
+    defaultMergeMethod: "merge" | "squash" | "rebase",
+    allowSquashMerge = true,
+    choose?: "merge" | "squash" | "rebase"
+  ) => {
+    const { store } = storeWithRepo({ defaultMergeMethod, allowSquashMerge });
+    if (choose) store.setMergeMethod(choose);
+    await store.loadPRData();
+    return store.getSnapshot().mergeMethod;
+  };
+
+  test("starts on GitHub's default for the viewer", async () => {
+    expect(await load("merge")).toBe("merge");
+    expect(await load("rebase")).toBe("rebase");
+  });
+
+  test("falls back to a merge commit when the default is not allowed", async () => {
+    expect(await load("squash", false)).toBe("merge");
+  });
+
+  test("keeps a method the user picked", async () => {
+    expect(await load("merge", true, "squash")).toBe("squash");
+  });
 });
