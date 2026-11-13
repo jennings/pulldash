@@ -12,6 +12,7 @@ import {
   extractMentionParticipants,
   areLineCommentsHidden,
 } from "./index";
+import { DEFAULT_MERGE_MESSAGE_SETTINGS } from "@/browser/lib/merge-message";
 import type {
   GitHubStore,
   PRCommit,
@@ -2777,6 +2778,7 @@ function storeWithRepo(
     allowSquashMerge: true,
     allowRebaseMerge: true,
     defaultMergeMethod: "merge",
+    mergeMessageSettings: DEFAULT_MERGE_MESSAGE_SETTINGS,
     hasMergeQueue: false,
     isInMergeQueue: false,
     ...settings,

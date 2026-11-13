@@ -47,6 +47,7 @@ import type {
   UserProfile,
 } from "../contexts/github";
 import type { components } from "@octokit/openapi-types";
+import type { MergeMessageSettings } from "./merge-message";
 
 type AnyUser =
   | components["schemas"]["private-user"]
@@ -649,6 +650,10 @@ export const queries = {
               squashMergeAllowed: boolean;
               rebaseMergeAllowed: boolean;
               viewerDefaultMergeMethod: "MERGE" | "SQUASH" | "REBASE";
+              mergeCommitTitle: MergeMessageSettings["mergeTitle"];
+              mergeCommitMessage: MergeMessageSettings["mergeMessage"];
+              squashMergeCommitTitle: MergeMessageSettings["squashTitle"];
+              squashMergeCommitMessage: MergeMessageSettings["squashMessage"];
               mergeQueue: { id: string } | null;
               pullRequest: {
                 viewerCanMergeAsAdmin: boolean;
@@ -676,6 +681,10 @@ export const queries = {
               squashMergeAllowed
               rebaseMergeAllowed
               viewerDefaultMergeMethod
+              mergeCommitTitle
+              mergeCommitMessage
+              squashMergeCommitTitle
+              squashMergeCommitMessage
               mergeQueue {
                 id
               }
@@ -790,6 +799,12 @@ export const queries = {
               | "merge"
               | "squash"
               | "rebase",
+          mergeMessageSettings: {
+            mergeTitle: data.repository.mergeCommitTitle,
+            mergeMessage: data.repository.mergeCommitMessage,
+            squashTitle: data.repository.squashMergeCommitTitle,
+            squashMessage: data.repository.squashMergeCommitMessage,
+          },
           hasMergeQueue: data.repository.mergeQueue !== null,
           isInMergeQueue: data.repository.pullRequest.isInMergeQueue,
         };

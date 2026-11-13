@@ -127,6 +127,10 @@ import {
   type NavItem,
   type SplitItem,
 } from "@/browser/lib/diff-navigation";
+import {
+  DEFAULT_MERGE_MESSAGE_SETTINGS,
+  type MergeMessageSettings,
+} from "@/browser/lib/merge-message";
 export type {
   DiffExpansion,
   DiffRow,
@@ -253,6 +257,7 @@ interface PRReviewState {
   repoAllowMergeCommit: boolean;
   repoAllowSquashMerge: boolean;
   repoAllowRebaseMerge: boolean;
+  repoMergeMessages: MergeMessageSettings;
   repoHasMergeQueue: boolean;
   // Whether this PR is currently in the merge queue
   prInMergeQueue: boolean;
@@ -781,6 +786,7 @@ export class PRReviewStore {
       repoAllowMergeCommit: true,
       repoAllowSquashMerge: true,
       repoAllowRebaseMerge: true,
+      repoMergeMessages: DEFAULT_MERGE_MESSAGE_SETTINGS,
       repoHasMergeQueue: false,
       prInMergeQueue: false,
 
@@ -3605,6 +3611,7 @@ export class PRReviewStore {
             allowSquashMerge: true,
             allowRebaseMerge: true,
             defaultMergeMethod: null,
+            mergeMessageSettings: null,
             hasMergeQueue: false,
             isInMergeQueue: false,
           })),
@@ -3646,6 +3653,9 @@ export class PRReviewStore {
         repoAllowMergeCommit: reviewThreadsResult.allowMergeCommit,
         repoAllowSquashMerge: reviewThreadsResult.allowSquashMerge,
         repoAllowRebaseMerge: reviewThreadsResult.allowRebaseMerge,
+        repoMergeMessages:
+          reviewThreadsResult.mergeMessageSettings ??
+          this.state.repoMergeMessages,
         mergeMethod: this.resolveAllowedMergeMethod(
           (!this.mergeMethodChosen && reviewThreadsResult.defaultMergeMethod) ||
             this.state.mergeMethod,
@@ -3963,7 +3973,10 @@ export class PRReviewStore {
    * - Cache invalidation
    * - State update
    */
-  mergePR = async (): Promise<boolean> => {
+  mergePR = async (commit?: {
+    commit_title?: string;
+    commit_message?: string;
+  }): Promise<boolean> => {
     const { owner, repo, pr, mergeMethod, repoHasMergeQueue } = this.state;
 
     this.set({ merging: true, mergeError: null });
@@ -3999,6 +4012,7 @@ export class PRReviewStore {
       } else {
         await this.github.mergePR(owner, repo, pr.number, {
           merge_method: mergeMethod,
+          ...commit,
         });
 
         // Invalidate all PR-related caches

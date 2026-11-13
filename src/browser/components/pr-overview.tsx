@@ -65,6 +65,7 @@ import {
 import { TimeAgo } from "../ui/time-ago";
 import { DiffSnippet } from "./diff-snippet";
 import { discussionUrl } from "../lib/pr-url";
+import { defaultMergeMessage } from "../lib/merge-message";
 import {
   getLatestReviewsByUser,
   getLatestReviewByUser,
@@ -381,9 +382,12 @@ export const PROverview = memo(function PROverview() {
     [store]
   );
 
-  const handleMerge = useCallback(async () => {
-    await store.mergePR();
-  }, [store]);
+  const handleMerge = useCallback(
+    async (commit: { commit_title?: string; commit_message?: string }) => {
+      await store.mergePR(commit);
+    },
+    [store]
+  );
 
   const handleDequeue = useCallback(async () => {
     await store.dequeuePR();
@@ -3955,7 +3959,7 @@ function MergeSection({
   inMergeQueue: boolean;
   dequeueing: boolean;
   onDequeue: () => void;
-  onMerge: () => void;
+  onMerge: (commit: { commit_title?: string; commit_message?: string }) => void;
   onSetMergeMethod: (method: "merge" | "squash" | "rebase") => void;
   onToggleMergeOptions: () => void;
   onUpdateBranch: () => void;
@@ -3991,6 +3995,41 @@ function MergeSection({
     null
   );
   const [updateBranchSuccess, setUpdateBranchSuccess] = useState(false);
+  const fullPR = usePRReviewSelector((s) => s.pr);
+  const commits = usePRReviewSelector((s) => s.commits);
+  const repoMergeMessages = usePRReviewSelector((s) => s.repoMergeMessages);
+  // Merging takes a second click, which shows the commit text to send.
+  const [confirm, setConfirm] = useState<{
+    title: string;
+    message: string;
+    defaults: { title: string; message: string };
+  } | null>(null);
+  useEffect(() => {
+    if (inMergeQueue) setConfirm(null);
+  }, [inMergeQueue]);
+  // Queues and stacked PRs' merge endpoint take no commit text, rebases have none.
+  const editableMessage =
+    !hasMergeQueue && !fullPR.stack && mergeMethod !== "rebase";
+
+  const startMerge = () => {
+    const defaults =
+      mergeMethod === "rebase" || !editableMessage
+        ? { title: "", message: "" }
+        : defaultMergeMessage(mergeMethod, repoMergeMessages, fullPR, commits);
+    setConfirm({ ...defaults, defaults });
+  };
+  const confirmMerge = () => {
+    if (!confirm) return;
+    // Unchanged text is left to GitHub, which knows its defaults best.
+    const edited = (key: "title" | "message") =>
+      editableMessage && confirm[key] !== confirm.defaults[key]
+        ? confirm[key]
+        : undefined;
+    onMerge({
+      commit_title: edited("title"),
+      commit_message: edited("message"),
+    });
+  };
 
   const handleUpdateBranch = useCallback(async () => {
     setUpdatingBranch(true);
@@ -4490,6 +4529,53 @@ function MergeSection({
                   "Remove from queue"
                 )}
               </button>
+            ) : confirm ? (
+              <div className="w-full space-y-2">
+                {editableMessage && (
+                  <>
+                    <input
+                      type="text"
+                      aria-label="Commit title"
+                      value={confirm.title}
+                      onChange={(e) =>
+                        setConfirm({ ...confirm, title: e.target.value })
+                      }
+                      className="w-full px-2 py-1.5 text-sm bg-muted border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
+                    />
+                    <textarea
+                      aria-label="Commit message"
+                      rows={6}
+                      value={confirm.message}
+                      onChange={(e) =>
+                        setConfirm({ ...confirm, message: e.target.value })
+                      }
+                      className="w-full px-2 py-1.5 text-sm font-mono bg-muted border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
+                    />
+                  </>
+                )}
+                <div className="flex gap-2">
+                  <button
+                    onClick={confirmMerge}
+                    disabled={merging || (!canMergePR && !bypassRules)}
+                    className="flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium text-white bg-green-600 hover:bg-green-700 transition-colors disabled:opacity-50"
+                  >
+                    {merging ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : hasMergeQueue ? (
+                      "Confirm add to merge queue"
+                    ) : (
+                      getConfirmMergeText(mergeMethod)
+                    )}
+                  </button>
+                  <button
+                    onClick={() => setConfirm(null)}
+                    disabled={merging}
+                    className="px-4 py-2 border border-border rounded-md hover:bg-muted transition-colors text-sm font-medium disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
             ) : (
               <>
                 <div
@@ -4501,7 +4587,7 @@ function MergeSection({
                   )}
                 >
                   <button
-                    onClick={onMerge}
+                    onClick={startMerge}
                     disabled={merging || (!canMergePR && !bypassRules)}
                     className={cn(
                       "flex items-center justify-center gap-2 px-4 py-2 rounded-l-md text-sm font-medium transition-colors",
@@ -4541,7 +4627,7 @@ function MergeSection({
             )}
 
             {/* Dropdown menu */}
-            {!inMergeQueue && showMergeOptions && (
+            {!inMergeQueue && !confirm && showMergeOptions && (
               <>
                 {/* Backdrop */}
                 <div
@@ -5204,6 +5290,17 @@ function getMergeStatusText(
   if (checkStatus === "failure") return "Some checks have failed";
   if (checkStatus === "pending") return "Some checks haven't completed yet";
   return "This branch has no conflicts with the base branch";
+}
+
+function getConfirmMergeText(method: "merge" | "squash" | "rebase"): string {
+  switch (method) {
+    case "merge":
+      return "Confirm merge";
+    case "squash":
+      return "Confirm squash and merge";
+    case "rebase":
+      return "Confirm rebase and merge";
+  }
 }
 
 function getMergeButtonText(method: "merge" | "squash" | "rebase"): string {
